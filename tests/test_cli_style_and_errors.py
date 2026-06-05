@@ -4,8 +4,8 @@ import io
 
 import pytest
 
-from chemstack import cli_errors, cli_style
-from chemstack.core.activity_icons import activity_status_icon
+from orca_auto import cli_errors, cli_style
+from orca_auto.core.activity_icons import activity_status_icon
 
 
 @pytest.fixture(autouse=True)

@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chemstack.orca.attempt_reporting import (
+from orca_auto.orca.attempt_reporting import (
     build_final_result,
     exit_with_result,
     last_out_path_from_state,
 )
-from chemstack.orca.state import load_state, new_state
-from chemstack.orca.statuses import AnalyzerStatus, RunStatus
-from chemstack.orca.types import RunFinishedNotification
+from orca_auto.orca.state import load_state, new_state
+from orca_auto.orca.statuses import AnalyzerStatus, RunStatus
+from orca_auto.orca.types import RunFinishedNotification
 from tests.engine_artifact_helpers import engine_payload as _engine_payload
 
 

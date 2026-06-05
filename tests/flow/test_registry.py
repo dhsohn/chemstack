@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import _registry_notifications as registry_notifications
-from chemstack.flow import registry, registry_store, worker_state_store, workflow_journal
+from orca_auto.flow import _registry_notifications as registry_notifications
+from orca_auto.flow import registry, registry_store, worker_state_store, workflow_journal
 from tests.flow.registry_test_helpers import (
     patch_file_locks as _patch_file_locks,
 )
@@ -73,7 +73,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-1",
             },
             [
-                "<b>ChemStack Flow Status Changed</b>",
+                "<b>Orca Auto Flow Status Changed</b>",
                 "<b>Workflow</b>: <code>wf_1</code>",
                 "<b>Template</b>: <code>reaction_ts_search</code>",
                 "<b>Status</b>: <code>planned</code> -> <code>running</code>",
@@ -88,7 +88,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-2",
             },
             [
-                "<b>ChemStack Flow Advance Failed</b>",
+                "<b>Orca Auto Flow Advance Failed</b>",
                 "<b>Workflow</b>: <code>wf_2</code>",
                 "<b>Reason</b>: <code>boom</code>",
                 "<b>Worker session</b>: <code>session-2</code>",
@@ -109,7 +109,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-stage",
             },
             [
-                "<b>ChemStack Flow Stage Submitted</b>",
+                "<b>Orca Auto Flow Stage Submitted</b>",
                 "<b>Workflow</b>: <code>wf_stage</code>",
                 "<b>Event</b>: <code>workflow_stage_submitted</code>",
                 "<b>Stage</b>: <code>xtb_path_search_01</code>",
@@ -132,7 +132,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-handoff",
             },
             [
-                "<b>ChemStack Flow Handoff Ready</b>",
+                "<b>Orca Auto Flow Handoff Ready</b>",
                 "<b>Workflow</b>: <code>wf_stage</code>",
                 "<b>Event</b>: <code>workflow_stage_handoff_ready</code>",
                 "<b>Stage</b>: <code>xtb_path_search_01</code>",
@@ -149,7 +149,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-1",
             },
             [
-                "<b>ChemStack Flow Worker Started</b>",
+                "<b>Orca Auto Flow Worker Started</b>",
                 "<b>Event</b>: <code>worker_started</code>",
                 "<b>Workflow root</b>: <code>/tmp/root_3</code>",
                 "<b>Reason</b>: <code>started</code>",
@@ -181,7 +181,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 },
             },
             [
-                "<b>ChemStack Flow Phase Finished</b>",
+                "<b>Orca Auto Flow Phase Finished</b>",
                 "<b>Workflow</b>: <code>wf_phase</code>",
                 "<b>Event</b>: <code>workflow_phase_finished</code>",
                 "<b>Phase</b>: <code>xTB</code>",
@@ -202,7 +202,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-1",
             },
             [
-                "<b>ChemStack Flow Event</b>",
+                "<b>Orca Auto Flow Event</b>",
                 "<b>Event</b>: <code>custom_event</code>",
                 "<b>Workflow</b>: <code>wf_4</code>",
                 "<b>Status</b>: <code>queued</code>",
@@ -216,7 +216,7 @@ def test_journal_event_message_formats_supported_event_types(
 ) -> None:
     message = registry_notifications.journal_event_message(event, "/tmp/root_3")
 
-    assert message.startswith("<b>ChemStack Flow")
+    assert message.startswith("<b>Orca Auto Flow")
     for line in expected_lines:
         assert line in message
 
@@ -224,11 +224,11 @@ def test_journal_event_message_formats_supported_event_types(
 def test_notification_configuration_helpers_cover_default_override_and_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", raising=False)
-    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", raising=False)
-    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", raising=False)
-    monkeypatch.delenv("CHEMSTACK_CONFIG", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_NOTIFY_EVENT_TYPES", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_NOTIFY_DISABLED", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_CONFIG", raising=False)
 
     assert registry_notifications.notification_event_types_from_env() == set(
         registry_notifications.DEFAULT_NOTIFICATION_EVENT_TYPES
@@ -242,10 +242,10 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     assert registry_notifications.telegram_transport_from_env() is None
 
     monkeypatch.setenv(
-        "CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES",
+        "ORCA_AUTO_FLOW_NOTIFY_EVENT_TYPES",
         "custom_event, workflow_status_changed, workflow_stage_submitted",
     )
-    monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "true")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_NOTIFY_DISABLED", "true")
     assert registry_notifications.notification_event_types_from_env() == {
         "custom_event",
         "workflow_stage_submitted",
@@ -253,9 +253,9 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     }
     assert registry_notifications.journal_notification_enabled("custom_event") is False
 
-    monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "0")
-    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
-    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "chat-id")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_NOTIFY_DISABLED", "0")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_TELEGRAM_CHAT_ID", "chat-id")
 
     captured: dict[str, Any] = {}
 
@@ -273,13 +273,13 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     assert captured == {"bot_token": "bot-token", "chat_id": "chat-id"}
 
 
-def test_telegram_transport_from_env_uses_chemstack_config_fallback(
+def test_telegram_transport_from_env_uses_orca_auto_config_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", raising=False)
-    config_path = tmp_path / "chemstack.yaml"
+    monkeypatch.delenv("ORCA_AUTO_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_TELEGRAM_CHAT_ID", raising=False)
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(
         "\n".join(
             [
@@ -294,7 +294,7 @@ def test_telegram_transport_from_env_uses_chemstack_config_fallback(
         + "\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("CHEMSTACK_CONFIG", str(config_path))
+    monkeypatch.setenv("ORCA_AUTO_CONFIG", str(config_path))
     captured: dict[str, Any] = {}
 
     def fake_build_telegram_transport(config: Any) -> str:

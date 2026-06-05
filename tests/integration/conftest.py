@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.admission import AdmissionSlot, list_slots
+from orca_auto.core.admission import AdmissionSlot, list_slots
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -173,7 +173,7 @@ def smoke_workspace(tmp_path: Path) -> SmokeWorkspace:
         """,
     )
 
-    config_path = root / "chemstack.yaml"
+    config_path = root / "orca_auto.yaml"
     _write_shared_config(
         config_path,
         workflow_root=workflow_root,

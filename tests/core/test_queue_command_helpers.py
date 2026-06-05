@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.commands import queue as queue_cmd
+from orca_auto.core.commands import queue as queue_cmd
 
 
 def test_queue_roots_propagates_runtime_root_errors() -> None:
@@ -50,9 +50,9 @@ def test_run_queue_worker_command_uses_existing_pid_reporter(
         pytest.fail("worker should not be constructed when a live pid exists")
 
     result = queue_cmd.run_queue_worker_command(
-        SimpleNamespace(config="chemstack.yaml"),
+        SimpleNamespace(config="orca_auto.yaml"),
         load_config_fn=lambda _config: SimpleNamespace(),
-        config_path_fn=lambda _args: "chemstack.yaml",
+        config_path_fn=lambda _args: "orca_auto.yaml",
         worker_factory=worker_factory,
         existing_pid_fn=lambda _cfg: 12345,
         existing_pid_report_fn=reports.append,

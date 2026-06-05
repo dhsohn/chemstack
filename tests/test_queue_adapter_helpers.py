@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 import pytest
 
-from chemstack.core.queue import store as queue_store
-from chemstack.core.queue.types import QueueEntry, QueueStatus
-from chemstack.orca import queue_adapter, queue_entries, queue_orphans
-from chemstack.orca.state import report_json_path
-from chemstack.orca.statuses import RunStatus
+from orca_auto.core.queue import store as queue_store
+from orca_auto.core.queue.types import QueueEntry, QueueStatus
+from orca_auto.orca import queue_adapter, queue_entries, queue_orphans
+from orca_auto.orca.state import report_json_path
+from orca_auto.orca.statuses import RunStatus
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 
@@ -77,7 +77,7 @@ def test_load_entries_cover_edge_cases(tmp_path: Path) -> None:
     [entry] = _load_entries(tmp_path)
     assert entry.queue_id == "q_ok"
     assert entry.status == QueueStatus.PENDING
-    assert entry.app_name == "chemstack_orca"
+    assert entry.app_name == "orca_auto_orca"
     assert entry.task_id == "q_ok"
 
 
@@ -164,7 +164,7 @@ def test_apply_terminal_reconciliation_updates_fields_and_clears_completed_error
         finished_at=None,
         error="stale_error",
     )
-    with patch("chemstack.orca.queue_orphans._now_iso", return_value="2026-03-10T06:00:00+00:00"):
+    with patch("orca_auto.orca.queue_orphans._now_iso", return_value="2026-03-10T06:00:00+00:00"):
         completed_entry = queue_orphans.apply_terminal_reconciliation(
             completed_entry,
             status=QueueStatus.COMPLETED.value,
@@ -252,7 +252,7 @@ def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path)
 
     assert len(entries) == 1
     entry = entries[0]
-    assert entry.app_name == "chemstack_orca"
+    assert entry.app_name == "orca_auto_orca"
     assert entry.task_id == "q_partial"
     assert entry.task_kind == "orca_run_inp"
     assert entry.engine == "orca"
@@ -276,7 +276,7 @@ def test_queue_entry_accessors_read_common_fields_from_metadata(tmp_path: Path) 
     assert queue_adapter.queue_entry_status(entry) == QueueStatus.PENDING.value
     assert queue_adapter.queue_entry_priority(entry) == 7
     assert queue_adapter.queue_entry_force(entry) is True
-    assert queue_adapter.queue_entry_app_name(entry) == "chemstack_orca"
+    assert queue_adapter.queue_entry_app_name(entry) == "orca_auto_orca"
     assert queue_adapter.queue_entry_reaction_dir(entry) == str(tmp_path / "rxn")
     assert queue_adapter.queue_entry_metadata(entry)["reaction_dir"] == str(tmp_path / "rxn")
 
@@ -303,7 +303,7 @@ def test_save_entries_uses_core_queue_entry_as_storage_model(tmp_path: Path) -> 
     )
 
     payload = json.loads((root / queue_entries.QUEUE_FILE_NAME).read_text(encoding="utf-8"))
-    assert payload[0]["app_name"] == "chemstack_orca"
+    assert payload[0]["app_name"] == "orca_auto_orca"
     assert payload[0]["task_id"] == "q_backend"
     assert payload[0]["task_kind"] == "orca_run_inp"
     assert payload[0]["engine"] == "orca"
@@ -358,14 +358,14 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
             }
         return None
 
-    with patch("chemstack.orca.queue_orphans.read_worker_pid", return_value=None), patch(
-        "chemstack.orca.queue_orphans.active_lock_pid",
+    with patch("orca_auto.orca.queue_orphans.read_worker_pid", return_value=None), patch(
+        "orca_auto.orca.queue_orphans.active_lock_pid",
         return_value=None,
     ), patch(
-        "chemstack.orca.queue_orphans.load_state",
+        "orca_auto.orca.queue_orphans.load_state",
         side_effect=_load_state,
     ), patch(
-        "chemstack.orca.queue_orphans.terminal_report_data",
+        "orca_auto.orca.queue_orphans.terminal_report_data",
         return_value=None,
     ):
         changed = queue_orphans.reconcile_orphaned_running_entries(root)
@@ -394,8 +394,8 @@ def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tm
         ],
     )
 
-    with patch("chemstack.orca.queue_orphans.read_worker_pid", return_value=None), patch(
-        "chemstack.orca.queue_orphans.active_lock_pid",
+    with patch("orca_auto.orca.queue_orphans.read_worker_pid", return_value=None), patch(
+        "orca_auto.orca.queue_orphans.active_lock_pid",
         side_effect=lambda reaction_dir: 999 if reaction_dir == locked_dir else None,
     ):
         changed = queue_orphans.reconcile_orphaned_running_entries(root)

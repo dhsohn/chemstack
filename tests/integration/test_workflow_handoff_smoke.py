@@ -6,15 +6,15 @@ from typing import Any
 
 import yaml
 
-from chemstack.core.indexing import get_job_location
-from chemstack.core.queue import list_queue
-from chemstack.crest import queue_runtime as crest_queue_cmd
-from chemstack.flow.orchestration import (
+from orca_auto.core.indexing import get_job_location
+from orca_auto.core.queue import list_queue
+from orca_auto.flow.engines.crest import queue_runtime as crest_queue_cmd
+from orca_auto.flow.orchestration import (
     advance_workflow,
     create_conformer_screening_workflow,
 )
-from chemstack.flow.registry import sync_workflow_registry
-from chemstack.flow.state import load_workflow_payload, resolve_workflow_workspace, workflow_summary
+from orca_auto.flow.registry import sync_workflow_registry
+from orca_auto.flow.state import load_workflow_payload, resolve_workflow_workspace, workflow_summary
 from tests.engine_process_helpers import process_one_crest_for_test
 
 
@@ -144,7 +144,7 @@ def _submit_crest_stage(case: ConformerWorkflowSmokeCase, smoke_workspace: Any) 
 
     record = get_job_location(case.crest_root, submitted_metadata["child_job_id"])
     assert record is not None
-    assert record.app_name == "chemstack_crest"
+    assert record.app_name == "orca_auto_crest"
     assert record.status in {"queued", "pending"}
 
     queue_entries = list_queue(case.crest_root)

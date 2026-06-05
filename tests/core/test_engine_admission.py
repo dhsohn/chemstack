@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.queue import engine_admission
+from orca_auto.core.queue import engine_admission
 
 
 def test_start_engine_child_process_can_include_or_omit_admission_root(tmp_path: Path) -> None:
@@ -16,7 +16,7 @@ def test_start_engine_child_process_can_include_or_omit_admission_root(tmp_path:
         return ["python", "-m", "worker"]
 
     assert engine_admission.start_engine_child_process(
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         entry=entry,
         admission_root="/tmp/admission",
@@ -27,7 +27,7 @@ def test_start_engine_child_process_can_include_or_omit_admission_root(tmp_path:
     ) == ["python", "-m", "worker"]
 
     assert engine_admission.start_engine_child_process(
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         entry=entry,
         admission_root="/tmp/admission",
@@ -39,14 +39,14 @@ def test_start_engine_child_process_can_include_or_omit_admission_root(tmp_path:
 
     assert commands == [
         {
-            "config_path": "/tmp/chemstack.yaml",
+            "config_path": "/tmp/orca_auto.yaml",
             "queue_root": tmp_path / "queue",
             "queue_id": "queue-1",
             "admission_token": "slot-1",
             "admission_root": "/tmp/admission",
         },
         {
-            "config_path": "/tmp/chemstack.yaml",
+            "config_path": "/tmp/orca_auto.yaml",
             "queue_root": tmp_path / "queue",
             "queue_id": "queue-1",
             "admission_token": "slot-2",
@@ -142,7 +142,7 @@ def test_attach_started_process_metadata_updates_identity_and_running_record(
     cfg = object()
     entry = SimpleNamespace(
         queue_id="queue-1",
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         task_id="task-1",
     )
     process = SimpleNamespace(pid=321)
@@ -177,7 +177,7 @@ def test_attach_started_process_metadata_updates_identity_and_running_record(
             "root": "/tmp/admission",
             "token": "slot-1",
             "queue_id": "queue-1",
-            "app_name": "chemstack_orca",
+            "app_name": "orca_auto_orca",
             "task_id": "task-1",
         }
     ]

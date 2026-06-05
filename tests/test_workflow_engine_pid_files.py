@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from chemstack.core.queue.processes import write_worker_pid_file
-from chemstack.crest import queue_runtime as crest_queue
-from chemstack.xtb import queue_runtime as xtb_queue
+from orca_auto.core.queue.processes import write_worker_pid_file
+from orca_auto.flow.engines.crest import queue_runtime as crest_queue
+from orca_auto.flow.engines.xtb import queue_runtime as xtb_queue
 
 
 def test_workflow_engine_workers_use_distinct_pid_files(tmp_path: Path) -> None:

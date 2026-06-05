@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.cli import main
-from chemstack.orca.queue_adapter import dequeue_next, enqueue, mark_completed
-from chemstack.orca.state import report_json_path, save_state, state_path
+from orca_auto.cli import main
+from orca_auto.orca.queue_adapter import dequeue_next, enqueue, mark_completed
+from orca_auto.orca.state import report_json_path, save_state, state_path
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 
@@ -20,7 +20,7 @@ class _ListTestBase(unittest.TestCase):
         fake_orca = root / "fake_orca"
         fake_orca.touch()
         fake_orca.chmod(0o755)
-        config = root / "chemstack.yaml"
+        config = root / "orca_auto.yaml"
         config.write_text(
             json.dumps(
                 {
@@ -188,7 +188,7 @@ class TestListStandaloneRuns(_ListTestBase):
                     [
                         {
                             "job_id": "job_tracked",
-                            "app_name": "chemstack_orca",
+                            "app_name": "orca_auto_orca",
                             "job_type": "orca_opt",
                             "status": "completed",
                             "original_run_dir": str(allowed / "project" / "rxn_tracked"),

@@ -5,17 +5,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.core.queue.types import QueueStatus
-from chemstack.orca.queue_adapter import (
+from orca_auto.core.queue.types import QueueStatus
+from orca_auto.orca.queue_adapter import (
     list_queue,
     queue_entry_force,
     queue_entry_reaction_dir,
 )
-from chemstack.orca.state import state_path
+from orca_auto.orca.state import state_path
 
 
 def _run_main(argv: list[str]) -> int:
-    from chemstack.cli import main
+    from orca_auto.cli import main
 
     return main(argv)
 
@@ -28,7 +28,7 @@ def _write_config(
     *,
     max_concurrent: int = 4,
 ) -> Path:
-    config = root / "chemstack.yaml"
+    config = root / "orca_auto.yaml"
     config.write_text(
         json.dumps(
             {

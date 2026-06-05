@@ -7,15 +7,15 @@ from typing import cast
 
 import pytest
 
-from chemstack.core.indexing import JobLocationRecord
-from chemstack.core.utils.coercion import normalize_bool, normalize_text, safe_int
-from chemstack.flow.adapters import (
+from orca_auto.core.indexing import JobLocationRecord
+from orca_auto.core.utils.coercion import normalize_bool, normalize_text, safe_int
+from orca_auto.flow.adapters import (
     _orca_contract_status,
     _orca_local_lookup,
     _orca_path_helpers,
     _orca_tracking,
 )
-from chemstack.flow.adapters import (
+from orca_auto.flow.adapters import (
     orca as orca_adapter,
 )
 
@@ -207,7 +207,7 @@ def test_path_and_record_helpers_cover_relative_deduped_and_subpath_cases(tmp_pa
 
     record = JobLocationRecord(
         job_id="job_1",
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir=str(tmp_path / "missing_stub"),

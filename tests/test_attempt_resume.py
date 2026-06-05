@@ -5,13 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.attempt_resume import (
+from orca_auto.orca.attempt_resume import (
     recover_missing_retry_input,
     resolve_execution_input,
     resume_terminal_decision,
 )
-from chemstack.orca.state import new_state, state_path
-from chemstack.orca.types import RunState
+from orca_auto.orca.state import new_state, state_path
+from orca_auto.orca.types import RunState
 
 
 class TestAttemptResume(unittest.TestCase):
@@ -30,7 +30,7 @@ class TestAttemptResume(unittest.TestCase):
                 }
             )
 
-            with patch("chemstack.orca.attempt_resume.rewrite_for_retry", return_value=["route_add_tightscf_slowconv"]):
+            with patch("orca_auto.orca.attempt_resume.rewrite_for_retry", return_value=["route_add_tightscf_slowconv"]):
                 recovered, reason = recover_missing_retry_input(
                     reaction_dir=reaction_dir,
                     state=state,
@@ -76,7 +76,7 @@ class TestAttemptResume(unittest.TestCase):
             state = new_state(reaction_dir, selected_inp, max_retries=2)
             state["attempts"].append({"inp_path": str(selected_inp), "patch_actions": []})
 
-            with patch("chemstack.orca.attempt_resume.rewrite_for_retry", return_value=[]):
+            with patch("orca_auto.orca.attempt_resume.rewrite_for_retry", return_value=[]):
                 current_inp, reason = resolve_execution_input(
                     reaction_dir=reaction_dir,
                     selected_inp=selected_inp,

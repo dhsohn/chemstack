@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.core.paths.workflow import (
+from orca_auto.core.paths.workflow import (
     workflow_stage_dirnames_for_engine,
     workflow_workspace_internal_engine_paths_from_path,
 )

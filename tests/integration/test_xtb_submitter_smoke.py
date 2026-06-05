@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import get_job_location
-from chemstack.core.queue import list_queue
-from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
-from chemstack.flow.submitters import xtb as xtb_submitter
-from chemstack.xtb import queue_runtime as xtb_queue_cmd
+from orca_auto.core.indexing import get_job_location
+from orca_auto.core.queue import list_queue
+from orca_auto.flow.adapters.xtb import load_xtb_artifact_contract
+from orca_auto.flow.engines.xtb import queue_runtime as xtb_queue_cmd
+from orca_auto.flow.submitters import xtb as xtb_submitter
 from tests.engine_artifact_helpers import engine_payload as _engine_payload
 from tests.engine_artifact_helpers import status as _status
 from tests.engine_process_helpers import process_one_xtb_for_test
@@ -51,7 +51,7 @@ def test_xtb_submitter_roundtrip_smoke(
 
     record = get_job_location(smoke_workspace.xtb_allowed_root, submission["job_id"])
     assert record is not None
-    assert record.app_name == "chemstack_xtb"
+    assert record.app_name == "orca_auto_xtb"
     assert record.status == "completed"
     assert record.original_run_dir == str(xtb_opt_job.resolve())
     assert record.organized_output_dir == ""

@@ -3,9 +3,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.completion_rules import CompletionMode
-from chemstack.orca.out_analyzer import analyze_output
-from chemstack.orca.statuses import AnalyzerStatus
+from orca_auto.orca.completion_rules import CompletionMode
+from orca_auto.orca.out_analyzer import analyze_output
+from orca_auto.orca.statuses import AnalyzerStatus
 
 
 class TestOutAnalyzer(unittest.TestCase):
@@ -44,7 +44,7 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            with patch("chemstack.orca.out_analyzer._scan_ts_full_for_imag_count", side_effect=AssertionError("full scan called")):
+            with patch("orca_auto.orca.out_analyzer._scan_ts_full_for_imag_count", side_effect=AssertionError("full scan called")):
                 result = analyze_output(out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS"))
         self.assertEqual(result.status, AnalyzerStatus.COMPLETED)
 

@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack.flow.adapters import _orca_local_lookup, _orca_tracking
-from chemstack.flow.adapters import orca as orca_adapter
+from orca_auto.flow.adapters import _orca_local_lookup, _orca_tracking
+from orca_auto.flow.adapters import orca as orca_adapter
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 
@@ -169,7 +169,7 @@ def test_load_orca_artifact_contract_uses_tracked_record_organized_output(
         ),
     )
     tracked_record = SimpleNamespace(
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         status="completed",
         selected_input_xyz=str(inp),
         latest_known_path=str(organized_dir),
@@ -347,7 +347,7 @@ def test_load_orca_artifact_contract_propagates_resource_request_and_actual(
         ],
     )
     tracked_record = SimpleNamespace(
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         status="queued",
         original_run_dir=str(run_dir),
         selected_input_xyz="",

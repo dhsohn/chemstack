@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from chemstack.orca import attempt_resume
-from chemstack.orca.state import new_state, state_path
-from chemstack.orca.statuses import AnalyzerStatus, RunStatus
-from chemstack.orca.types import AttemptRecord, RunFinishedNotification, RunState
+from orca_auto.orca import attempt_resume
+from orca_auto.orca.state import new_state, state_path
+from orca_auto.orca.statuses import AnalyzerStatus, RunStatus
+from orca_auto.orca.types import AttemptRecord, RunFinishedNotification, RunState
 
 
 def test_attempt_resume_text_and_patch_action_helpers_cover_existing_and_missing_values() -> None:
@@ -96,7 +96,7 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
     source_inp.write_text("! Retry\n", encoding="utf-8")
     state = cast(RunState, {"attempts": [{"inp_path": str(source_inp), "patch_actions": "bad"}]})
 
-    with patch("chemstack.orca.attempt_resume.rewrite_for_retry", return_value=["patch_one"]) as rewrite_mock:
+    with patch("orca_auto.orca.attempt_resume.rewrite_for_retry", return_value=["patch_one"]) as rewrite_mock:
         saved_paths: list[Path] = []
 
         def _save_state(reaction_dir_arg: Path, _state: RunState) -> Path:
@@ -154,7 +154,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
 
     retry_path.unlink()
     with patch(
-        "chemstack.orca.attempt_resume.recover_missing_retry_input",
+        "orca_auto.orca.attempt_resume.recover_missing_retry_input",
         side_effect=RuntimeError("boom"),
     ):
         current_inp, reason = attempt_resume.resolve_execution_input(
@@ -175,7 +175,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         retry_path.write_text("! Retry\n", encoding="utf-8")
         return True, "resume_recovered"
 
-    with patch("chemstack.orca.attempt_resume.recover_missing_retry_input", side_effect=_recover_and_create):
+    with patch("orca_auto.orca.attempt_resume.recover_missing_retry_input", side_effect=_recover_and_create):
         current_inp, reason = attempt_resume.resolve_execution_input(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,

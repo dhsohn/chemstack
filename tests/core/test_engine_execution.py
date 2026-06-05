@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.queue import engine_execution
+from orca_auto.core.queue import engine_execution
 
 
 def test_object_attribute_fields_extracts_named_context_values() -> None:

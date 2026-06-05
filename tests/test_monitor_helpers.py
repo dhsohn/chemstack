@@ -4,10 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from chemstack.orca.commands import _helpers as command_helpers
-from chemstack.orca.commands import monitor
-from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
-from chemstack.orca.dft_monitor import MonitorResult, ScanReport
+from orca_auto.orca.commands import _helpers as command_helpers
+from orca_auto.orca.commands import monitor
+from orca_auto.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from orca_auto.orca.dft_monitor import MonitorResult, ScanReport
 
 
 def _cfg(allowed_root: Path, *, telegram_enabled: bool = True) -> AppConfig:
@@ -24,8 +24,8 @@ def _cfg(allowed_root: Path, *, telegram_enabled: bool = True) -> AppConfig:
 
 
 def test_default_config_path_prefers_environment_variable(monkeypatch) -> None:
-    monkeypatch.setenv(command_helpers.CONFIG_ENV_VAR, "/tmp/custom_chemstack.yaml")
-    assert command_helpers.default_config_path() == "/tmp/custom_chemstack.yaml"
+    monkeypatch.setenv(command_helpers.CONFIG_ENV_VAR, "/tmp/custom_orca_auto.yaml")
+    assert command_helpers.default_config_path() == "/tmp/custom_orca_auto.yaml"
 
 
 def test_validate_root_scan_dir_rejects_non_directory_and_mismatch(tmp_path: Path) -> None:
@@ -90,14 +90,14 @@ def test_run_monitor_returns_one_when_notification_fails(tmp_path: Path) -> None
     cfg = _cfg(allowed_root, telegram_enabled=True)
     fake_monitor = SimpleNamespace(scan=lambda: ScanReport(new_results=[MonitorResult()], scanned_files=1))
 
-    with patch("chemstack.orca.commands.monitor.DFTIndex") as index_cls, patch(
-        "chemstack.orca.commands.monitor.DFTMonitor",
+    with patch("orca_auto.orca.commands.monitor.DFTIndex") as index_cls, patch(
+        "orca_auto.orca.commands.monitor.DFTMonitor",
         return_value=fake_monitor,
     ), patch(
-        "chemstack.orca.commands.monitor.has_monitor_updates",
+        "orca_auto.orca.commands.monitor.has_monitor_updates",
         return_value=True,
     ), patch(
-        "chemstack.orca.commands.monitor.notify_monitor_report",
+        "orca_auto.orca.commands.monitor.notify_monitor_report",
         return_value=False,
     ):
         assert monitor._run_monitor(cfg) == 1
@@ -109,8 +109,8 @@ def test_cmd_monitor_returns_status_for_loaded_config(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path / "orca_runs", telegram_enabled=True)
     args = SimpleNamespace(config="config.yml")
 
-    with patch("chemstack.orca.commands.monitor.load_config", return_value=cfg) as load_config_mock, patch(
-        "chemstack.orca.commands.monitor._run_monitor",
+    with patch("orca_auto.orca.commands.monitor.load_config", return_value=cfg) as load_config_mock, patch(
+        "orca_auto.orca.commands.monitor._run_monitor",
         return_value=7,
     ) as run_monitor_mock:
         assert monitor.cmd_monitor(args) == 7

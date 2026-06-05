@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca import state as state_module
-from chemstack.orca.runtime import run_lock
-from chemstack.orca.runtime.run_lock import acquire_run_lock
-from chemstack.orca.state import (
+from orca_auto.orca import state as state_module
+from orca_auto.orca.runtime import run_lock
+from orca_auto.orca.runtime.run_lock import acquire_run_lock
+from orca_auto.orca.state import (
     atomic_write_text,
     load_report_json,
     load_state,
@@ -67,8 +67,8 @@ class TestState(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("chemstack.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
-                "chemstack.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=111
+            with patch("orca_auto.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
+                "orca_auto.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=111
             ):
                 with self.assertRaises(RuntimeError):
                     with acquire_run_lock(reaction):
@@ -90,10 +90,10 @@ class TestState(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("chemstack.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
-                "chemstack.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=222
+            with patch("orca_auto.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
+                "orca_auto.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=222
             ), patch(
-                "chemstack.orca.runtime.run_lock.current_process_lock_payload",
+                "orca_auto.orca.runtime.run_lock.current_process_lock_payload",
                 return_value={
                     "pid": os.getpid(),
                     "started_at": "2026-03-22T00:00:00+00:00",
@@ -211,7 +211,7 @@ class TestState(unittest.TestCase):
             self.assertIsNotNone(report["engine_payload"]["final_result"])
 
             md = report_md_path.read_text(encoding="utf-8")
-            self.assertIn("# ChemStack ORCA Job Report", md)
+            self.assertIn("# Orca Auto ORCA Job Report", md)
             self.assertIn("## Engine Payload", md)
             self.assertIn("attempts", md)
             self.assertIn("final_result", md)

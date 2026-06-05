@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from chemstack import activity_view
+from orca_auto import activity_view
 
 
 def test_default_visible_items_hide_internal_workflow_children() -> None:
@@ -118,7 +118,7 @@ def test_count_global_active_simulations_uses_orca_runtime_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, str | None]] = []
-    admission_root = Path("/tmp/chemstack-admission")
+    admission_root = Path("/tmp/orca_auto-admission")
 
     def fake_engine_runtime_paths(
         config_path: str, *, engine: str | None = None
@@ -131,11 +131,11 @@ def test_count_global_active_simulations_uses_orca_runtime_paths(
 
     assert (
         activity_view.count_global_active_simulations(
-            [{"activity_id": "running_1"}], config_path="/tmp/chemstack.yaml"
+            [{"activity_id": "running_1"}], config_path="/tmp/orca_auto.yaml"
         )
         == 5
     )
-    assert calls == [("/tmp/chemstack.yaml", "orca")]
+    assert calls == [("/tmp/orca_auto.yaml", "orca")]
 
 
 def test_activity_counter_config_path_prioritizes_sources_or_hints() -> None:

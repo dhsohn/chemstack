@@ -4,13 +4,13 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.admission import active_slot_count, list_slots
-from chemstack.core.indexing import get_job_location
-from chemstack.core.queue import list_queue
-from chemstack.crest import queue_runtime as crest_queue_cmd
-from chemstack.flow.submitters import crest as crest_submitter
-from chemstack.flow.submitters import xtb as xtb_submitter
-from chemstack.xtb import queue_runtime as xtb_queue_cmd
+from orca_auto.core.admission import active_slot_count, list_slots
+from orca_auto.core.indexing import get_job_location
+from orca_auto.core.queue import list_queue
+from orca_auto.flow.engines.crest import queue_runtime as crest_queue_cmd
+from orca_auto.flow.engines.xtb import queue_runtime as xtb_queue_cmd
+from orca_auto.flow.submitters import crest as crest_submitter
+from orca_auto.flow.submitters import xtb as xtb_submitter
 from tests.engine_process_helpers import process_one_crest_for_test, process_one_xtb_for_test
 from tests.integration.conftest import wait_for_active_slots
 
@@ -100,8 +100,8 @@ def test_xtb_and_crest_share_single_admission_slot(
     xtb_thread, xtb_outcomes, xtb_errors = _start_xtb_worker_thread(smoke_workspace)
     slots = wait_for_active_slots(smoke_workspace.admission_root, expected=1)
     assert active_slot_count(smoke_workspace.admission_root) == 1
-    assert slots[0].app_name == "chemstack_xtb"
-    assert slots[0].source == "chemstack.xtb.queue_worker"
+    assert slots[0].app_name == "orca_auto_xtb"
+    assert slots[0].source == "orca_auto.flow.engines.xtb.queue_worker"
 
     assert process_one_crest_for_test(
         crest_queue_cmd,

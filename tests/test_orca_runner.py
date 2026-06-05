@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
-from chemstack.orca.orca_runner import OrcaRunner, WorkerShutdownInterrupt
+from orca_auto.orca.orca_runner import OrcaRunner, WorkerShutdownInterrupt
 
 
 class TestOrcaRunnerCommandConstruction(unittest.TestCase):
-    @patch("chemstack.orca.orca_runner.subprocess.Popen")
+    @patch("orca_auto.orca.orca_runner.subprocess.Popen")
     def test_command_uses_linux_binary(self, mock_popen: MagicMock) -> None:
         mock_proc = MagicMock()
         mock_proc.wait.return_value = 0
@@ -34,11 +34,11 @@ class TestOrcaRunnerTermination(unittest.TestCase):
         runner = OrcaRunner("/opt/orca/orca")
         mock_proc = MagicMock()
         mock_proc.poll.return_value = 0
-        with patch("chemstack.orca.orca_runner.os.killpg") as killpg:
+        with patch("orca_auto.orca.orca_runner.os.killpg") as killpg:
             runner._terminate_subprocess_tree(mock_proc)
         killpg.assert_not_called()
 
-    @patch("chemstack.orca.orca_runner.os.killpg")
+    @patch("orca_auto.orca.orca_runner.os.killpg")
     def test_terminate_sends_sigterm_and_sigkill_on_timeout(self, mock_killpg: MagicMock) -> None:
         runner = OrcaRunner("/opt/orca/orca")
         mock_proc = MagicMock()
@@ -58,9 +58,9 @@ class TestOrcaRunnerTermination(unittest.TestCase):
             ],
         )
 
-    @patch("chemstack.orca.orca_runner.signal.signal")
-    @patch("chemstack.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
-    @patch("chemstack.orca.orca_runner.subprocess.Popen")
+    @patch("orca_auto.orca.orca_runner.signal.signal")
+    @patch("orca_auto.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
+    @patch("orca_auto.orca.orca_runner.subprocess.Popen")
     def test_run_sigterm_terminates_orca_tree(
         self,
         mock_popen: MagicMock,

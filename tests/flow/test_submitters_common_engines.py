@@ -7,15 +7,15 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli_worker_specs
-from chemstack.flow import engine_runtime
-from chemstack.flow.submitters import (
+from orca_auto import cli_worker_specs
+from orca_auto.flow import engine_runtime
+from orca_auto.flow.submitters import (
     crest as crest_submitter,
 )
-from chemstack.flow.submitters import (
+from orca_auto.flow.submitters import (
     internal_engine,
 )
-from chemstack.flow.submitters import (
+from orca_auto.flow.submitters import (
     xtb as xtb_submitter,
 )
 
@@ -66,14 +66,14 @@ def test_worker_module_command_without_repo_root_uses_module_execution() -> None
     argv, cwd, env = cli_worker_specs.worker_module_command(
         config_path="/tmp/config.yaml",
         repo_root=None,
-        module_name="chemstack.orca.commands.queue",
+        module_name="orca_auto.orca.commands.queue",
         tail_argv=["--no-auto-organize"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.orca.commands.queue",
+        "orca_auto.orca.commands.queue",
         "--config",
         "/tmp/config.yaml",
         "--no-auto-organize",
@@ -93,14 +93,14 @@ def test_worker_module_command_with_repo_root_uses_module_execution_and_prepends
     argv, cwd, env = cli_worker_specs.worker_module_command(
         config_path="/tmp/config.yaml",
         repo_root=str(repo_root),
-        module_name="chemstack.cli",
+        module_name="orca_auto.cli",
         tail_argv=["queue", "cancel", "job-1"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.cli",
+        "orca_auto.cli",
         "--config",
         "/tmp/config.yaml",
         "queue",
@@ -267,7 +267,7 @@ def test_submit_job_dir_uses_structured_engine_dependencies(
         metadata = {"job_dir": str(job_dir_arg), **extras}
         return SimpleNamespace(
             queue_root=tmp_path / engine / "queue",
-            app_name=f"chemstack_{engine}",
+            app_name=f"orca_auto_{engine}",
             task_id=job_id,
             task_kind=f"{engine}_job",
             engine=engine,
@@ -312,7 +312,7 @@ def test_submit_job_dir_uses_structured_engine_dependencies(
     assert result["status"] == "submitted"
     assert result["returncode"] == 0
     assert result["command_argv"] == [
-        f"chemstack.{engine}.submission.direct_enqueue",
+        f"orca_auto.{engine}.submission.direct_enqueue",
         "config=/tmp/config.yaml",
         f"job_dir={job_dir}",
         f"priority={priority}",
@@ -435,7 +435,7 @@ def test_cancel_target_uses_structured_queue_update(
     assert result["status"] == expected_status
     assert result["returncode"] == 0
     assert result["command_argv"] == [
-        f"chemstack.{engine}.queue_runtime.direct_cancel",
+        f"orca_auto.{engine}.queue_runtime.direct_cancel",
         "config=/tmp/config.yaml",
         f"target={target}",
     ]

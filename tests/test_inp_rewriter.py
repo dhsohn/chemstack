@@ -3,7 +3,7 @@ import time
 import unittest
 from pathlib import Path
 
-from chemstack.orca.inp_rewriter import (
+from orca_auto.orca.inp_rewriter import (
     ensure_submission_resource_request,
     prepare_checkpoint_restart_input,
     read_resource_request_from_input,
@@ -196,7 +196,7 @@ class TestInpRewriter(unittest.TestCase):
         append 'end' to lines, corrupting subsequent block lookups. This test
         verifies repeated reads of unclosed blocks do NOT change the line count.
         """
-        from chemstack.orca.inp_rewriter import _find_block_range
+        from orca_auto.orca.inp_rewriter import _find_block_range
 
         lines = [
             "! OptTS Freq IRC",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.orca.commands import queue as queue_worker_entrypoint
+from orca_auto.orca.commands import queue as queue_worker_entrypoint
 
 
 def test_orca_queue_worker_entrypoint_parses_worker_args(monkeypatch) -> None:
@@ -18,7 +18,7 @@ def test_orca_queue_worker_entrypoint_parses_worker_args(monkeypatch) -> None:
         queue_worker_entrypoint.main(
             [
                 "--config",
-                "/tmp/chemstack.yaml",
+                "/tmp/orca_auto.yaml",
                 "--no-auto-organize",
             ]
         )
@@ -26,6 +26,6 @@ def test_orca_queue_worker_entrypoint_parses_worker_args(monkeypatch) -> None:
     )
 
     assert len(worker_calls) == 1
-    assert worker_calls[0].config == "/tmp/chemstack.yaml"
+    assert worker_calls[0].config == "/tmp/orca_auto.yaml"
     assert worker_calls[0].auto_organize is False
     assert worker_calls[0].no_auto_organize is True

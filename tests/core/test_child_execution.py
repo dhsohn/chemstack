@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.queue import child_entrypoint, child_execution
+from orca_auto.core.queue import child_entrypoint, child_execution
 
 
 def test_child_worker_shutdown_controller_tracks_request() -> None:
@@ -67,7 +67,7 @@ def test_load_child_queue_job_resolves_paths_and_entry(tmp_path: Path) -> None:
         return entry
 
     job = child_execution.load_child_queue_job(
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="q-wanted",
         load_config_fn=lambda _path: cfg,
@@ -88,7 +88,7 @@ def test_load_child_queue_job_releases_admission_when_entry_is_missing(tmp_path:
     released: list[tuple[Path, str]] = []
 
     job = child_execution.load_child_queue_job(
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="missing",
         load_config_fn=lambda _path: cfg,

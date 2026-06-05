@@ -6,23 +6,23 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-from chemstack.core.engines import (
+from orca_auto.core.engines import (
     build_lazy_queue_worker_runner,
     build_lazy_worker_child_runner,
     build_queue_engine_definition,
     build_worker_child_command_for_engine,
 )
-from chemstack.core.engines.definitions import (
+from orca_auto.core.engines.definitions import (
     EngineDefinition,
     EngineRunnerCallbacks,
 )
-from chemstack.core.engines.queue_worker import (
+from orca_auto.core.engines.queue_worker import (
     build_engine_queue_worker,
     build_runtime_engine_queue_worker,
     run_engine_queue_worker,
 )
-from chemstack.core.engines.worker_child import run_engine_worker_child_job
-from chemstack.core.queue.internal_engine_worker_deps import InternalEngineQueueWorkerDeps
+from orca_auto.core.engines.worker_child import run_engine_worker_child_job
+from orca_auto.core.queue.internal_engine_worker_deps import InternalEngineQueueWorkerDeps
 
 
 def _definition(**overrides: Any) -> EngineDefinition:
@@ -30,7 +30,7 @@ def _definition(**overrides: Any) -> EngineDefinition:
         "engine": "demo",
         "load_config": lambda path: path,
         "run_worker_child_job": lambda **_kwargs: 0,
-        "queue_worker_module": "chemstack.demo.queue",
+        "queue_worker_module": "orca_auto.demo.queue",
         "worker_pid_file_name": "demo_worker.pid",
         "build_worker_child_command": lambda **_kwargs: ["demo-child"],
     }
@@ -47,7 +47,7 @@ def test_engine_queue_worker_dispatches_definition_runner(monkeypatch: Any) -> N
 
     definition = _definition(queue_worker_runner=_runner)
 
-    from chemstack.core.engines import registry
+    from orca_auto.core.engines import registry
 
     monkeypatch.setattr(registry, "get_engine_definition", lambda _engine: definition)
 
@@ -63,7 +63,7 @@ def test_build_engine_queue_worker_forwards_common_callbacks(monkeypatch: Any) -
             captured["cfg"] = cfg
             captured["kwargs"] = kwargs
 
-    from chemstack.core.engines import queue_worker
+    from orca_auto.core.engines import queue_worker
 
     monkeypatch.setattr(queue_worker, "EngineQueueWorker", FakeEngineQueueWorker)
     cfg = object()
@@ -146,7 +146,7 @@ def test_build_runtime_engine_queue_worker_resolves_defaults_and_max_concurrency
 
 
 def test_orca_queue_worker_uses_common_builder(monkeypatch: Any) -> None:
-    from chemstack.orca import queue_worker as orca_queue_worker
+    from orca_auto.orca import queue_worker as orca_queue_worker
 
     captured: dict[str, Any] = {}
     fake_worker = SimpleNamespace()
@@ -190,7 +190,7 @@ def test_orca_queue_worker_uses_common_builder(monkeypatch: Any) -> None:
 
 
 def test_crest_runtime_facade_deps_use_late_bound_callbacks(monkeypatch: Any) -> None:
-    from chemstack.crest import queue_runtime as crest_queue_runtime
+    from orca_auto.flow.engines.crest import queue_runtime as crest_queue_runtime
 
     reserve_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     list_calls: list[str] = []
@@ -216,7 +216,7 @@ def test_crest_runtime_facade_deps_use_late_bound_callbacks(monkeypatch: Any) ->
 
 
 def test_xtb_runtime_facade_deps_use_late_bound_callbacks(monkeypatch: Any) -> None:
-    from chemstack.xtb import queue_runtime as xtb_queue_runtime
+    from orca_auto.flow.engines.xtb import queue_runtime as xtb_queue_runtime
 
     reserve_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     list_calls: list[str] = []
@@ -242,7 +242,7 @@ def test_xtb_runtime_facade_deps_use_late_bound_callbacks(monkeypatch: Any) -> N
 
 
 def test_orca_runtime_facade_deps_use_late_bound_callbacks(monkeypatch: Any) -> None:
-    from chemstack.orca import queue_worker as orca_queue_worker
+    from orca_auto.orca import queue_worker as orca_queue_worker
 
     reserve_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     list_calls: list[str] = []
@@ -284,7 +284,7 @@ def test_build_worker_child_command_for_engine_adds_engine_argument() -> None:
         admission_root=Path("/tmp/admission"),
     )
 
-    assert command[1:3] == ["-m", "chemstack.core.engines.worker_child"]
+    assert command[1:3] == ["-m", "orca_auto.core.engines.worker_child"]
     assert "--engine" in command
     assert command[command.index("--engine") + 1] == "demo"
     assert command[command.index("--admission-token") + 1] == "token"
@@ -293,7 +293,7 @@ def test_build_worker_child_command_for_engine_adds_engine_argument() -> None:
 def test_lazy_engine_definition_runners_dispatch_to_current_module_function(
     monkeypatch: Any,
 ) -> None:
-    module = ModuleType("chemstack.tests.lazy_engine_runtime")
+    module = ModuleType("orca_auto.tests.lazy_engine_runtime")
     calls: list[tuple[str, Any]] = []
 
     def run_worker_child_job(**kwargs: Any) -> int:
@@ -396,7 +396,7 @@ def test_build_queue_engine_definition_wires_common_contracts(tmp_path: Path) ->
     )
 
     assert definition.engine == "demo"
-    assert definition.queue_worker_module == "chemstack.core.engines.queue_worker"
+    assert definition.queue_worker_module == "orca_auto.core.engines.queue_worker"
     assert definition.worker_pid_file_name == "demo.pid"
     runtime_roots_for_cfg = definition.runtime_roots_for_cfg
     assert runtime_roots_for_cfg is not None
@@ -447,7 +447,7 @@ def test_build_queue_engine_definition_defaults_worker_child_command(
     assert definition.runner_callbacks.build_worker_child_command is (
         definition.build_worker_child_command
     )
-    assert command[1:3] == ["-m", "chemstack.core.engines.worker_child"]
+    assert command[1:3] == ["-m", "orca_auto.core.engines.worker_child"]
     assert command[command.index("--engine") + 1] == "demo"
     assert command[command.index("--queue-id") + 1] == "queue-1"
 
@@ -456,7 +456,7 @@ def test_build_queue_engine_definition_defaults_core_queue_functions(
     monkeypatch: Any,
     tmp_path: Path,
 ) -> None:
-    from chemstack.core import queue as core_queue
+    from orca_auto.core import queue as core_queue
 
     entry = SimpleNamespace(queue_id="queue-1")
     list_calls: list[Path] = []
@@ -505,7 +505,7 @@ def test_engine_worker_child_dispatches_runner_callbacks(monkeypatch: Any) -> No
         )
     )
 
-    from chemstack.core.engines import registry
+    from orca_auto.core.engines import registry
 
     monkeypatch.setattr(registry, "get_engine_definition", lambda _engine: definition)
 
@@ -530,11 +530,11 @@ def test_engine_worker_child_dispatches_runner_callbacks(monkeypatch: Any) -> No
 
 
 def test_real_engine_definitions_expose_runtime_contracts() -> None:
-    from chemstack.core.engines import get_engine_definition
+    from orca_auto.core.engines import get_engine_definition
 
     for engine in ("orca", "xtb", "crest"):
         definition = get_engine_definition(engine)
-        assert definition.queue_worker_module == "chemstack.core.engines.queue_worker"
+        assert definition.queue_worker_module == "orca_auto.core.engines.queue_worker"
         assert definition.queue_functions is not None
         assert definition.runner_callbacks is not None
         assert definition.artifact_adapter is not None
@@ -542,9 +542,9 @@ def test_real_engine_definitions_expose_runtime_contracts() -> None:
 
 
 def test_engine_specific_modules_export_common_queue_worker_factories() -> None:
-    from chemstack.crest import queue_runtime as crest_queue_runtime
-    from chemstack.orca import queue_worker as orca_queue_worker
-    from chemstack.xtb import queue_runtime as xtb_queue_runtime
+    from orca_auto.flow.engines.crest import queue_runtime as crest_queue_runtime
+    from orca_auto.flow.engines.xtb import queue_runtime as xtb_queue_runtime
+    from orca_auto.orca import queue_worker as orca_queue_worker
 
     for module in (orca_queue_worker, xtb_queue_runtime, crest_queue_runtime):
         assert callable(module.QueueWorker)
@@ -552,7 +552,7 @@ def test_engine_specific_modules_export_common_queue_worker_factories() -> None:
 
 
 def test_crest_queue_runtime_execution_keeps_legacy_builder_alias() -> None:
-    from chemstack.crest import queue_runtime_execution
+    from orca_auto.flow.engines.crest import queue_runtime_execution
 
     assert (
         queue_runtime_execution.build_queue_runtime_worker_dependencies
@@ -561,10 +561,10 @@ def test_crest_queue_runtime_execution_keeps_legacy_builder_alias() -> None:
 
 
 def test_engine_queue_runtime_modules_use_definition_pid_contracts() -> None:
-    from chemstack.core.engines import get_engine_definition
-    from chemstack.crest import queue_runtime as crest_queue_runtime
-    from chemstack.orca import queue_worker as orca_queue_worker
-    from chemstack.xtb import queue_runtime as xtb_queue_runtime
+    from orca_auto.core.engines import get_engine_definition
+    from orca_auto.flow.engines.crest import queue_runtime as crest_queue_runtime
+    from orca_auto.flow.engines.xtb import queue_runtime as xtb_queue_runtime
+    from orca_auto.orca import queue_worker as orca_queue_worker
 
     modules = {
         "orca": orca_queue_worker,

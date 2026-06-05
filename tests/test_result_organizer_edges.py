@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-import chemstack.orca.result_organizer as organizer
-from chemstack.orca.result_organizer import OrganizePlan
-from chemstack.orca.state import save_state
+import orca_auto.orca.result_organizer as organizer
+from orca_auto.orca.result_organizer import OrganizePlan
+from orca_auto.orca.state import save_state
 
 
 def _write_state(reaction_dir: Path, payload: dict[str, object]) -> None:
@@ -103,7 +103,7 @@ def test_select_organize_metadata_uses_successful_retry_when_selected_input_is_m
     }
 
     with patch(
-        "chemstack.orca.result_organizer_planning.resolve_molecule_key",
+        "orca_auto.orca.result_organizer_planning.resolve_molecule_key",
         return_value=SimpleNamespace(source="input_file", key="H2"),
     ):
         assert organizer.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
@@ -146,7 +146,7 @@ def test_rollback_move_reraises_non_exdev_oserror(tmp_path: Path) -> None:
     plan.target_abs_path.mkdir(parents=True, exist_ok=True)
 
     with patch(
-        "chemstack.orca.result_organizer_filesystem.os.rename",
+        "orca_auto.orca.result_organizer_filesystem.os.rename",
         side_effect=OSError(errno.EPERM, "permission denied"),
     ):
         with pytest.raises(OSError) as exc_info:
@@ -161,7 +161,7 @@ def test_sync_state_after_move_and_rollback_use_expected_relocation_paths(tmp_pa
     rolled_back_state = {"reaction_dir": str(plan.source_dir)}
 
     with patch(
-        "chemstack.orca.result_organizer_state._sync_state_after_relocation",
+        "orca_auto.orca.result_organizer_state._sync_state_after_relocation",
         return_value=moved_state,
     ) as sync_state:
         assert organizer.sync_state_after_move(plan) == moved_state
@@ -172,7 +172,7 @@ def test_sync_state_after_move_and_rollback_use_expected_relocation_paths(tmp_pa
         )
 
     with patch(
-        "chemstack.orca.result_organizer_state._sync_state_after_relocation",
+        "orca_auto.orca.result_organizer_state._sync_state_after_relocation",
         return_value=rolled_back_state,
     ) as sync_state:
         assert organizer.sync_state_after_rollback(plan) == rolled_back_state

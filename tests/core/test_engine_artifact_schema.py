@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.engines.artifacts import (
+from orca_auto.core.engines.artifacts import (
     EngineArtifactInput,
     EngineArtifactJob,
     EngineArtifactProcess,
@@ -27,7 +27,7 @@ def test_engine_artifact_payload_has_common_shape(engine: str, state: str) -> No
             id="job-1",
             queue_id="queue-1",
             dir="/tmp/job",
-            app_name=f"chemstack_{engine}",
+            app_name=f"orca_auto_{engine}",
             task_id="task-1",
         ),
         status=EngineArtifactStatus(state=state, reason="reason", exit_code=0),

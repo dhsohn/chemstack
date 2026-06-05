@@ -9,21 +9,21 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from chemstack.core.engines import orca_execution as worker_job
-from chemstack.core.engines.orca_execution import cmd_run_job, execute_run_job
-from chemstack.core.queue.types import QueueEntry, QueueStatus
-from chemstack.orca.orca_runner import OrcaRunner
-from chemstack.orca.queue_adapter import dequeue_next, enqueue
+from orca_auto.core.engines import orca_execution as worker_job
+from orca_auto.core.engines.orca_execution import cmd_run_job, execute_run_job
+from orca_auto.core.queue.types import QueueEntry, QueueStatus
+from orca_auto.orca.orca_runner import OrcaRunner
+from orca_auto.orca.queue_adapter import dequeue_next, enqueue
 
 
-@patch("chemstack.core.engines.orca_execution._cmd_run_inp_execute", return_value=7)
+@patch("orca_auto.core.engines.orca_execution._cmd_run_inp_execute", return_value=7)
 def test_execute_run_job_builds_run_inp_execution_request(mock_execute: MagicMock) -> None:
     rc = execute_run_job(
         "/tmp/config.yaml",
         "/tmp/rxn",
         force=True,
         reservation_token="slot_123",
-        admission_app_name="chemstack_orca",
+        admission_app_name="orca_auto_orca",
         admission_task_id="task_123",
     )
 
@@ -33,7 +33,7 @@ def test_execute_run_job_builds_run_inp_execution_request(mock_execute: MagicMoc
     assert args.reaction_dir == "/tmp/rxn"
     assert args.force is True
     assert mock_execute.call_args.kwargs["reservation_token"] == "slot_123"
-    assert mock_execute.call_args.kwargs["admission_app_name"] == "chemstack_orca"
+    assert mock_execute.call_args.kwargs["admission_app_name"] == "orca_auto_orca"
     assert mock_execute.call_args.kwargs["admission_task_id"] == "task_123"
 
 
@@ -49,7 +49,7 @@ def test_start_background_run_job_rejects_legacy_reaction_dir_mode() -> None:
             reaction_dir="/tmp/rxn",
             force=True,
             admission_token="slot_123",
-            admission_app_name="chemstack_orca",
+            admission_app_name="orca_auto_orca",
             admission_task_id="task_123",
         )
 
@@ -99,7 +99,7 @@ def test_run_worker_child_job_loads_queue_entry_and_preserves_exit_code(
     )
     entry = QueueEntry(
         queue_id="queue-1",
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         task_id="task-1",
         task_kind="orca_run_inp",
         engine="orca",
@@ -137,7 +137,7 @@ def test_run_worker_child_job_loads_queue_entry_and_preserves_exit_code(
     assert calls["kwargs"] == {
         "force": True,
         "reservation_token": "slot-1",
-        "admission_app_name": "chemstack_orca",
+        "admission_app_name": "orca_auto_orca",
         "admission_task_id": "task-1",
     }
     assert released == [(str(tmp_path / "admission"), "slot-1")]
@@ -150,7 +150,7 @@ def test_process_dequeued_entry_returns_orca_worker_outcome(
     cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path / "queue")))
     entry = QueueEntry(
         queue_id="queue-1",
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         task_id="task-1",
         task_kind="orca_run_inp",
         engine="orca",
@@ -182,7 +182,7 @@ def test_process_dequeued_entry_returns_orca_worker_outcome(
     assert calls["kwargs"] == {
         "force": True,
         "reservation_token": "slot-1",
-        "admission_app_name": "chemstack_orca",
+        "admission_app_name": "orca_auto_orca",
         "admission_task_id": "task-1",
     }
 
@@ -235,7 +235,7 @@ def test_run_worker_child_job_finds_real_queue_entry_and_releases_slot(
     assert calls["args"] == ("/tmp/config.yaml", str(rxn))
     assert calls["kwargs"]["force"] is True
     assert calls["kwargs"]["reservation_token"] == "slot-real"
-    assert calls["kwargs"]["admission_app_name"] == "chemstack_orca"
+    assert calls["kwargs"]["admission_app_name"] == "orca_auto_orca"
     assert calls["kwargs"]["admission_task_id"] == "task-real"
     assert released == [(str(admission_root), "slot-real")]
 
@@ -262,7 +262,7 @@ def test_run_worker_child_job_releases_slot_when_entry_not_running(
         "_queue_entry_by_id",
         lambda _root, _queue_id: QueueEntry(
             queue_id="queue-1",
-            app_name="chemstack_orca",
+            app_name="orca_auto_orca",
             task_id="task-1",
             task_kind="orca_run_inp",
             engine="orca",
@@ -304,14 +304,14 @@ def test_worker_job_main_rejects_legacy_reaction_dir_args() -> None:
                 "--admission-token",
                 "slot_123",
                 "--admission-app-name",
-                "chemstack_orca",
+                "orca_auto_orca",
                 "--admission-task-id",
                 "task_123",
             ]
         )
 
 
-@patch("chemstack.core.engines.orca_execution.run_worker_child_job", return_value=6)
+@patch("orca_auto.core.engines.orca_execution.run_worker_child_job", return_value=6)
 def test_worker_job_main_returns_queue_child_status(mock_run_child: MagicMock) -> None:
     rc = worker_job.main(
         [

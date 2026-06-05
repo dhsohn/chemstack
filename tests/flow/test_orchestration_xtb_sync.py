@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-from chemstack.flow.orchestration.deps import orchestration_deps
-from chemstack.flow.orchestration.stage_runtime.xtb_sync import sync_xtb_stage_impl
+from orca_auto.flow.orchestration.deps import orchestration_deps
+from orca_auto.flow.orchestration.stage_runtime.xtb_sync import sync_xtb_stage_impl
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:

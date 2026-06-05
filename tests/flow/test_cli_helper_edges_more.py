@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli_common
-from chemstack.flow import cli_run_dir as run_dir_cli
-from chemstack.flow import run_dir_manifest, run_dir_options
+from orca_auto import cli_common
+from orca_auto.flow import cli_run_dir as run_dir_cli
+from orca_auto.flow import run_dir_manifest, run_dir_options
 
 
 def test_cli_option_and_workflow_root_helpers(
@@ -18,11 +18,11 @@ def test_cli_option_and_workflow_root_helpers(
     assert explicit_workflow_root is not None
     assert explicit_workflow_root.endswith("workflow-root")
 
-    monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
+    monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/orca_auto.yaml")
     monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
     assert (
         cli_common._workflow_root_for_args(SimpleNamespace(workflow_root=None))
-        == "resolved:/tmp/chemstack.yaml"
+        == "resolved:/tmp/orca_auto.yaml"
     )
 
     with pytest.raises(ValueError, match="workflow_type must be one of"):
@@ -44,7 +44,7 @@ def test_cli_shared_config_and_worker_root_defaults(
 ) -> None:
     workflow_root = tmp_path / "workflows"
     workflow_root.mkdir()
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(
         "\n".join(
             [
@@ -57,14 +57,14 @@ def test_cli_shared_config_and_worker_root_defaults(
     )
 
     monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: str(config_path.resolve()))
-    args = SimpleNamespace(chemstack_config=None, orca_config=None, workflow_root=None)
+    args = SimpleNamespace(orca_auto_config=None, orca_config=None, workflow_root=None)
 
-    assert cli_common._shared_chemstack_config(args) == str(config_path.resolve())
+    assert cli_common._shared_orca_auto_config(args) == str(config_path.resolve())
     assert cli_common._workflow_root_for_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
 
     explicit_config = tmp_path / "explicit.yaml"
-    explicit_args = SimpleNamespace(chemstack_config=str(explicit_config), orca_config=None)
-    assert cli_common._shared_chemstack_config(explicit_args) == str(explicit_config.resolve())
+    explicit_args = SimpleNamespace(orca_auto_config=str(explicit_config), orca_config=None)
+    assert cli_common._shared_orca_auto_config(explicit_args) == str(explicit_config.resolve())
 
 
 def test_cli_run_dir_manifest_and_path_resolution_edges(

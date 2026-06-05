@@ -11,10 +11,10 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from chemstack.core.config.schema import TelegramConfig
-from chemstack.core.notifications import telegram as telegram_mod
-from chemstack.core.notifications import telegram_api as telegram_api_mod
-from chemstack.core.notifications import telegram_transport as telegram_transport_mod
+from orca_auto.core.config.schema import TelegramConfig
+from orca_auto.core.notifications import telegram as telegram_mod
+from orca_auto.core.notifications import telegram_api as telegram_api_mod
+from orca_auto.core.notifications import telegram_transport as telegram_transport_mod
 
 
 @dataclass
@@ -310,7 +310,7 @@ def test_escape_helpers_and_config_loader(tmp_path: Path) -> None:
     missing = telegram_mod.load_telegram_config_from_file(tmp_path / "missing.yaml")
     assert missing.enabled is False
 
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(
         "\n".join(
             [

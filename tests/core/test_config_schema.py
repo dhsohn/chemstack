@@ -4,7 +4,7 @@ from typing import Any, ClassVar, cast
 
 import pytest
 
-from chemstack.core.config.schema import (
+from orca_auto.core.config.schema import (
     CommonRuntimeConfig,
     RetryRuntimeConfig,
     TelegramConfig,

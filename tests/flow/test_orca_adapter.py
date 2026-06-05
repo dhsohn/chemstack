@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.flow.adapters.orca import load_orca_artifact_contract
+from orca_auto.flow.adapters.orca import load_orca_artifact_contract
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 
@@ -76,7 +76,7 @@ def test_load_orca_artifact_contract_prefers_tracking_record_by_job_id(tmp_path:
         [
             {
                 "job_id": "job_hist_1",
-                "app_name": "chemstack_orca",
+                "app_name": "orca_auto_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(original_dir),
@@ -131,7 +131,7 @@ def test_load_orca_artifact_contract_matches_queue_task_id(tmp_path: Path) -> No
         [
             {
                 "job_id": "job_q_123",
-                "app_name": "chemstack_orca",
+                "app_name": "orca_auto_orca",
                 "job_type": "orca_opt",
                 "status": "queued",
                 "original_run_dir": str(reaction_dir),
@@ -224,7 +224,7 @@ def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_r
         [
             {
                 "job_id": "job_hist_2",
-                "app_name": "chemstack_orca",
+                "app_name": "orca_auto_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(original_dir),
@@ -256,7 +256,7 @@ def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_r
 
 def test_load_orca_artifact_contract_prefers_orca_contract_payload_helper(tmp_path: Path) -> None:
     with patch(
-        "chemstack.flow.adapters._orca_tracking.load_orca_contract_payload",
+        "orca_auto.flow.adapters._orca_tracking.load_orca_contract_payload",
         lambda *_args, **_kwargs: {
             "run_id": "run_helper_1",
             "status": "completed",

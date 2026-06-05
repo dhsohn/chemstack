@@ -9,11 +9,11 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.queue import child_process as child_process_helpers
-from chemstack.core.queue import lifecycle as lifecycle_helpers
-from chemstack.core.queue import processes as process_helpers
-from chemstack.core.queue import worker as worker_common
-from chemstack.core.queue.dependencies import (
+from orca_auto.core.queue import child_process as child_process_helpers
+from orca_auto.core.queue import lifecycle as lifecycle_helpers
+from orca_auto.core.queue import processes as process_helpers
+from orca_auto.core.queue import worker as worker_common
+from orca_auto.core.queue.dependencies import (
     build_dependency_container,
     dependency_group,
     resolve_dependency_groups,
@@ -255,24 +255,24 @@ def test_start_background_process_uses_detached_devnull_popen(
 def test_child_worker_command_requires_admission_root_when_included() -> None:
     with pytest.raises(ValueError, match="admission_root is required"):
         child_process_helpers.build_background_worker_command(
-            config_path="/tmp/chemstack.yaml",
+            config_path="/tmp/orca_auto.yaml",
             queue_root="/tmp/queue",
             queue_id="queue-1",
-            worker_job_module="chemstack.worker",
+            worker_job_module="orca_auto.worker",
         )
 
     assert child_process_helpers.build_background_worker_command(
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root="/tmp/queue",
         queue_id="queue-1",
-        worker_job_module="chemstack.worker",
+        worker_job_module="orca_auto.worker",
         include_admission_root=False,
     ) == [
         child_process_helpers.sys.executable,
         "-m",
-        "chemstack.worker",
+        "orca_auto.worker",
         "--config",
-        "/tmp/chemstack.yaml",
+        "/tmp/orca_auto.yaml",
         "--queue-root",
         "/tmp/queue",
         "--queue-id",
@@ -297,10 +297,10 @@ def test_start_background_job_process_builds_child_command(
     )
 
     result = child_process_helpers.start_background_job_process(
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root="/tmp/queue",
         entry=SimpleNamespace(queue_id="queue-1"),
-        worker_job_module="chemstack.worker",
+        worker_job_module="orca_auto.worker",
         admission_root="/tmp/admission",
         admission_token="slot-1",
     )
@@ -310,9 +310,9 @@ def test_start_background_job_process_builds_child_command(
         [
             child_process_helpers.sys.executable,
             "-m",
-            "chemstack.worker",
+            "orca_auto.worker",
             "--config",
-            "/tmp/chemstack.yaml",
+            "/tmp/orca_auto.yaml",
             "--queue-root",
             "/tmp/queue",
             "--queue-id",

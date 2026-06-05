@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from chemstack.flow.contracts import OrcaArtifactContract
-from chemstack.flow.orchestration.deps import orchestration_deps
-from chemstack.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
+from orca_auto.flow.contracts import OrcaArtifactContract
+from orca_auto.flow.orchestration.deps import orchestration_deps
+from orca_auto.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
 
 
 def test_sync_orca_stage_applies_contract_state_metadata_and_artifacts() -> None:

@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack.core.indexing import JobLocationRecord
-from chemstack.flow.adapters import (
+from orca_auto.core.indexing import JobLocationRecord
+from orca_auto.flow.adapters import (
     _orca_local_lookup,
     _orca_tracking,
 )
-from chemstack.flow.adapters import (
+from orca_auto.flow.adapters import (
     orca as orca_adapter,
 )
 from tests.engine_artifact_helpers import orca_artifact_payload
@@ -190,7 +190,7 @@ def test_load_tracked_organized_ref_reads_stub_only_when_current_dir_differs(
 
     record = JobLocationRecord(
         job_id="job_stub",
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir=str(stub_dir),
@@ -225,7 +225,7 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
     (artifact_dir / "job_report.md").write_text("# runtime report\n", encoding="utf-8")
 
     tracked_record = SimpleNamespace(
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         status="running",
         selected_input_xyz="",
         latest_known_path=str(organized_dir),

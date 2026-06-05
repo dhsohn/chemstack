@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from chemstack.orca import _job_location_contracts
-from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
-from chemstack.orca.job_locations import (
+from orca_auto.orca import _job_location_contracts
+from orca_auto.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
+from orca_auto.orca.job_locations import (
     collect_reindex_payload,
     index_root_for_cfg,
     load_job_artifact_context,
@@ -20,7 +20,7 @@ from chemstack.orca.job_locations import (
     resolve_latest_job_dir,
     upsert_job_record,
 )
-from chemstack.orca.state import report_json_path, state_path
+from orca_auto.orca.state import report_json_path, state_path
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 
@@ -226,7 +226,7 @@ def test_resolve_latest_job_dir_and_load_job_artifacts_cover_job_and_path_target
             [
                 {
                     "job_id": "job_hist_1",
-                    "app_name": "chemstack_orca",
+                    "app_name": "orca_auto_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -324,7 +324,7 @@ def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_
             [
                 {
                     "job_id": "job_hist_3",
-                    "app_name": "chemstack_orca",
+                    "app_name": "orca_auto_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -404,7 +404,7 @@ def test_load_job_runtime_context_exposes_queue_entry_and_organized_refresh() ->
             [
                 {
                     "job_id": "job_hist_4",
-                    "app_name": "chemstack_orca",
+                    "app_name": "orca_auto_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -523,7 +523,7 @@ def test_load_orca_contract_payload_returns_normalized_runtime_fields() -> None:
             [
                 {
                     "job_id": "job_hist_5",
-                    "app_name": "chemstack_orca",
+                    "app_name": "orca_auto_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),

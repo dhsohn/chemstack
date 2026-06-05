@@ -4,10 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.engines.definitions import EngineDefinition, EngineQueueFunctions
-from chemstack.core.queue.engine_runtime import EngineQueueRuntime
-from chemstack.core.queue.internal_engine import InternalEngineQueueModule, InternalEngineSpec
-from chemstack.core.queue.internal_engine_worker_deps import (
+from orca_auto.core.engines.definitions import EngineDefinition, EngineQueueFunctions
+from orca_auto.core.queue.engine_runtime import EngineQueueRuntime
+from orca_auto.core.queue.internal_engine import InternalEngineQueueModule, InternalEngineSpec
+from orca_auto.core.queue.internal_engine_worker_deps import (
     InternalEngineQueueWorkerDeps,
     InternalEngineQueueWorkerFacadeBindings,
     InternalEngineQueueWorkerFacadeCallbacks,
@@ -19,7 +19,7 @@ from chemstack.core.queue.internal_engine_worker_deps import (
     internal_engine_queue_worker_deps_from_namespace,
     internal_engine_queue_worker_deps_from_namespace_names,
 )
-from chemstack.core.queue.worker_execution_dependencies import (
+from orca_auto.core.queue.worker_execution_dependencies import (
     WorkerAdmissionDependencies,
     WorkerConfigDependencies,
     WorkerProcessDependencyCallbacks,
@@ -844,8 +844,8 @@ def test_engine_queue_runtime_reserves_admission_slot(tmp_path: Path) -> None:
             "root": "/tmp/admission",
             "limit": 2,
             "kwargs": {
-                "source": "chemstack.xtb.queue_worker",
-                "app_name": "chemstack_xtb",
+                "source": "orca_auto.flow.engines.xtb.queue_worker",
+                "app_name": "orca_auto_xtb",
             },
         }
     ]
@@ -990,7 +990,7 @@ def test_engine_queue_runtime_builds_common_child_worker_hooks(tmp_path: Path) -
                 "token": "slot-1",
                 "kwargs": {
                     "owner_pid": 2468,
-                    "source": "chemstack.xtb.queue_worker.child",
+                    "source": "orca_auto.flow.engines.xtb.queue_worker.child",
                     "queue_id": "queue-1",
                     "work_dir": str(tmp_path / "job-1"),
                 },
@@ -1192,7 +1192,7 @@ def test_internal_engine_queue_module_preserves_worker_facade_contract(
     }
     spec = InternalEngineSpec(
         engine="xtb",
-        worker_job_module="chemstack.core.engines.xtb_execution",
+        worker_job_module="orca_auto.flow.engines.xtb.execution",
         worker_pid_file_name="engine_worker.pid",
     )
     module = InternalEngineQueueModule.create(
@@ -1277,7 +1277,7 @@ def test_internal_engine_queue_module_create_from_definition_uses_queue_contract
         engine="demo",
         load_config=lambda config_path: cfg if config_path == "/tmp/config.yaml" else None,
         run_worker_child_job=lambda **_kwargs: 0,
-        queue_worker_module="chemstack.core.engines.queue_worker",
+        queue_worker_module="orca_auto.core.engines.queue_worker",
         worker_pid_file_name="definition_worker.pid",
         build_worker_child_command=lambda **_kwargs: ["unused"],
         queue_functions=EngineQueueFunctions(
@@ -1317,7 +1317,7 @@ def test_internal_engine_queue_module_create_from_definition_uses_queue_contract
         definition=definition,
         spec=InternalEngineSpec(
             engine="demo",
-            worker_job_module="chemstack.demo.worker_execution",
+            worker_job_module="orca_auto.demo.worker_execution",
             worker_pid_file_name="legacy_worker.pid",
         ),
         poll_interval_seconds=5,
@@ -1361,7 +1361,7 @@ def test_internal_engine_queue_module_create_from_definition_accepts_queue_overr
         engine="demo",
         load_config=lambda _config_path: cfg,
         run_worker_child_job=lambda **_kwargs: 0,
-        queue_worker_module="chemstack.core.engines.queue_worker",
+        queue_worker_module="orca_auto.core.engines.queue_worker",
         worker_pid_file_name="definition_worker.pid",
         build_worker_child_command=lambda **_kwargs: ["worker"],
         queue_functions=EngineQueueFunctions(
@@ -1401,7 +1401,7 @@ def test_internal_engine_queue_module_create_from_definition_accepts_queue_overr
         definition=definition,
         spec=InternalEngineSpec(
             engine="demo",
-            worker_job_module="chemstack.demo.worker_execution",
+            worker_job_module="orca_auto.demo.worker_execution",
             worker_pid_file_name="legacy_worker.pid",
         ),
         poll_interval_seconds=5,

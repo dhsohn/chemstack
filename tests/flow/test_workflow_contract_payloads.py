@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from chemstack.flow.contracts import (
+from orca_auto.flow.contracts import (
     WorkflowArtifactRef,
     WorkflowPlan,
     WorkflowStage,
     WorkflowTask,
     WorkflowTemplateRequest,
 )
-from chemstack.flow.contracts.workflow import coerce_workflow_plan_payload
+from orca_auto.flow.contracts.workflow import coerce_workflow_plan_payload
 
 
 def test_workflow_plan_to_dict_preserves_nested_stage_task_and_artifact_payloads() -> None:

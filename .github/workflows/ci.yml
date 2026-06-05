@@ -1,4 +1,4 @@
-name: ChemStack CI
+name: Orca Auto CI
 
 on:
   push:
@@ -32,15 +32,15 @@ jobs:
 
       - name: Package smoke
         run: |
-          python -m pip wheel . --no-deps -w /tmp/chemstack-wheel-smoke
+          python -m pip wheel . --no-deps -w /tmp/orca_auto-wheel-smoke
           python - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
 
-          wheels = sorted(Path("/tmp/chemstack-wheel-smoke").glob("chemstack-*.whl"))
+          wheels = sorted(Path("/tmp/orca_auto-wheel-smoke").glob("orca_auto-*.whl"))
           assert len(wheels) == 1, wheels
           with ZipFile(wheels[0]) as wheel:
               names = set(wheel.namelist())
-          assert "chemstack/py.typed" in names
-          assert "chemstack/core/py.typed" not in names
+          assert "orca_auto/py.typed" in names
+          assert "orca_auto/core/py.typed" not in names
           PY

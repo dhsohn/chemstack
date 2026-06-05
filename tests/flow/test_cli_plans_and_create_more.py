@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli_common
-from chemstack.flow import cli_run_dir, run_dir_options
+from orca_auto import cli_common
+from orca_auto.flow import cli_run_dir, run_dir_options
 
 
 def _create_payload(template_name: str) -> dict[str, Any]:
@@ -90,7 +90,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
     workflow_dir.mkdir()
     workflow_root = tmp_path / "workflow_root"
     workflow_root.mkdir()
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(f"workflow:\n  root: {workflow_root}\n", encoding="utf-8")
     (workflow_dir / "input.xyz").write_text("2\nmol\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     (workflow_dir / "flow.yaml").write_text(
@@ -136,7 +136,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
         orca_route_line=None,
         charge=None,
         multiplicity=None,
-        chemstack_config=str(config_path),
+        orca_auto_config=str(config_path),
         json=True,
     )
 
@@ -374,7 +374,7 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
         orca_route_line=None,
         charge=None,
         multiplicity=None,
-        chemstack_config=None,
+        orca_auto_config=None,
         json=False,
     )
 
@@ -423,7 +423,7 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
         orca_route_line=None,
         charge=None,
         multiplicity=None,
-        chemstack_config=None,
+        orca_auto_config=None,
         json=False,
     )
 

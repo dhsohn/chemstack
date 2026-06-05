@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-VENV_DIR="${CHEMSTACK_VENV:-$ROOT/.venv}"
+VENV_DIR="${ORCA_AUTO_VENV:-$ROOT/.venv}"
 VENV_PY="$VENV_DIR/bin/python"
 
 find_python() {
@@ -51,7 +51,7 @@ if ! venv_is_usable; then
 fi
 
 echo "[check] Using Python: $("$VENV_PY" -c 'import sys; print(sys.executable)')"
-if [[ "${CHEMSTACK_CHECK_SKIP_INSTALL:-0}" != "1" ]]; then
+if [[ "${ORCA_AUTO_CHECK_SKIP_INSTALL:-0}" != "1" ]]; then
   "$VENV_PY" -m pip install --upgrade pip
   "$VENV_PY" -m pip install -c constraints-dev.txt -e '.[dev]'
 fi

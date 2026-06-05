@@ -6,27 +6,27 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.queue.child_process import reconcile_orphaned_child_queue_entries
-from chemstack.core.queue.internal_engine import (
+from orca_auto.core.queue.child_process import reconcile_orphaned_child_queue_entries
+from orca_auto.core.queue.internal_engine import (
     InternalEngineQueueRuntime,
     InternalEngineQueueWorkerFacade,
     InternalEngineQueueWorkerNamespaceNames,
     InternalEngineSpec,
 )
-from chemstack.core.queue.types import QueueStatus
+from orca_auto.core.queue.types import QueueStatus
 
 
 def test_internal_engine_worker_child_rejects_legacy_admission_parser_arg() -> None:
     child = InternalEngineSpec(
         engine="demo",
-        worker_job_module="chemstack.demo.worker_execution",
+        worker_job_module="orca_auto.demo.worker_execution",
     ).worker_child(RuntimeError)
 
     with pytest.raises(SystemExit):
         child.build_parser().parse_args(
             [
                 "--config",
-                "/tmp/chemstack.yaml",
+                "/tmp/orca_auto.yaml",
                 "--queue-root",
                 "/tmp/queue",
                 "--queue-id",
@@ -41,7 +41,7 @@ def test_internal_engine_worker_child_rejects_legacy_admission_parser_arg() -> N
     args = child.build_parser().parse_args(
         [
             "--config",
-            "/tmp/chemstack.yaml",
+            "/tmp/orca_auto.yaml",
             "--queue-root",
             "/tmp/queue",
             "--queue-id",
@@ -109,7 +109,7 @@ def test_internal_engine_admission_uses_engine_identity() -> None:
 
     assert token == "slot-1"
     assert calls == [
-        ("/tmp/admission", 2, "chemstack.demo_engine.queue_worker", "chemstack_demo_engine")
+        ("/tmp/admission", 2, "orca_auto.demo_engine.queue_worker", "orca_auto_demo_engine")
     ]
 
 
@@ -434,7 +434,7 @@ def test_internal_engine_worker_entrypoint_passes_extra_process_kwargs(
     released: list[tuple[str, str]] = []
     child = InternalEngineSpec(
         engine="demo",
-        worker_job_module="chemstack.demo.worker_execution",
+        worker_job_module="orca_auto.demo.worker_execution",
     ).worker_child(RuntimeError)
 
     entrypoint = child.entrypoint(
@@ -476,7 +476,7 @@ def test_internal_engine_worker_child_merges_default_and_explicit_process_kwargs
     processed: list[dict[str, Any]] = []
     child = InternalEngineSpec(
         engine="demo",
-        worker_job_module="chemstack.demo.worker_execution",
+        worker_job_module="orca_auto.demo.worker_execution",
     ).worker_child(
         RuntimeError,
         process_dequeued_entry_kwargs_fn=lambda: {

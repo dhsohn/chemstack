@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.flow import runtime_admission
+from orca_auto.flow import runtime_admission
 
 
 def test_submission_admission_limit_returns_none_for_unreadable_config(tmp_path: Path) -> None:
@@ -13,7 +13,7 @@ def test_submission_admission_limit_returns_none_for_unreadable_config(tmp_path:
 def test_submission_admission_root_for_internal_engine_requires_workflow_root(
     tmp_path: Path,
 ) -> None:
-    config = tmp_path / "chemstack.yaml"
+    config = tmp_path / "orca_auto.yaml"
     config.write_text("scheduler:\n  max_active_simulations: 2\n", encoding="utf-8")
 
     assert runtime_admission._submission_admission_root_from_config(config, engine="xtb") is None
@@ -23,7 +23,7 @@ def test_submission_admission_root_for_internal_engine_uses_scheduler_default(
     tmp_path: Path,
 ) -> None:
     workflow_root = tmp_path / "workflows"
-    config = tmp_path / "chemstack.yaml"
+    config = tmp_path / "orca_auto.yaml"
     config.write_text(
         f"workflow:\n  root: {workflow_root}\nscheduler:\n  max_active_simulations: 2\n",
         encoding="utf-8",
@@ -38,7 +38,7 @@ def test_submission_admission_has_capacity_uses_first_resolved_engine_root(
     tmp_path: Path,
 ) -> None:
     admission_root = tmp_path / "admission"
-    config = tmp_path / "chemstack.yaml"
+    config = tmp_path / "orca_auto.yaml"
     config.write_text("scheduler:\n  max_active_simulations: 2\n", encoding="utf-8")
     calls: list[str | None] = []
 
@@ -64,7 +64,7 @@ def test_submission_admission_has_capacity_returns_none_when_slot_count_fails(
     tmp_path: Path,
 ) -> None:
     admission_root = tmp_path / "admission"
-    config = tmp_path / "chemstack.yaml"
+    config = tmp_path / "orca_auto.yaml"
     config.write_text(
         f"scheduler:\n  max_active_simulations: 2\n  admission_root: {admission_root}\n",
         encoding="utf-8",

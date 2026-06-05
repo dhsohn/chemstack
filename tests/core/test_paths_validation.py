@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.paths.validation import (
+from orca_auto.core.paths.validation import (
     ensure_directory,
     is_rejected_windows_path,
     is_subpath,

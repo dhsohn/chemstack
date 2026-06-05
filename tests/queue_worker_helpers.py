@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.orca.attempt_reporting import build_final_result
-from chemstack.orca.config import AppConfig, RuntimeConfig
-from chemstack.orca.state import finalize_state, new_state
-from chemstack.orca.statuses import AnalyzerStatus, RunStatus
+from orca_auto.orca.attempt_reporting import build_final_result
+from orca_auto.orca.config import AppConfig, RuntimeConfig
+from orca_auto.orca.state import finalize_state, new_state
+from orca_auto.orca.statuses import AnalyzerStatus, RunStatus
 
 
 def make_queue_worker_cfg(tmp: str) -> AppConfig:

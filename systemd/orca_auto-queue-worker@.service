@@ -1,0 +1,17 @@
+[Unit]
+Description=Orca Auto unified queue workers for %i
+After=local-fs.target
+PartOf=orca_auto-runtime@%i.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/orca_auto
+Environment=PYTHONUNBUFFERED=1
+Environment=ORCA_AUTO_CONFIG=/home/%i/orca_auto/config/orca_auto.yaml
+ExecStart=/home/%i/orca_auto/.venv/bin/python -m orca_auto.cli queue worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

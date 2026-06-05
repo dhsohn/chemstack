@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, TelegramSendResult
-from chemstack.flow import workflow_notifications
+from orca_auto.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, TelegramSendResult
+from orca_auto.flow import workflow_notifications
 
 
 class _FakeTransport:
@@ -36,7 +36,7 @@ def test_maybe_notify_workflow_phase_summary_sends_crest_summary_once(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     _write_config(config_path)
     transport = _FakeTransport()
     monkeypatch.setattr(workflow_notifications, "build_telegram_transport", lambda _cfg: transport)
@@ -83,7 +83,7 @@ def test_maybe_notify_workflow_phase_summary_sends_crest_summary_once(
     assert len(transport.messages) == 1
     assert transport.parse_modes == ["HTML"]
     message = transport.messages[0]
-    assert "<b>ChemStack Flow CREST Phase Summary</b>" in message
+    assert "<b>Orca Auto Flow CREST Phase Summary</b>" in message
     assert "<b>Stages</b>: <code>2</code>" in message
     assert "<b>Stage</b>: reactant" in message
     assert "<b>Retained conformers</b>: <code>2</code>" in message
@@ -96,7 +96,7 @@ def test_maybe_notify_workflow_phase_summary_sends_xtb_ready_counts(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     _write_config(config_path)
     transport = _FakeTransport()
     monkeypatch.setattr(workflow_notifications, "build_telegram_transport", lambda _cfg: transport)
@@ -146,7 +146,7 @@ def test_maybe_notify_workflow_phase_summary_sends_xtb_ready_counts(
     assert len(transport.messages) == 1
     assert transport.parse_modes == ["HTML"]
     message = transport.messages[0]
-    assert "<b>ChemStack Flow xTB Phase Summary</b>" in message
+    assert "<b>Orca Auto Flow xTB Phase Summary</b>" in message
     assert "wf_&lt;xtb&gt;_1" in message
     assert "<b>Ready for ORCA</b>: <code>1</code>" in message
     assert "<b>planned_orca_stages</b>: <code>1</code>" in message
@@ -162,7 +162,7 @@ def test_maybe_notify_workflow_phase_summary_splits_long_messages(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     _write_config(config_path)
     transport = _FakeTransport()
     monkeypatch.setattr(workflow_notifications, "build_telegram_transport", lambda _cfg: transport)

@@ -10,10 +10,10 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.config import TelegramConfig
-from chemstack.core.notifications import telegram as telegram_mod
-from chemstack.core.notifications import telegram_api as telegram_api_mod
-from chemstack.flow import telegram_bot as bot
+from orca_auto.core.config import TelegramConfig
+from orca_auto.core.notifications import telegram as telegram_mod
+from orca_auto.core.notifications import telegram_api as telegram_api_mod
+from orca_auto.flow import telegram_bot as bot
 from tests.flow_factories import telegram_bot_settings
 
 
@@ -47,7 +47,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "kind": "workflow",
                     "engine": "workflow",
                     "status": "running",
-                    "source": "chemstack_flow",
+                    "source": "orca_auto_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -62,7 +62,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "kind": "job",
                     "engine": "crest",
                     "status": "running",
-                    "source": "chemstack_crest",
+                    "source": "orca_auto_crest",
                     "submitted_at": "2026-04-26T01:10:00+00:00",
                     "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
@@ -76,7 +76,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "kind": "job",
                     "engine": "orca",
                     "status": "running",
-                    "source": "chemstack_orca",
+                    "source": "orca_auto_orca",
                     "submitted_at": "2026-04-26T01:20:00+00:00",
                     "updated_at": "2026-04-26T01:20:00+00:00",
                     "metadata": {
@@ -120,7 +120,7 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "kind": "workflow",
                     "engine": "workflow",
                     "status": "running",
-                    "source": "chemstack_flow",
+                    "source": "orca_auto_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -134,7 +134,7 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "kind": "job",
                     "engine": "crest",
                     "status": "pending",
-                    "source": "chemstack_crest",
+                    "source": "orca_auto_crest",
                     "submitted_at": "2026-04-26T01:10:00+00:00",
                     "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
@@ -168,7 +168,7 @@ def test_handle_list_uses_global_active_simulation_count_from_full_payload(monke
                     "kind": "job",
                     "engine": "orca",
                     "status": "running",
-                    "source": "chemstack_orca",
+                    "source": "orca_auto_orca",
                 },
                 {
                     "label": "visible-pending",
@@ -176,10 +176,10 @@ def test_handle_list_uses_global_active_simulation_count_from_full_payload(monke
                     "kind": "job",
                     "engine": "crest",
                     "status": "pending",
-                    "source": "chemstack_crest",
+                    "source": "orca_auto_crest",
                 },
             ],
-            "sources": {"orca_config": "/tmp/chemstack.yaml"},
+            "sources": {"orca_config": "/tmp/orca_auto.yaml"},
         },
     )
 
@@ -194,7 +194,7 @@ def test_handle_list_uses_global_active_simulation_count_from_full_payload(monke
 
     assert "active_simulations: 4" in text
     assert len(captured["items"]) == 2
-    assert captured["config_path"] == "/tmp/chemstack.yaml"
+    assert captured["config_path"] == "/tmp/orca_auto.yaml"
     assert "visible-pending" in text
     assert "conformer_search" in text
 
@@ -207,7 +207,7 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
             "kind": "job",
             "engine": "orca",
             "status": "running",
-            "source": "chemstack_orca",
+            "source": "orca_auto_orca",
             "metadata": {
                 "reaction_dir": f"/tmp/orca/wf-a/03_orca/case_{index:03d}",
             },
@@ -225,7 +225,7 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
                     "kind": "workflow",
                     "engine": "workflow",
                     "status": "running",
-                    "source": "chemstack_flow",
+                    "source": "orca_auto_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -811,13 +811,13 @@ def test_set_bot_commands_sends_expected_command_payload(monkeypatch) -> None:
 
 
 def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
-    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
-    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "chat-id")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_TELEGRAM_CHAT_ID", "chat-id")
     monkeypatch.setattr(bot._activity_sources, "discover_workflow_root", lambda explicit: "/tmp/wf")
     monkeypatch.setattr(
         bot._activity_sources,
         "discover_shared_config",
-        lambda explicit: "/tmp/chemstack.yaml",
+        lambda explicit: "/tmp/orca_auto.yaml",
     )
 
     settings = bot.settings_from_env()
@@ -825,9 +825,9 @@ def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     assert settings.telegram.bot_token == "bot-token"
     assert settings.telegram.chat_id == "chat-id"
     assert settings.workflow_root == "/tmp/wf"
-    assert settings.crest_config == "/tmp/chemstack.yaml"
-    assert settings.xtb_config == "/tmp/chemstack.yaml"
-    assert settings.orca_config == "/tmp/chemstack.yaml"
+    assert settings.crest_config == "/tmp/orca_auto.yaml"
+    assert settings.xtb_config == "/tmp/orca_auto.yaml"
+    assert settings.orca_config == "/tmp/orca_auto.yaml"
 
 
 def test_telegram_from_config_path_handles_empty_missing_invalid_and_missing_section(
@@ -861,7 +861,7 @@ def test_telegram_from_config_path_handles_empty_missing_invalid_and_missing_sec
 
 
 def test_settings_from_config_uses_shared_telegram_section(tmp_path: Path) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(
         "\n".join(
             [
@@ -890,10 +890,10 @@ def test_settings_from_config_falls_back_to_environment_when_config_telegram_dis
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
-    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "env-token")
-    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "env-chat")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_TELEGRAM_BOT_TOKEN", "env-token")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_TELEGRAM_CHAT_ID", "env-chat")
 
     settings = bot.settings_from_config(str(config_path))
 

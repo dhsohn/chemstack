@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from orca_auto.core.utils import coerce_list, coerce_mapping, normalize_text
+
+WORKFLOW_FILE_NAME = "workflow.json"
+WORKFLOW_STAGE_DIRNAMES = {
+    "crest": "01_crest",
+    "xtb": "02_xtb",
+    "orca": "03_orca",
+}
+WORKFLOW_STAGE_DIRNAME_ALIASES = {
+    "orca": ("02_orca",),
+}
+
+
+def workflow_root_dir(workflow_root: str | Path) -> Path:
+    return Path(workflow_root).expanduser().resolve()
+
+
+def workflow_workspace_internal_engine_paths(
+    workspace_dir: str | Path,
+    *,
+    engine: str,
+    stage_dirname: str | None = None,
+) -> dict[str, Path]:
+    engine_text = normalize_text(engine).lower()
+    if not engine_text:
+        raise ValueError("workflow engine is required")
+    workspace = Path(workspace_dir).expanduser().resolve()
+    stage_name = (
+        normalize_text(stage_dirname)
+        or WORKFLOW_STAGE_DIRNAMES.get(engine_text)
+        or f"stage_{engine_text}"
+    )
+    stage_base = workspace / stage_name
+    return {
+        "allowed_root": stage_base,
+        "organized_root": stage_base,
+    }
+
+
+def workflow_stage_dirnames_for_engine(engine: str) -> tuple[str, ...]:
+    engine_text = normalize_text(engine).lower()
+    if not engine_text:
+        return ()
+    primary = WORKFLOW_STAGE_DIRNAMES.get(engine_text) or f"stage_{engine_text}"
+    aliases = WORKFLOW_STAGE_DIRNAME_ALIASES.get(engine_text, ())
+    return tuple(dict.fromkeys((primary, *aliases)))
+
+
+def workflow_workspace_internal_engine_paths_from_path(
+    path: str | Path,
+    *,
+    workflow_root: str | Path,
+    engine: str,
+) -> dict[str, Path] | None:
+    engine_text = normalize_text(engine).lower()
+    if not engine_text:
+        return None
+
+    try:
+        resolved_path = Path(path).expanduser().resolve()
+    except OSError:
+        return None
+
+    workspaces_root = workflow_root_dir(workflow_root)
+    try:
+        relative = resolved_path.relative_to(workspaces_root)
+    except ValueError:
+        return None
+
+    parts = relative.parts
+    if len(parts) < 2:
+        return None
+
+    for stage_dirname in workflow_stage_dirnames_for_engine(engine_text):
+        if parts[1] == stage_dirname:
+            return workflow_workspace_internal_engine_paths(
+                workspaces_root / parts[0],
+                engine=engine_text,
+                stage_dirname=stage_dirname,
+            )
+    return None
+
+
+def _workflow_payload_has_engine_stage(workspace_dir: Path, engine: str) -> bool:
+    engine_text = normalize_text(engine).lower()
+    if not engine_text:
+        return False
+    try:
+        raw = json.loads((workspace_dir / WORKFLOW_FILE_NAME).read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError, OSError):
+        return False
+    payload = coerce_mapping(raw)
+    for raw_stage in coerce_list(payload.get("stages")):
+        stage = coerce_mapping(raw_stage)
+        task = coerce_mapping(stage.get("task"))
+        if normalize_text(task.get("engine")).lower() == engine_text:
+            return True
+    return False
+
+
+def iter_workflow_runtime_workspaces(
+    workflow_root: str | Path,
+    *,
+    engine: str | None = None,
+) -> list[Path]:
+    root = workflow_root_dir(workflow_root)
+    if not root.exists():
+        return []
+
+    engine_text = normalize_text(engine).lower()
+    candidates: list[Path] = []
+    for item in root.iterdir():
+        if not item.is_dir():
+            continue
+        if (item / WORKFLOW_FILE_NAME).exists() and not engine_text:
+            candidates.append(item)
+            continue
+        if engine_text:
+            if _workflow_payload_has_engine_stage(item, engine_text):
+                candidates.append(item)
+                continue
+            for stage_dirname in workflow_stage_dirnames_for_engine(engine_text):
+                runtime_paths = workflow_workspace_internal_engine_paths(
+                    item,
+                    engine=engine_text,
+                    stage_dirname=stage_dirname,
+                )
+                if (
+                    runtime_paths["allowed_root"].exists()
+                    or runtime_paths["organized_root"].exists()
+                ):
+                    candidates.append(item)
+                    break
+            continue
+        stage_roots = [
+            item / stage_dirname
+            for engine_name in WORKFLOW_STAGE_DIRNAMES
+            for stage_dirname in workflow_stage_dirnames_for_engine(engine_name)
+        ]
+        if any(stage_root.exists() for stage_root in stage_roots):
+            candidates.append(item)
+    return sorted(candidates, key=lambda item: item.name, reverse=True)
+
+
+__all__ = [
+    "WORKFLOW_FILE_NAME",
+    "WORKFLOW_STAGE_DIRNAME_ALIASES",
+    "WORKFLOW_STAGE_DIRNAMES",
+    "iter_workflow_runtime_workspaces",
+    "workflow_root_dir",
+    "workflow_stage_dirnames_for_engine",
+    "workflow_workspace_internal_engine_paths",
+    "workflow_workspace_internal_engine_paths_from_path",
+]

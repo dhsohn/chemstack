@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack.core.indexing import JobLocationRecord
-from chemstack.core.utils.coercion import normalize_text
-from chemstack.flow import _registry_notifications as registry_notifications
-from chemstack.flow import (
+from orca_auto.core.indexing import JobLocationRecord
+from orca_auto.core.utils.coercion import normalize_text
+from orca_auto.flow import _registry_notifications as registry_notifications
+from orca_auto.flow import (
     cli_workflow,
     engine_runtime,
     registry,
@@ -18,11 +18,11 @@ from chemstack.flow import (
     workflow_journal,
     xyz_utils,
 )
-from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
-from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers, _orca_tracking
-from chemstack.flow.adapters import orca as orca_adapter
-from chemstack.flow.adapters import xtb as xtb_adapter
-from chemstack.flow.contracts.xtb import (
+from orca_auto.flow.adapters import _engine_adapter_helpers as adapter_helpers
+from orca_auto.flow.adapters import _orca_local_lookup, _orca_path_helpers, _orca_tracking
+from orca_auto.flow.adapters import orca as orca_adapter
+from orca_auto.flow.adapters import xtb as xtb_adapter
+from orca_auto.flow.contracts.xtb import (
     XtbArtifactContract,
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
@@ -53,7 +53,7 @@ def test_resolve_indexed_job_dir_edge_branches(tmp_path: Path, missing_label: st
 
     record = JobLocationRecord(
         job_id="job_1",
-        app_name="chemstack_test",
+        app_name="orca_auto_test",
         job_type="test",
         status="running",
         original_run_dir="",

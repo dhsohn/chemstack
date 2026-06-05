@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow.submitters import orca as orca_submitter
+from orca_auto.flow.submitters import orca as orca_submitter
 from tests.flow.factories import install_orca_timestamps, install_orca_workflow_io
 
 
@@ -171,7 +171,7 @@ def test_submit_reaction_ts_search_workflow_records_skipped_only_summary_without
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_skip",
                         "priority": 3,
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             }
@@ -245,7 +245,7 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_failed",
                         "priority": 11,
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             }
@@ -362,7 +362,7 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
                     "status": "planned",
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/terminal",
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -423,7 +423,7 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
             "returncode": 9,
             "stdout": "denied\n",
             "stderr": "permission denied",
-            "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
+            "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
         }
 
     monkeypatch.setattr(orca_submitter, "cancel_target", fake_cancel_target)
@@ -489,7 +489,7 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
         "returncode": 9,
         "stdout": "denied\n",
         "stderr": "permission denied",
-        "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
+        "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
         "cancelled_at": "2026-04-19T01:21:00+00:00",
         "target": "q_fail",
     }

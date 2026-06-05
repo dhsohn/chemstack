@@ -4,14 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord
-from chemstack.orca import _job_location_runtime_context as runtime_context
+from orca_auto.core.indexing import JobLocationRecord
+from orca_auto.orca import _job_location_runtime_context as runtime_context
 
 
 def _record(job_id: str, job_dir: Path, *, original_dir: Path | None = None) -> JobLocationRecord:
     return JobLocationRecord(
         job_id=job_id,
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         job_type="orca_opt",
         status="completed",
         original_run_dir=str((original_dir or job_dir).resolve()),

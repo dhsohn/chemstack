@@ -6,11 +6,11 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.queue.types import QueueEntry, QueueStatus
-from chemstack.flow.submitters import orca as orca_submitter
-from chemstack.orca import config as orca_config
-from chemstack.orca import queue_adapter
-from chemstack.orca.commands import run_inp as run_inp_cmd
+from orca_auto.core.queue.types import QueueEntry, QueueStatus
+from orca_auto.flow.submitters import orca as orca_submitter
+from orca_auto.orca import config as orca_config
+from orca_auto.orca import queue_adapter
+from orca_auto.orca.commands import run_inp as run_inp_cmd
 from tests.flow.factories import install_orca_timestamps, install_orca_workflow_io
 
 
@@ -29,7 +29,7 @@ def _queue_entry(
         metadata["run_id"] = run_id
     return QueueEntry(
         queue_id=queue_id,
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         task_id=task_id,
         task_kind="orca_run_inp",
         engine="orca",
@@ -118,7 +118,7 @@ def test_submit_reaction_dir_uses_direct_submission_api(
     assert result["reaction_dir"] == str(reaction_dir)
     assert result["priority"] == 12
     assert result["command_argv"] == [
-        "chemstack.orca.direct_submit",
+        "orca_auto.orca.direct_submit",
         "config=/tmp/orca.yaml",
         f"reaction_dir={reaction_dir}",
         "priority=12",
@@ -290,7 +290,7 @@ def test_cancel_target_uses_direct_queue_adapter(
     assert result["queue_id"] == "q_123"
     assert result["job_id"] == "orca_job_123"
     assert result["command_argv"] == [
-        "chemstack.orca.direct_cancel",
+        "orca_auto.orca.direct_cancel",
         "config=/tmp/orca.yaml",
         f"target={target}",
     ]
@@ -348,7 +348,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_skip",
                         "priority": 3,
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                     "submission_result": {"status": "submitted"},
                 },
@@ -360,7 +360,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
                     "status": "planned",
                     "enqueue_payload": {
                         "priority": 4,
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -372,7 +372,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_submit",
                         "priority": "8",
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -516,7 +516,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
                 "task": {
                     "status": "planned",
                     "enqueue_payload": {
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -528,7 +528,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
                     "payload": {"reaction_dir": "/tmp/rxn_needs_config"},
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_needs_config",
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -539,7 +539,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
                     "status": "cancelled",
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_cancelled",
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -650,7 +650,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
                     "payload": {"reaction_dir": "/tmp/rxn_request"},
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_request",
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -662,7 +662,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
                     "payload": {"reaction_dir": "/tmp/rxn_cancel"},
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_cancel",
-                        "submitter": "chemstack_orca",
+                        "submitter": "orca_auto_orca",
                     },
                 },
             },
@@ -681,14 +681,14 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
                 "returncode": 0,
                 "stdout": "Cancel requested for q_request\n",
                 "stderr": "",
-                "command_argv": ["chemstack_orca_bin", "queue", "cancel", "q_request"],
+                "command_argv": ["orca_auto_orca_bin", "queue", "cancel", "q_request"],
             },
             {
                 "status": "cancelled",
                 "returncode": 0,
                 "stdout": "Cancelled: /tmp/rxn_cancel\n",
                 "stderr": "",
-                "command_argv": ["chemstack_orca_bin", "queue", "cancel", "/tmp/rxn_cancel"],
+                "command_argv": ["orca_auto_orca_bin", "queue", "cancel", "/tmp/rxn_cancel"],
             },
         ]
     )
@@ -764,7 +764,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         "returncode": 0,
         "stdout": "Cancel requested for q_request\n",
         "stderr": "",
-        "command_argv": ["chemstack_orca_bin", "queue", "cancel", "q_request"],
+        "command_argv": ["orca_auto_orca_bin", "queue", "cancel", "q_request"],
         "cancelled_at": "2026-04-19T00:20:00+00:00",
         "target": "q_request",
     }
@@ -780,7 +780,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         "returncode": 0,
         "stdout": "Cancelled: /tmp/rxn_cancel\n",
         "stderr": "",
-        "command_argv": ["chemstack_orca_bin", "queue", "cancel", "/tmp/rxn_cancel"],
+        "command_argv": ["orca_auto_orca_bin", "queue", "cancel", "/tmp/rxn_cancel"],
         "cancelled_at": "2026-04-19T00:21:00+00:00",
         "target": "/tmp/rxn_cancel",
     }

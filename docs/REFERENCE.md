@@ -1,6 +1,6 @@
-# ChemStack Detailed Reference
+# Orca Auto Detailed Reference
 
-ChemStack is a queue-first executor for ORCA and workflow orchestration. ORCA
+Orca Auto is a queue-first executor for ORCA and workflow orchestration. ORCA
 uses the shared internal-engine queue lifecycle for worker admission, child
 entry execution, terminal side effects, and orphan recovery while preserving
 its public ORCA queue contract. xTB and CREST run as internal workflow-stage
@@ -10,9 +10,9 @@ retry, reporting, and monitoring surface.
 
 Current developer-facing package rule:
 
-- The canonical implementation lives in `chemstack.orca`
-- Shared infrastructure lives in `chemstack.core`
-- Supported imports live under `chemstack.*`
+- The canonical implementation lives in `orca_auto.orca`
+- Shared infrastructure lives in `orca_auto.core`
+- Supported imports live under `orca_auto.*`
 
 ## 1) Project Purpose
 
@@ -51,9 +51,9 @@ Operational consequences:
 
 ```text
 <repo_root>
-  config/chemstack.yaml
+  config/orca_auto.yaml
   src/
-    chemstack/
+    orca_auto/
       core/               # Shared chemistry-platform infrastructure
       flow/               # Workflow orchestration package
       xtb/                # xTB engine package
@@ -64,9 +64,9 @@ Operational consequences:
         state.py
         ...
   systemd/
-    chemstack-runtime@.target
-    chemstack-queue-worker@.service
-    chemstack-bot@.service
+    orca_auto-runtime@.target
+    orca_auto-queue-worker@.service
+    orca_auto-bot@.service
   scripts/*.sh / *.py
   tests/
     integration/
@@ -93,9 +93,9 @@ bash scripts/bootstrap_wsl.sh
 
 - Prepares `.venv`
 - Installs Python dependencies and the repository itself into `.venv`
-- Seeds `config/chemstack.yaml` if missing
+- Seeds `config/orca_auto.yaml` if missing
 
-This reference standardizes on `chemstack ...` for public
+This reference standardizes on `orca_auto ...` for public
 commands:
 
 - `queue list`
@@ -105,19 +105,19 @@ commands:
 - `scaffold <ts_search|conformer_search>`
 - `organize orca`
 - `scan-notify` (alias: `monitor`)
-Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
-By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
+Activate `.venv` first, or call `.venv/bin/orca_auto ...` directly.
+By default, config is resolved from `ORCA_AUTO_CONFIG`, then `<repo_root>/config/orca_auto.yaml`, then `~/orca_auto/config/orca_auto.yaml`.
 Add `--config <path>` only when you want to override default config discovery.
 
 ## 6) Configuration File
 
-Configuration file: `<project_root>/config/chemstack.yaml`
+Configuration file: `<project_root>/config/orca_auto.yaml`
 
 Search order:
 
-1. `CHEMSTACK_CONFIG`
-2. `<project_root>/config/chemstack.yaml`
-3. `~/chemstack/config/chemstack.yaml`
+1. `ORCA_AUTO_CONFIG`
+2. `<project_root>/config/orca_auto.yaml`
+3. `~/orca_auto/config/orca_auto.yaml`
 
 ```yaml
 resources:
@@ -176,30 +176,30 @@ Notes:
 ## 7) CLI Usage
 
 All public queue, submission, scaffold, and organization commands should be
-documented through `chemstack ...`.
+documented through `orca_auto ...`.
 
 Public command surface:
 
-- ORCA public commands are exposed through `chemstack ...`
+- ORCA public commands are exposed through `orca_auto ...`
 - xTB and CREST run as internal workflow/runtime engines; submit their work through workflow `run-dir` requests
 
 ### 7.1 `init`
 
 ```bash
-chemstack init
+orca_auto init
 ```
 
 Behavior:
 
-- `init` interactively creates or updates the shared `chemstack.yaml`
+- `init` interactively creates or updates the shared `orca_auto.yaml`
 - ORCA, internal xTB, internal CREST, and workflow settings are collected in one place
 
 ### 7.2 `run-dir`
 
 ```bash
 cd <repo_root>
-chemstack run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
-chemstack run-dir '/absolute/path/to/workflow_inputs/reaction_case'
+orca_auto run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+orca_auto run-dir '/absolute/path/to/workflow_inputs/reaction_case'
 ```
 
 Successful ORCA submission example:
@@ -241,8 +241,8 @@ Workflow notes:
 - reaction-path and conformer workflows create and submit xTB/CREST stages internally
 - `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB child jobs, waits for the full xTB phase to reach terminal states, and then batches any matching ORCA OptTS child jobs from the retained `ts_guess` artifacts
 - `conformer_search` starts with one CREST child job and then hands off up to 20 retained conformers to ORCA child jobs in the next workflow cycle
-- Set top-level `workflow.root` in `chemstack.yaml` before using workflow commands
-- Public `run-dir` does not expose workflow override flags; workflow settings come from `flow.yaml` and `chemstack.yaml`
+- Set top-level `workflow.root` in `orca_auto.yaml` before using workflow commands
+- Public `run-dir` does not expose workflow override flags; workflow settings come from `flow.yaml` and `orca_auto.yaml`
 - `scaffold ts_search` and `scaffold conformer_search` write `flow.yaml` with `crest_mode: standard` by default; change it to `nci` when needed
 
 There is no public direct-execution mode for new work. `run-dir` is the durable submission path.
@@ -250,8 +250,8 @@ There is no public direct-execution mode for new work. `run-dir` is the durable 
 ### 7.3 `queue cancel`
 
 ```bash
-chemstack queue cancel q_20260403_151220_ab12cd
-chemstack queue cancel /absolute/path/to/orca_runs/Int1_DMSO
+orca_auto queue cancel q_20260403_151220_ab12cd
+orca_auto queue cancel /absolute/path/to/orca_runs/Int1_DMSO
 ```
 
 `queue cancel` accepts workflow ids for whole-workflow cancellation plus queue ids, run ids,
@@ -260,10 +260,10 @@ and known path aliases for individual jobs.
 ### 7.4 `queue list`
 
 ```bash
-chemstack queue list
-chemstack queue list --engine orca
-chemstack queue list --status pending
-chemstack queue list --engine xtb
+orca_auto queue list
+orca_auto queue list --engine orca
+orca_auto queue list --status pending
+orca_auto queue list --engine xtb
 ```
 
 `queue list` shows workflow and engine activity in one view, but workflow child simulations
@@ -283,8 +283,8 @@ buttons plus refresh and "clear finished" buttons (the latter equivalent to `/li
 ### 7.5 `organize`
 
 ```bash
-chemstack organize orca --root '/absolute/path/to/orca_runs'
-chemstack organize orca --root '/absolute/path/to/orca_runs' --apply
+orca_auto organize orca --root '/absolute/path/to/orca_runs'
+orca_auto organize orca --root '/absolute/path/to/orca_runs' --apply
 ```
 
 Options:
@@ -297,7 +297,7 @@ Options:
 ### 7.6 `scan-notify` (alias: `monitor`)
 
 ```bash
-chemstack scan-notify
+orca_auto scan-notify
 ```
 
 Behavior:
@@ -313,14 +313,14 @@ only. Public CLI commands do not start those services directly.
 
 Behavior:
 
-- `chemstack-queue-worker@.service` supervises ORCA by default
+- `orca_auto-queue-worker@.service` supervises ORCA by default
 - If `workflow.root` is set, the same worker service also starts workflow supervision plus the internal CREST and xTB workers
 - ORCA, xTB, and CREST share the same admission cap. ORCA reserves a slot in
   the parent worker, attaches queue identity metadata after the child starts,
   and lets the ORCA child activate/release that reservation during execution.
-- `chemstack-bot@.service` starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `chemstack.yaml`
+- `orca_auto-bot@.service` starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `orca_auto.yaml`
 - Workflow Telegram alerts keep per-job ORCA messages, but summarize internal CREST and reaction-path xTB child phases in one message each after those phases finish
-- `chemstack-runtime@.target` starts both services together
+- `orca_auto-runtime@.target` starts both services together
 
 ## 8) WSL systemd Setup
 
@@ -339,29 +339,29 @@ wsl --shutdown
 
 This repository includes service assets under `systemd/`:
 
-- [`systemd/chemstack-runtime@.target`](/home/daehyupsohn/chemstack/systemd/chemstack-runtime@.target)
-- [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
-- [`systemd/chemstack-bot@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-bot@.service)
+- [`systemd/orca_auto-runtime@.target`](/home/daehyupsohn/orca_auto/systemd/orca_auto-runtime@.target)
+- [`systemd/orca_auto-queue-worker@.service`](/home/daehyupsohn/orca_auto/systemd/orca_auto-queue-worker@.service)
+- [`systemd/orca_auto-bot@.service`](/home/daehyupsohn/orca_auto/systemd/orca_auto-bot@.service)
 
 Recommended always-on runtime install flow when Telegram is configured:
 
 ```bash
 cd <repo_root>
-chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
-chemstack service status
-journalctl -u "chemstack-queue-worker@$(whoami)" -f
-journalctl -u "chemstack-bot@$(whoami)" -f
+orca_auto systemd install --user "$(whoami)" --repo "$(pwd)"
+orca_auto service status
+journalctl -u "orca_auto-queue-worker@$(whoami)" -f
+journalctl -u "orca_auto-bot@$(whoami)" -f
 ```
 
 Before enabling the combined runtime target:
 
-- Set `telegram.bot_token` and `telegram.chat_id` in `chemstack.yaml`
-- Set `workflow.root` in `chemstack.yaml` if you also want workflow supervision
+- Set `telegram.bot_token` and `telegram.chat_id` in `orca_auto.yaml`
+- Set `workflow.root` in `orca_auto.yaml` if you also want workflow supervision
 
 Assumptions of the unified runtime templates:
 
-- Repository path: `/home/<user>/chemstack`
-- Config path: `/home/<user>/chemstack/config/chemstack.yaml`
+- Repository path: `/home/<user>/orca_auto`
+- Config path: `/home/<user>/orca_auto/config/orca_auto.yaml`
 
 If your paths differ, edit the copied unit before enabling it.
 
@@ -371,12 +371,12 @@ xTB workers. The shared `scheduler.max_active_simulations` setting still limits
 the combined number of active simulations across ORCA and workflow-managed
 internal engine stages.
 
-If Telegram is not configured yet, `chemstack systemd install` enables
-`chemstack-queue-worker@$(whoami)` directly. Run the same command again after
+If Telegram is not configured yet, `orca_auto systemd install` enables
+`orca_auto-queue-worker@$(whoami)` directly. Run the same command again after
 setting `telegram.bot_token` and `telegram.chat_id` to enable the full runtime
 target.
 
-Workflow supervision belongs to `chemstack-queue-worker@.service`.
+Workflow supervision belongs to `orca_auto-queue-worker@.service`.
 
 ## 9) Completion Determination Rules
 
@@ -475,7 +475,7 @@ Important `job_report.json` fields:
 ## 11.1) Downstream Contract Freeze
 
 The ORCA handoff contract exposes the following fields to downstream tooling
-such as `chemstack.flow`.
+such as `orca_auto.flow`.
 
 Queue entry fields currently consumed downstream from `queue.json`:
 
@@ -552,7 +552,7 @@ Compatibility note:
   Shared core helpers may also understand generic `job_dir` metadata for other
   engines, but ORCA producers should not replace `reaction_dir` with `job_dir`.
 - Engine workers run only from queue identity. The unified child entrypoint is
-  `python -m chemstack.core.engines.worker_child --engine <orca|xtb|crest> --config <path> --queue-root <path> --queue-id <id> --admission-token <token>`.
+  `python -m orca_auto.core.engines.worker_child --engine <orca|xtb|crest> --config <path> --queue-root <path> --queue-id <id> --admission-token <token>`.
   Legacy ORCA worker-job direct execution by reaction directory is not supported.
 
 ## 12) Recommended Workflow
@@ -569,7 +569,7 @@ Compatibility note:
 
 1. `Job directory must be under allowed root`
 - Cause: the job directory path is outside `allowed_root`
-- Action: Check `allowed_root` in `config/chemstack.yaml`
+- Action: Check `allowed_root` in `config/orca_auto.yaml`
 
 2. `Job directory not found`
 - Cause: Path string or quoting problem
@@ -585,7 +585,7 @@ Compatibility note:
 
 5. `error_multiplicity_impossible`
 - Cause: Electron count and multiplicity mismatch
-- Action: Manually adjust the input, because ChemStack ORCA does not rewrite charge or multiplicity
+- Action: Manually adjust the input, because Orca Auto ORCA does not rewrite charge or multiplicity
 
 ## 14) Testing
 

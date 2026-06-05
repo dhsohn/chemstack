@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import registry_store, worker_state_store, workflow_journal
+from orca_auto.flow import registry_store, worker_state_store, workflow_journal
 
 
 @contextmanager

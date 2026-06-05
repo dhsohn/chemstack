@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.core.admission import (
+from orca_auto.core.admission import (
     AdmissionStoreCorruptError,
     activate_reserved_slot,
     active_slot_count,
@@ -14,10 +14,10 @@ from chemstack.core.admission import (
     release_slot,
     reserve_slot,
 )
-from chemstack.core.admission import (
+from orca_auto.core.admission import (
     update_slot_metadata as admission_update_slot_metadata,
 )
-from chemstack.core.admission.store import ADMISSION_FILE_NAME
+from orca_auto.core.admission.store import ADMISSION_FILE_NAME
 
 
 class TestAdmissionStore(unittest.TestCase):
@@ -89,13 +89,13 @@ class TestAdmissionStore(unittest.TestCase):
                 work_dir=reaction_dir,
                 source="queue_run",
                 queue_id="q_meta",
-                app_name="chemstack_orca",
+                app_name="orca_auto_orca",
                 task_id="task_meta_123",
             )
             self.assertIsNotNone(activated)
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0].app_name, "chemstack_orca")
+            self.assertEqual(slots[0].app_name, "orca_auto_orca")
             self.assertEqual(slots[0].task_id, "task_meta_123")
             self.assertEqual(slots[0].work_dir, str(reaction_dir))
 
@@ -145,8 +145,8 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertEqual(removed, 1)
             self.assertEqual(active_slot_count(root), 0)
 
-    @patch("chemstack.core.admission.store._process_start_ticks", return_value=999)
-    @patch("chemstack.core.admission.store.os.kill", return_value=None)
+    @patch("orca_auto.core.admission.store._process_start_ticks", return_value=999)
+    @patch("orca_auto.core.admission.store.os.kill", return_value=None)
     def test_list_slots_treats_pid_reuse_as_stale(
         self,
         mock_alive,
@@ -174,7 +174,7 @@ class TestAdmissionStore(unittest.TestCase):
             mock_alive.assert_called()
             mock_ticks.assert_called()
 
-    @patch("chemstack.core.admission.store.os.kill", return_value=None)
+    @patch("orca_auto.core.admission.store.os.kill", return_value=None)
     def test_list_slots_normalizes_work_dir_payload(self, mock_alive) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -189,7 +189,7 @@ class TestAdmissionStore(unittest.TestCase):
                     "process_start_ticks": None,
                     "source": "queue_run",
                     "acquired_at": "2026-03-20T00:00:00+00:00",
-                    "app_name": "chemstack_orca",
+                    "app_name": "orca_auto_orca",
                     "task_id": "task_123",
                 }
             ]
@@ -212,7 +212,7 @@ class TestAdmissionStore(unittest.TestCase):
                 root,
                 token or "",
                 queue_id="q_123",
-                app_name="chemstack_orca",
+                app_name="orca_auto_orca",
                 task_id="orca_task_123",
                 workflow_id="wf_123",
             )
@@ -221,7 +221,7 @@ class TestAdmissionStore(unittest.TestCase):
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
             self.assertEqual(slots[0].queue_id, "q_123")
-            self.assertEqual(slots[0].app_name, "chemstack_orca")
+            self.assertEqual(slots[0].app_name, "orca_auto_orca")
             self.assertEqual(slots[0].task_id, "orca_task_123")
             self.assertEqual(slots[0].workflow_id, "wf_123")
 
@@ -256,7 +256,7 @@ class TestAdmissionStore(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch(
-                "chemstack.core.admission.store._process_start_ticks",
+                "orca_auto.core.admission.store._process_start_ticks",
                 return_value=777,
             ) as mock_ticks,
         ):

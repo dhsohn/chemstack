@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from chemstack.orca.state_machine import (
+from orca_auto.orca.state_machine import (
     AttemptDecision,
     decide_attempt_outcome,
     is_resumable_state,
@@ -12,8 +12,8 @@ from chemstack.orca.state_machine import (
     parse_analyzer_status,
     state_matches_selected,
 )
-from chemstack.orca.statuses import AnalyzerStatus, RunStatus
-from chemstack.orca.types import RunState
+from orca_auto.orca.statuses import AnalyzerStatus, RunStatus
+from orca_auto.orca.types import RunState
 
 
 def test_parse_analyzer_status_and_decide_attempt_outcome_cover_terminal_and_retry_paths() -> None:
@@ -135,10 +135,10 @@ def test_load_or_create_state_creates_new_state_for_missing_or_mismatched_select
         "final_result": None,
     }
 
-    with patch("chemstack.orca.state_machine.load_state", return_value=None), patch(
-        "chemstack.orca.state_machine.new_state",
+    with patch("orca_auto.orca.state_machine.load_state", return_value=None), patch(
+        "orca_auto.orca.state_machine.new_state",
         return_value=dict(replacement_state),
-    ) as new_state_mock, patch("chemstack.orca.state_machine.save_state") as save_state_mock:
+    ) as new_state_mock, patch("orca_auto.orca.state_machine.save_state") as save_state_mock:
         state, resumed = load_or_create_state(
             reaction_dir,
             selected_inp,
@@ -159,10 +159,10 @@ def test_load_or_create_state_creates_new_state_for_missing_or_mismatched_select
         "attempts": [],
         "final_result": None,
     }
-    with patch("chemstack.orca.state_machine.load_state", return_value=mismatched_loaded_state), patch(
-        "chemstack.orca.state_machine.new_state",
+    with patch("orca_auto.orca.state_machine.load_state", return_value=mismatched_loaded_state), patch(
+        "orca_auto.orca.state_machine.new_state",
         return_value=dict(replacement_state),
-    ) as new_state_mock, patch("chemstack.orca.state_machine.save_state"):
+    ) as new_state_mock, patch("orca_auto.orca.state_machine.save_state"):
         state, resumed = load_or_create_state(
             reaction_dir,
             selected_inp,
@@ -188,9 +188,9 @@ def test_load_or_create_state_resumes_or_resets_and_normalizes_attempts(tmp_path
         "attempts": "bad",
         "final_result": {"reason": "interrupted_by_user"},
     }
-    with patch("chemstack.orca.state_machine.load_state", return_value=resumable_state), patch(
-        "chemstack.orca.state_machine.new_state",
-    ) as new_state_mock, patch("chemstack.orca.state_machine.save_state") as save_state_mock:
+    with patch("orca_auto.orca.state_machine.load_state", return_value=resumable_state), patch(
+        "orca_auto.orca.state_machine.new_state",
+    ) as new_state_mock, patch("orca_auto.orca.state_machine.save_state") as save_state_mock:
         state, resumed = load_or_create_state(
             reaction_dir,
             selected_inp,
@@ -212,9 +212,9 @@ def test_load_or_create_state_resumes_or_resets_and_normalizes_attempts(tmp_path
         "attempts": [],
         "final_result": {"reason": "worker_shutdown"},
     }
-    with patch("chemstack.orca.state_machine.load_state", return_value=resumable_state), patch(
-        "chemstack.orca.state_machine.new_state",
-    ) as new_state_mock, patch("chemstack.orca.state_machine.save_state") as save_state_mock:
+    with patch("orca_auto.orca.state_machine.load_state", return_value=resumable_state), patch(
+        "orca_auto.orca.state_machine.new_state",
+    ) as new_state_mock, patch("orca_auto.orca.state_machine.save_state") as save_state_mock:
         state, resumed = load_or_create_state(
             reaction_dir,
             selected_inp,
@@ -243,10 +243,10 @@ def test_load_or_create_state_resumes_or_resets_and_normalizes_attempts(tmp_path
         "attempts": [],
         "final_result": None,
     }
-    with patch("chemstack.orca.state_machine.load_state", return_value=reset_state), patch(
-        "chemstack.orca.state_machine.new_state",
+    with patch("orca_auto.orca.state_machine.load_state", return_value=reset_state), patch(
+        "orca_auto.orca.state_machine.new_state",
         return_value=dict(replacement_state),
-    ) as new_state_mock, patch("chemstack.orca.state_machine.save_state"):
+    ) as new_state_mock, patch("orca_auto.orca.state_machine.save_state"):
         state, resumed = load_or_create_state(
             reaction_dir,
             selected_inp,

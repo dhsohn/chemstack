@@ -6,8 +6,8 @@ import json
 import os
 from pathlib import Path
 
-from chemstack.orca.dft_index import DFTIndex
-from chemstack.orca.dft_monitor import DFTMonitor
+from orca_auto.orca.dft_index import DFTIndex
+from orca_auto.orca.dft_monitor import DFTMonitor
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 _COMPLETED_OUT = "\n".join([

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.flow import xyz_utils
+from orca_auto.flow import xyz_utils
 
 
 def test_load_xyz_frames_rejects_missing_invalid_and_truncated_inputs(tmp_path: Path) -> None:

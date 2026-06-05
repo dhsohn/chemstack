@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli_systemd
+from orca_auto import cli_systemd
 
 
 def _make_repo(tmp_path: Path) -> tuple[Path, Path]:
-    repo = tmp_path / "chemstack"
+    repo = tmp_path / "orca_auto"
     python_path = repo / ".venv" / "bin" / "python"
-    config_path = repo / "config" / "chemstack.yaml"
+    config_path = repo / "config" / "orca_auto.yaml"
     python_path.parent.mkdir(parents=True)
     config_path.parent.mkdir(parents=True)
     python_path.write_text("#!/usr/bin/env python\n", encoding="utf-8")
@@ -44,21 +44,21 @@ def test_build_systemd_install_plan_renders_repo_and_config_paths(tmp_path: Path
         is_root=lambda: True,
     )
 
-    assert plan.enabled_unit == "chemstack-runtime@alice.target"
+    assert plan.enabled_unit == "orca_auto-runtime@alice.target"
     assert plan.use_sudo is False
     assert plan.warnings == ()
     assert plan.commands == (
         ("systemctl", "daemon-reload"),
-        ("systemctl", "enable", "--now", "chemstack-runtime@alice.target"),
+        ("systemctl", "enable", "--now", "orca_auto-runtime@alice.target"),
     )
 
     unit_by_name = {unit.name: unit for unit in plan.units}
-    worker_content = unit_by_name["chemstack-queue-worker@.service"].content
+    worker_content = unit_by_name["orca_auto-queue-worker@.service"].content
     assert f"WorkingDirectory={repo.resolve(strict=False)}" in worker_content
-    assert f"Environment=CHEMSTACK_CONFIG={config_path.resolve(strict=False)}" in worker_content
+    assert f"Environment=ORCA_AUTO_CONFIG={config_path.resolve(strict=False)}" in worker_content
     assert f"ExecStart={repo.resolve(strict=False)}/.venv/bin/python" in worker_content
-    assert unit_by_name["chemstack-runtime@.target"].destination == (
-        unit_dir.resolve(strict=False) / "chemstack-runtime@.target"
+    assert unit_by_name["orca_auto-runtime@.target"].destination == (
+        unit_dir.resolve(strict=False) / "orca_auto-runtime@.target"
     )
 
 
@@ -75,10 +75,10 @@ def test_build_systemd_install_plan_worker_only_enables_worker_service(tmp_path:
         is_root=lambda: True,
     )
 
-    assert plan.enabled_unit == "chemstack-queue-worker@alice.service"
+    assert plan.enabled_unit == "orca_auto-queue-worker@alice.service"
     assert plan.commands == (
         ("systemctl", "daemon-reload"),
-        ("systemctl", "enable", "chemstack-queue-worker@alice.service"),
+        ("systemctl", "enable", "orca_auto-queue-worker@alice.service"),
     )
 
 
@@ -115,13 +115,13 @@ def test_cmd_systemd_install_writes_units_and_runs_commands(
     assert result == 0
     assert commands == [
         ("systemctl", "daemon-reload"),
-        ("systemctl", "enable", "--now", "chemstack-runtime@alice.target"),
+        ("systemctl", "enable", "--now", "orca_auto-runtime@alice.target"),
     ]
-    assert (unit_dir / "chemstack-queue-worker@.service").exists()
-    assert (unit_dir / "chemstack-runtime@.target").exists()
+    assert (unit_dir / "orca_auto-queue-worker@.service").exists()
+    assert (unit_dir / "orca_auto-runtime@.target").exists()
     captured = capsys.readouterr().out
     assert "installed:" in captured
-    assert "enabled: chemstack-runtime@alice.target" in captured
+    assert "enabled: orca_auto-runtime@alice.target" in captured
 
 
 def test_cmd_systemd_install_dry_run_does_not_write_units(
@@ -152,8 +152,8 @@ def test_cmd_systemd_install_dry_run_does_not_write_units(
     assert not unit_dir.exists()
     captured = capsys.readouterr().out
     assert "systemd install plan:" in captured
-    assert "enable: chemstack-queue-worker@alice.service" in captured
-    assert "systemctl enable --now chemstack-queue-worker@alice.service" in captured
+    assert "enable: orca_auto-queue-worker@alice.service" in captured
+    assert "systemctl enable --now orca_auto-queue-worker@alice.service" in captured
 
 
 def test_full_runtime_warns_when_telegram_is_not_configured(tmp_path: Path) -> None:
@@ -168,18 +168,18 @@ def test_full_runtime_warns_when_telegram_is_not_configured(tmp_path: Path) -> N
         is_root=lambda: True,
     )
 
-    assert plan.enabled_unit == "chemstack-queue-worker@alice.service"
+    assert plan.enabled_unit == "orca_auto-queue-worker@alice.service"
     assert any("Telegram is not fully configured" in warning for warning in plan.warnings)
 
 
 def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
     states = {
-        ("is-active", "chemstack-runtime@alice.target"): "active",
-        ("is-enabled", "chemstack-runtime@alice.target"): "enabled",
-        ("is-active", "chemstack-queue-worker@alice.service"): "active",
-        ("is-enabled", "chemstack-queue-worker@alice.service"): "enabled",
-        ("is-active", "chemstack-bot@alice.service"): "inactive",
-        ("is-enabled", "chemstack-bot@alice.service"): "disabled",
+        ("is-active", "orca_auto-runtime@alice.target"): "active",
+        ("is-enabled", "orca_auto-runtime@alice.target"): "enabled",
+        ("is-active", "orca_auto-queue-worker@alice.service"): "active",
+        ("is-enabled", "orca_auto-queue-worker@alice.service"): "enabled",
+        ("is-active", "orca_auto-bot@alice.service"): "inactive",
+        ("is-enabled", "orca_auto-bot@alice.service"): "disabled",
     }
 
     def _fake_run(
@@ -204,12 +204,12 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
 
     assert result == 0
     output = capsys.readouterr().out
-    assert "ChemStack service status for alice:" in output
+    assert "Orca Auto service status for alice:" in output
     assert "Active" in output
     assert "Startup" not in output
     assert "Enabled" not in output
     assert "worker" in output
-    assert "chemstack-queue-worker@alice.service" in output
+    assert "orca_auto-queue-worker@alice.service" in output
     assert "inactive" in output
 
 
@@ -219,19 +219,19 @@ def test_cmd_service_status_hides_runtime_managed_enabled_noise(
     statuses = (
         cli_systemd.ServiceUnitStatus(
             label="runtime",
-            unit="chemstack-runtime@alice.target",
+            unit="orca_auto-runtime@alice.target",
             active="active",
             enabled="enabled",
         ),
         cli_systemd.ServiceUnitStatus(
             label="worker",
-            unit="chemstack-queue-worker@alice.service",
+            unit="orca_auto-queue-worker@alice.service",
             active="active",
             enabled="disabled",
         ),
         cli_systemd.ServiceUnitStatus(
             label="bot",
-            unit="chemstack-bot@alice.service",
+            unit="orca_auto-bot@alice.service",
             active="active",
             enabled="disabled",
         ),
@@ -256,12 +256,12 @@ def test_cmd_service_status_hides_runtime_managed_enabled_noise(
 
 def test_cmd_service_status_emits_json(capsys: Any) -> None:
     states = {
-        ("is-active", "chemstack-runtime@alice.target"): "active",
-        ("is-enabled", "chemstack-runtime@alice.target"): "enabled",
-        ("is-active", "chemstack-queue-worker@alice.service"): "failed",
-        ("is-enabled", "chemstack-queue-worker@alice.service"): "enabled",
-        ("is-active", "chemstack-bot@alice.service"): "inactive",
-        ("is-enabled", "chemstack-bot@alice.service"): "disabled",
+        ("is-active", "orca_auto-runtime@alice.target"): "active",
+        ("is-enabled", "orca_auto-runtime@alice.target"): "enabled",
+        ("is-active", "orca_auto-queue-worker@alice.service"): "failed",
+        ("is-enabled", "orca_auto-queue-worker@alice.service"): "enabled",
+        ("is-active", "orca_auto-bot@alice.service"): "inactive",
+        ("is-enabled", "orca_auto-bot@alice.service"): "disabled",
     }
 
     def _fake_run(
@@ -331,8 +331,8 @@ def test_cmd_service_restart_prefers_runtime_when_enabled(capsys: Any) -> None:
     )
 
     assert result == 0
-    assert commands[-1] == ("systemctl", "restart", "chemstack-runtime@alice.target")
-    assert "Restarting chemstack-runtime@alice.target" in capsys.readouterr().out
+    assert commands[-1] == ("systemctl", "restart", "orca_auto-runtime@alice.target")
+    assert "Restarting orca_auto-runtime@alice.target" in capsys.readouterr().out
 
 
 def test_cmd_service_restart_falls_back_to_worker_when_runtime_is_disabled() -> None:
@@ -364,7 +364,7 @@ def test_cmd_service_restart_falls_back_to_worker_when_runtime_is_disabled() -> 
     )
 
     assert result == 0
-    assert commands[-1] == ("systemctl", "restart", "chemstack-queue-worker@alice.service")
+    assert commands[-1] == ("systemctl", "restart", "orca_auto-queue-worker@alice.service")
 
 
 def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
@@ -379,7 +379,7 @@ def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
         Namespace(target_user=None),
         deps=Namespace(
             _default_service_user=lambda: "alice",
-            _restart_unit_for_user=lambda target_user, run: f"chemstack-runtime@{target_user}.target",
+            _restart_unit_for_user=lambda target_user, run: f"orca_auto-runtime@{target_user}.target",
             is_root=lambda: False,
             run=_fake_run,
             which=lambda name: f"/usr/bin/{name}" if name in {"systemctl", "sudo"} else None,
@@ -387,7 +387,7 @@ def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
     )
 
     assert result == 0
-    assert commands == [("sudo", "systemctl", "restart", "chemstack-runtime@alice.target")]
+    assert commands == [("sudo", "systemctl", "restart", "orca_auto-runtime@alice.target")]
 
 
 def _single_unit_plan(
@@ -399,12 +399,12 @@ def _single_unit_plan(
     return cli_systemd.SystemdInstallPlan(
         target_user="alice",
         repo=tmp_path,
-        config=tmp_path / "config" / "chemstack.yaml",
+        config=tmp_path / "config" / "orca_auto.yaml",
         unit_dir=tmp_path / "units",
         units=(
             cli_systemd.RenderedUnit(
-                name="chemstack-test.service",
-                destination=tmp_path / "units" / "chemstack-test.service",
+                name="orca_auto-test.service",
+                destination=tmp_path / "units" / "orca_auto-test.service",
                 content="[Unit]\nDescription=Test\n",
             ),
         ),
@@ -431,7 +431,7 @@ def test_apply_systemd_install_plan_requires_sudo_when_plan_uses_sudo(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("chemstack.cli_systemd_apply.shutil.which", lambda name: None)
+    monkeypatch.setattr("orca_auto.cli_systemd_apply.shutil.which", lambda name: None)
 
     assert cli_systemd.apply_systemd_install_plan(_single_unit_plan(tmp_path, use_sudo=True)) == 1
     assert "sudo is required to write system units" in capsys.readouterr().err
@@ -443,7 +443,7 @@ def test_apply_systemd_install_plan_stops_when_sudo_write_command_fails(
 ) -> None:
     commands: list[tuple[str, ...]] = []
     monkeypatch.setattr(
-        "chemstack.cli_systemd_apply.shutil.which",
+        "orca_auto.cli_systemd_apply.shutil.which",
         lambda name: "/usr/bin/sudo" if name == "sudo" else None,
     )
 
@@ -488,7 +488,7 @@ def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) ->
     statuses = (
         cli_systemd.ServiceUnitStatus(
             label="runtime",
-            unit="chemstack-runtime@alice.target",
+            unit="orca_auto-runtime@alice.target",
             active="failed",
             enabled="enabled",
         ),

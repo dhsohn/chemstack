@@ -6,15 +6,15 @@ import unittest
 from pathlib import Path
 from typing import Mapping
 
-from chemstack.orca.result_organizer import (
+from orca_auto.orca.result_organizer import (
     check_conflict,
     check_eligibility,
     compute_organize_plan,
     detect_job_type,
     plan_root_scan,
 )
-from chemstack.orca.state import load_state, save_state, state_path, write_report_files
-from chemstack.orca.types import RunState
+from orca_auto.orca.state import load_state, save_state, state_path, write_report_files
+from orca_auto.orca.types import RunState
 
 
 def _write_state(reaction_dir: Path, state: Mapping[str, object]) -> None:

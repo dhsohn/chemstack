@@ -6,13 +6,13 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
-from chemstack.flow.adapters.crest import (
+from orca_auto.flow.adapters import _engine_adapter_helpers as adapter_helpers
+from orca_auto.flow.adapters.crest import (
     load_crest_artifact_contract,
     select_crest_downstream_inputs,
 )
-from chemstack.flow.contracts.crest import CrestDownstreamPolicy
-from chemstack.flow.state import (
+from orca_auto.flow.contracts.crest import CrestDownstreamPolicy
+from orca_auto.flow.state import (
     WORKFLOW_FILE_NAME,
     WORKFLOW_LOCK_NAME,
     iter_workflow_runtime_workspaces,
@@ -417,7 +417,7 @@ def test_load_crest_artifact_contract_uses_state_and_index_fallbacks_for_resourc
         [
             {
                 "job_id": "crest_job_01",
-                "app_name": "chemstack_crest",
+                "app_name": "orca_auto_crest",
                 "job_type": "screen",
                 "status": "completed",
                 "original_run_dir": str(missing_original),
@@ -514,7 +514,7 @@ def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: 
         [
             {
                 "job_id": "crest_wrong_app",
-                "app_name": "chemstack_xtb",
+                "app_name": "orca_auto_xtb",
                 "job_type": "screen",
                 "status": "completed",
                 "original_run_dir": str(job_dir),
@@ -527,7 +527,7 @@ def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: 
         artifact_payload(engine="crest", job_id="crest_wrong_app", job_dir=str(job_dir)),
     )
 
-    with pytest.raises(ValueError, match="Expected chemstack_crest index record"):
+    with pytest.raises(ValueError, match="Expected orca_auto_crest index record"):
         load_crest_artifact_contract(crest_index_root=index_root, target="crest_wrong_app")
 
 
@@ -570,7 +570,7 @@ def test_load_crest_artifact_contract_remaps_stale_paths_to_organized_outputs(tm
         [
             {
                 "job_id": "crest_job_organized",
-                "app_name": "chemstack_crest",
+                "app_name": "orca_auto_crest",
                 "job_type": "standard",
                 "status": "completed",
                 "original_run_dir": str(original_dir),

@@ -36,7 +36,7 @@ if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1; then
 import sys
 raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
 PY
-  echo "[bootstrap] ERROR: ChemStack requires Python 3.11 or newer."
+  echo "[bootstrap] ERROR: Orca Auto requires Python 3.11 or newer."
   echo "[bootstrap] Install Python 3.11+ or rerun with PYTHON_BIN=/path/to/python3.11."
   exit 1
 fi
@@ -63,16 +63,16 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 
-CONFIG="$ROOT/config/chemstack.yaml"
+CONFIG="$ROOT/config/orca_auto.yaml"
 if [[ ! -f "$CONFIG" ]]; then
-  cp "$ROOT/config/chemstack.yaml.example" "$CONFIG"
-  echo "[bootstrap] Created config/chemstack.yaml from example template."
-  echo "[bootstrap] Edit config/chemstack.yaml and replace /path/to/... placeholders before first run."
+  cp "$ROOT/config/orca_auto.yaml.example" "$CONFIG"
+  echo "[bootstrap] Created config/orca_auto.yaml from example template."
+  echo "[bootstrap] Edit config/orca_auto.yaml and replace /path/to/... placeholders before first run."
 fi
 chmod 600 "$CONFIG"
-echo "[bootstrap] Secured config/chemstack.yaml permissions to 600."
+echo "[bootstrap] Secured config/orca_auto.yaml permissions to 600."
 
 echo "[bootstrap] Done."
 echo "[bootstrap] Next: source .venv/bin/activate"
-echo "[bootstrap] Example: chemstack init"
-echo "[bootstrap] Optional auto-start on WSL: see systemd/README.md and enable chemstack-runtime@$(whoami) after configuring Telegram."
+echo "[bootstrap] Example: orca_auto init"
+echo "[bootstrap] Optional auto-start on WSL: see systemd/README.md and enable orca_auto-runtime@$(whoami) after configuring Telegram."

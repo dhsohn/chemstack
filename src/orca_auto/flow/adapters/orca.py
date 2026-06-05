@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+from functools import partial
+from pathlib import Path
+
+from orca_auto.core.utils.coercion import (
+    coerce_int_mapping,
+    normalize_bool,
+    normalize_text,
+    safe_int,
+)
+
+from ..contracts.orca import OrcaArtifactContract
+from . import _orca_contract_status as _contract_status
+from . import _orca_local_lookup as _local_lookup
+from . import _orca_path_helpers as _path_helpers
+from . import _orca_tracking
+from ._orca_contract_assembly import (
+    OrcaContractLoaderDeps,
+    contract_from_orca_payload_impl,
+    load_orca_artifact_contract_impl,
+)
+
+
+def _contract_loader_deps() -> OrcaContractLoaderDeps:
+    return OrcaContractLoaderDeps(
+        path_type=Path,
+        normalize_text_fn=normalize_text,
+        normalize_bool_fn=normalize_bool,
+        safe_int_fn=safe_int,
+        tracked_runtime_context_fn=_orca_tracking.tracked_runtime_context_impl,
+        tracked_artifact_context_fn=_orca_tracking.tracked_artifact_context_impl,
+        find_queue_entry_fn=_local_lookup.find_queue_entry_impl,
+        queue_entry_metadata_value_fn=_local_lookup.queue_entry_metadata_value_impl,
+        resolve_candidate_path_fn=_path_helpers.resolve_candidate_path_impl,
+        direct_dir_target_fn=_path_helpers.direct_dir_target_impl,
+        record_organized_dir_fn=_local_lookup.record_organized_dir_impl,
+        load_json_dict_fn=_local_lookup.load_json_dict_impl,
+        load_tracked_organized_ref_fn=_local_lookup.load_tracked_organized_ref_impl,
+        status_from_payloads_fn=partial(
+            _contract_status.status_from_payloads_impl,
+            normalize_text_fn=normalize_text,
+            normalize_bool_fn=normalize_bool,
+        ),
+        resolve_artifact_path_fn=_path_helpers.resolve_artifact_path_impl,
+        derive_selected_input_xyz_fn=_path_helpers.derive_selected_input_xyz_impl,
+        prefer_orca_optimized_xyz_fn=_path_helpers.prefer_orca_optimized_xyz_impl,
+        is_subpath_fn=_path_helpers.is_subpath_impl,
+        coerce_resource_dict_fn=coerce_int_mapping,
+        attempt_count_fn=partial(_contract_status.attempt_count_impl, safe_int_fn=safe_int),
+        max_retries_fn=partial(_contract_status.max_retries_impl, safe_int_fn=safe_int),
+        coerce_attempts_fn=partial(
+            _contract_status.coerce_attempts_impl,
+            normalize_text_fn=normalize_text,
+            safe_int_fn=safe_int,
+        ),
+        final_result_payload_fn=_contract_status.final_result_payload_impl,
+        contract_cls=OrcaArtifactContract,
+    )
+
+
+def load_orca_artifact_contract(
+    *,
+    target: str,
+    orca_allowed_root: str | Path | None = None,
+    orca_organized_root: str | Path | None = None,
+    queue_id: str = "",
+    run_id: str = "",
+    reaction_dir: str = "",
+) -> OrcaArtifactContract:
+    deps = _contract_loader_deps()
+    allowed_root = Path(orca_allowed_root).expanduser().resolve() if orca_allowed_root else None
+    organized_root = (
+        Path(orca_organized_root).expanduser().resolve() if orca_organized_root else None
+    )
+    payload = _orca_tracking.load_orca_contract_payload_impl(
+        index_root=allowed_root,
+        organized_root=organized_root,
+        target=target,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+    )
+    if payload is not None:
+        return contract_from_orca_payload_impl(
+            payload=payload,
+            target=target,
+            queue_id=queue_id,
+            run_id=run_id,
+            reaction_dir=reaction_dir,
+            deps=deps,
+        )
+
+    return load_orca_artifact_contract_impl(
+        target=target,
+        orca_allowed_root=allowed_root,
+        orca_organized_root=organized_root,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+        deps=deps,
+    )
+
+
+__all__ = [
+    "load_orca_artifact_contract",
+]

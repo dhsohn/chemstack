@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.admission import release_slot, reserve_slot
-from chemstack.flow import runtime, runtime_events
+from orca_auto.core.admission import release_slot, reserve_slot
+from orca_auto.flow import runtime, runtime_events
 
 
 def _registry_record(
@@ -659,7 +659,7 @@ def test_advance_workflow_registry_once_defers_submission_when_admission_full(
     )
     advance_calls: list[dict[str, Any]] = []
     admission_root = tmp_path / "admission"
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(
         "\n".join(
             [

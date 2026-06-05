@@ -10,33 +10,33 @@ from typing import Any, cast
 
 import pytest
 
-from chemstack.flow import orchestration
-from chemstack.flow.contracts import WorkflowStageInput
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow import orchestration
+from orca_auto.flow.contracts import WorkflowStageInput
+from orca_auto.flow.orchestration.steps import (
     append_crest_orca_stages_impl as _append_crest_orca_stages,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     append_reaction_orca_stages_impl as _append_reaction_orca_stages,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     completed_crest_roles_impl as _completed_crest_roles,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     completed_crest_stage_impl as _completed_crest_stage,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     completed_orca_stage_impl as _completed_orca_stage,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     copy_input_impl as _copy_input_impl,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
     latest_child_stage_summary_impl,
@@ -45,35 +45,35 @@ from chemstack.flow.orchestration.steps import (
     stage_failure_is_recoverable_impl,
     workflow_has_active_children_impl,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     reaction_ts_guess_error_impl as _reaction_ts_guess_error,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     stage_metadata_impl as _stage_metadata,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     sync_xtb_stage_impl as _sync_xtb_stage,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     task_payload_dict_impl as _task_payload_dict,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     xtb_path_retry_limit_impl as _xtb_path_retry_limit,
 )
-from chemstack.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.steps import (
     xtb_retry_recipe_impl as _xtb_retry_recipe,
 )
 
 
 def _has_contract_lookup_log(caplog: pytest.LogCaptureFixture, engine: str) -> bool:
     return any(
-        record.name == "chemstack.flow.orchestration.stage_runtime.shared"
+        record.name == "orca_auto.flow.orchestration.stage_runtime.shared"
         and record.levelno == logging.DEBUG
         and f"Failed to load {engine} artifact contract" in record.getMessage()
         and record.exc_info
@@ -308,7 +308,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
             )
         }
     )
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow.orchestration.stage_runtime.shared")
+    caplog.set_level(logging.DEBUG, logger="orca_auto.flow.orchestration.stage_runtime.shared")
     _sync_xtb_stage(
         failing_stage,
         xtb_config=None,
@@ -324,7 +324,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
 def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow.orchestration.stage_runtime.shared")
+    caplog.set_level(logging.DEBUG, logger="orca_auto.flow.orchestration.stage_runtime.shared")
     payload: dict[str, Any] = {
         "stages": [
             "skip",

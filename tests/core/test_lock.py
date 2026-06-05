@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.utils.lock import file_lock
+from orca_auto.core.utils.lock import file_lock
 
 
 def _hold_lock_until_released(lock_path: str, ready, release) -> None:
@@ -17,8 +17,8 @@ def _hold_lock_until_released(lock_path: str, ready, release) -> None:
 
 def test_file_lock_writes_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     lock_path = tmp_path / "nested" / "resource.lock"
-    monkeypatch.setattr("chemstack.core.utils.lock.os.getpid", lambda: 4321)
-    monkeypatch.setattr("chemstack.core.utils.lock.now_utc_iso", lambda: "2026-04-19T12:34:56+00:00")
+    monkeypatch.setattr("orca_auto.core.utils.lock.os.getpid", lambda: 4321)
+    monkeypatch.setattr("orca_auto.core.utils.lock.now_utc_iso", lambda: "2026-04-19T12:34:56+00:00")
 
     with file_lock(lock_path):
         contents = lock_path.read_text(encoding="utf-8")
@@ -61,7 +61,7 @@ def test_file_lock_ignores_unlock_oserror(tmp_path: Path, monkeypatch: pytest.Mo
         if flags & fcntl.LOCK_UN:
             raise OSError("unlock failed")
 
-    monkeypatch.setattr("chemstack.core.utils.lock.fcntl.flock", fake_flock)
+    monkeypatch.setattr("orca_auto.core.utils.lock.fcntl.flock", fake_flock)
 
     with file_lock(lock_path):
         pass

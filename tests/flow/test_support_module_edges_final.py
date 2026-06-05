@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.utils.coercion import coerce_int_mapping, normalize_text
-from chemstack.flow import _orca_stage_materialization as orca_stage_utils
-from chemstack.flow import _registry_notifications as registry_notifications
-from chemstack.flow import (
+from orca_auto.core.utils.coercion import coerce_int_mapping, normalize_text
+from orca_auto.flow import _orca_stage_materialization as orca_stage_utils
+from orca_auto.flow import _registry_notifications as registry_notifications
+from orca_auto.flow import (
     engine_runtime,
     registry,
     registry_store,
@@ -20,17 +20,17 @@ from chemstack.flow import (
     workflow_journal,
     xyz_utils,
 )
-from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
-from chemstack.flow.adapters import crest as crest_adapter
-from chemstack.flow.adapters import xtb as xtb_adapter
-from chemstack.flow.contracts.crest import (
+from orca_auto.flow.adapters import _engine_adapter_helpers as adapter_helpers
+from orca_auto.flow.adapters import crest as crest_adapter
+from orca_auto.flow.adapters import xtb as xtb_adapter
+from orca_auto.flow.contracts.crest import (
     CrestArtifactContract,
     CrestDownstreamPolicy,
     to_workflow_stage_inputs,
 )
-from chemstack.flow.contracts.orca import OrcaArtifactContract
-from chemstack.flow.contracts.workflow import WorkflowArtifactRef, WorkflowTask
-from chemstack.flow.contracts.xtb import (
+from orca_auto.flow.contracts.orca import OrcaArtifactContract
+from orca_auto.flow.contracts.workflow import WorkflowArtifactRef, WorkflowTask
+from orca_auto.flow.contracts.xtb import (
     WorkflowStageInput,
     XtbArtifactContract,
     XtbCandidateArtifact,
@@ -97,9 +97,9 @@ def test_build_orca_enqueue_payload_includes_resource_override_flags() -> None:
     assert payload["command_argv"] == [
         "python",
         "-m",
-        "chemstack.cli",
+        "orca_auto.cli",
         "--config",
-        "<chemstack_config>",
+        "<orca_auto_config>",
         "run-dir",
         "/tmp/rxn",
         "--priority",
@@ -133,7 +133,7 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
         [
             {
                 "job_id": "crest_missing_payload",
-                "app_name": "chemstack_crest",
+                "app_name": "orca_auto_crest",
                 "job_type": "standard",
                 "status": "completed",
                 "latest_known_path": str(tmp_path / "crest_job"),
@@ -153,7 +153,7 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
         [
             {
                 "job_id": "xtb_missing_payload",
-                "app_name": "chemstack_xtb",
+                "app_name": "orca_auto_xtb",
                 "job_type": "xtb_path_search",
                 "status": "completed",
                 "latest_known_path": str(tmp_path / "xtb_job"),
@@ -255,11 +255,11 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     assert registry_store._coerce_counts("bad") == {}
     assert registry_store._coerce_counts({"": 1, "ok": "2", "bad": "x"}) == {"ok": 2}
 
-    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_NOTIFY_EVENT_TYPES", raising=False)
     assert registry_notifications.notification_event_types_from_env()
-    monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "yes")
+    monkeypatch.setenv("ORCA_AUTO_FLOW_NOTIFY_DISABLED", "yes")
     assert registry_notifications.journal_notification_enabled("workflow_status_changed") is False
-    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", raising=False)
+    monkeypatch.delenv("ORCA_AUTO_FLOW_NOTIFY_DISABLED", raising=False)
 
     sent: list[str] = []
     monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)

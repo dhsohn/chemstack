@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca import run_cleanup
-from chemstack.orca.run_snapshot import RunSnapshot
-from chemstack.orca.state import save_state, state_path
+from orca_auto.orca import run_cleanup
+from orca_auto.orca.run_snapshot import RunSnapshot
+from orca_auto.orca.state import save_state, state_path
 
 
 def _snapshot(
@@ -81,7 +81,7 @@ def test_clear_terminal_run_states_clears_tracked_and_untracked_terminal_states(
             [
                 {
                     "job_id": "job_tracked",
-                    "app_name": "chemstack_orca",
+                    "app_name": "orca_auto_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(allowed_root / "project" / "rxn_tracked"),
@@ -129,12 +129,12 @@ def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error
         return original_unlink(self, *args, **kwargs)
 
     with patch(
-        "chemstack.orca.run_cleanup.collect_run_snapshots",
+        "orca_auto.orca.run_cleanup.collect_run_snapshots",
         return_value=[missing_snapshot, failed_snapshot, success_snapshot, running_snapshot],
     ), patch(
         "pathlib.Path.unlink",
         new=fake_unlink,
-    ), patch("chemstack.orca.run_cleanup.logger.warning") as warning:
+    ), patch("orca_auto.orca.run_cleanup.logger.warning") as warning:
         cleared = run_cleanup.clear_terminal_run_states(allowed_root)
 
     assert cleared == 1
@@ -148,8 +148,8 @@ def test_clear_terminal_entries_reports_queue_and_run_state_counts(tmp_path: Pat
     allowed_root = tmp_path / "orca_runs"
     allowed_root.mkdir()
 
-    with patch("chemstack.orca.run_cleanup.clear_terminal", return_value=2), patch(
-        "chemstack.orca.run_cleanup.clear_terminal_run_states",
+    with patch("orca_auto.orca.run_cleanup.clear_terminal", return_value=2), patch(
+        "orca_auto.orca.run_cleanup.clear_terminal_run_states",
         return_value=3,
     ):
         assert run_cleanup.clear_terminal_entries(allowed_root) == (2, 3)

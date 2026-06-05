@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.flow.contracts import OrcaArtifactContract
-from chemstack.flow.orchestration.deps import orchestration_deps
-from chemstack.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
-from chemstack.flow.orchestration.support import (
+from orca_auto.flow.contracts import OrcaArtifactContract
+from orca_auto.flow.orchestration.deps import orchestration_deps
+from orca_auto.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
+from orca_auto.flow.orchestration.support import (
     clear_reaction_xtb_handoff_error_if_recovering_impl,
     reaction_orca_source_candidate_path_impl,
 )

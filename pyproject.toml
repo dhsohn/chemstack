@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chemstack"
+name = "orca_auto"
 version = "0.1.0"
-description = "ChemStack monorepo for ORCA, xTB, CREST, and workflow automation"
+description = "Orca Auto monorepo for ORCA, xTB, CREST, and workflow automation"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -36,9 +36,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dhsohn/chemstack"
-Repository = "https://github.com/dhsohn/chemstack"
-Issues = "https://github.com/dhsohn/chemstack/issues"
+Homepage = "https://github.com/dhsohn/orca_auto"
+Repository = "https://github.com/dhsohn/orca_auto"
+Issues = "https://github.com/dhsohn/orca_auto/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -50,11 +50,11 @@ dev = [
 ]
 
 [project.scripts]
-chemstack = "chemstack.cli:main"
+orca_auto = "orca_auto.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["chemstack*"]
+include = ["orca_auto*"]
 
 [tool.ruff]
 target-version = "py311"
@@ -65,7 +65,7 @@ select = ["E4", "E7", "E9", "F", "I", "B"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src/chemstack", "tests"]
+files = ["src/orca_auto", "tests"]
 mypy_path = "src"
 pretty = true
 show_error_codes = true
@@ -74,37 +74,37 @@ explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 module = [
-    "chemstack.core.app_ids",
-    "chemstack.core.activity_icons",
-    "chemstack.core.admission.persistence",
-    "chemstack.core.admission.records",
-    "chemstack.core.artifacts",
-    "chemstack.core.config.files",
-    "chemstack.core.config.schema",
-    "chemstack.core.engines.artifacts",
-    "chemstack.core.indexing.engine_records",
-    "chemstack.core.indexing.engines",
-    "chemstack.core.indexing.location",
-    "chemstack.core.indexing.text",
-    "chemstack.core.notifications.engine_requests",
-    "chemstack.core.notifications.engine_validation",
-    "chemstack.core.notifications.telegram_config",
-    "chemstack.core.notifications.telegram_format",
-    "chemstack.core.paths",
-    "chemstack.core.paths.*",
-    "chemstack.core.queue.cancellable",
-    "chemstack.core.queue.metadata",
-    "chemstack.core.queue.persistence",
-    "chemstack.core.queue.processes",
-    "chemstack.core.queue.resource_requests",
-    "chemstack.core.queue.types",
-    "chemstack.core.queue.worker_models",
-    "chemstack.core.queue.worker_signals",
-    "chemstack.core.statuses",
-    "chemstack.core.utils.coercion",
-    "chemstack.core.utils.lock",
-    "chemstack.core.utils.persistence",
-    "chemstack.core.utils.process",
+    "orca_auto.core.app_ids",
+    "orca_auto.core.activity_icons",
+    "orca_auto.core.admission.persistence",
+    "orca_auto.core.admission.records",
+    "orca_auto.core.artifacts",
+    "orca_auto.core.config.files",
+    "orca_auto.core.config.schema",
+    "orca_auto.core.engines.artifacts",
+    "orca_auto.core.indexing.engine_records",
+    "orca_auto.core.indexing.engines",
+    "orca_auto.core.indexing.location",
+    "orca_auto.core.indexing.text",
+    "orca_auto.core.notifications.engine_requests",
+    "orca_auto.core.notifications.engine_validation",
+    "orca_auto.core.notifications.telegram_config",
+    "orca_auto.core.notifications.telegram_format",
+    "orca_auto.core.paths",
+    "orca_auto.core.paths.*",
+    "orca_auto.core.queue.cancellable",
+    "orca_auto.core.queue.metadata",
+    "orca_auto.core.queue.persistence",
+    "orca_auto.core.queue.processes",
+    "orca_auto.core.queue.resource_requests",
+    "orca_auto.core.queue.types",
+    "orca_auto.core.queue.worker_models",
+    "orca_auto.core.queue.worker_signals",
+    "orca_auto.core.statuses",
+    "orca_auto.core.utils.coercion",
+    "orca_auto.core.utils.lock",
+    "orca_auto.core.utils.persistence",
+    "orca_auto.core.utils.process",
 ]
 check_untyped_defs = true
 disallow_any_generics = true
@@ -116,7 +116,7 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.coverage.run]
-source = ["src/chemstack"]
+source = ["src/orca_auto"]
 
 [tool.coverage.report]
 fail_under = 80

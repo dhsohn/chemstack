@@ -7,13 +7,13 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.app_ids import (
-    CHEMSTACK_CONFIG_ENV_VAR,
-    CHEMSTACK_ORCA_SOURCE,
-    CHEMSTACK_REPO_ROOT_ENV_VAR,
+from orca_auto.core.app_ids import (
+    ORCA_AUTO_CONFIG_ENV_VAR,
+    ORCA_AUTO_ORCA_SOURCE,
+    ORCA_AUTO_REPO_ROOT_ENV_VAR,
 )
-from chemstack.core.queue.types import QueueEntry, QueueStatus
-from chemstack.flow import (
+from orca_auto.core.queue.types import QueueEntry, QueueStatus
+from orca_auto.flow import (
     _activity_cancel,
     _activity_list,
     _activity_model,
@@ -75,7 +75,7 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
 
     crest_entry = QueueEntry(
         queue_id="crest-q-1",
-        app_name="chemstack_crest",
+        app_name="orca_auto_crest",
         task_id="crest-job-1",
         task_kind="crest_run_dir",
         engine="crest",
@@ -86,7 +86,7 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
     )
     xtb_entry = QueueEntry(
         queue_id="xtb-q-1",
-        app_name="chemstack_xtb",
+        app_name="orca_auto_xtb",
         task_id="xtb-job-1",
         task_kind="xtb_run_dir",
         engine="xtb",
@@ -111,7 +111,7 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
                 engine="orca",
                 status="running",
                 label="ts-run-1",
-                source="chemstack_orca",
+                source="orca_auto_orca",
                 submitted_at="2026-04-20T10:04:00+00:00",
                 updated_at="2026-04-20T10:07:00+00:00",
                 cancel_target="orca-q-1",
@@ -216,7 +216,7 @@ def test_cancel_activity_routes_workflow_targets(monkeypatch) -> None:
                 engine="xtb",
                 status="running",
                 label="wf-9",
-                source="chemstack_flow",
+                source="orca_auto_flow",
                 submitted_at="2026-04-20T10:00:00+00:00",
                 updated_at="2026-04-20T10:00:00+00:00",
                 cancel_target="wf-9",
@@ -235,7 +235,7 @@ def test_cancel_activity_routes_workflow_targets(monkeypatch) -> None:
 
     assert payload["activity_id"] == "wf-9"
     assert payload["status"] == "cancelled"
-    assert payload["source"] == "chemstack_flow"
+    assert payload["source"] == "orca_auto_flow"
 
 
 def test_cancel_activity_routes_xtb_targets(monkeypatch) -> None:
@@ -249,7 +249,7 @@ def test_cancel_activity_routes_xtb_targets(monkeypatch) -> None:
                 engine="xtb",
                 status="running",
                 label="rxn-a",
-                source="chemstack_xtb",
+                source="orca_auto_xtb",
                 submitted_at="2026-04-20T10:00:00+00:00",
                 updated_at="2026-04-20T10:01:00+00:00",
                 cancel_target="xtb-q-1",
@@ -268,7 +268,7 @@ def test_cancel_activity_routes_xtb_targets(monkeypatch) -> None:
 
     assert payload["activity_id"] == "xtb-q-1"
     assert payload["status"] == "cancel_requested"
-    assert payload["source"] == "chemstack_xtb"
+    assert payload["source"] == "orca_auto_xtb"
 
 
 def test_activity_helper_edges_and_discovery_paths(
@@ -284,7 +284,7 @@ def test_activity_helper_edges_and_discovery_paths(
     assert _activity_sources.discover_workflow_root(tmp_path / "wf") == str(
         (tmp_path / "wf").resolve()
     )
-    monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, str(existing))
+    monkeypatch.setenv(ORCA_AUTO_CONFIG_ENV_VAR, str(existing))
     assert _activity_sources.discover_shared_config(None) == str(existing.resolve())
     assert _activity_sources.discover_shared_config(str(existing)) == str(existing.resolve())
     resolved = _activity_sources.resolve_activity_source_request(
@@ -297,7 +297,7 @@ def test_activity_helper_edges_and_discovery_paths(
     assert resolved.xtb_config == str(existing.resolve())
     assert resolved.orca_config == str(existing.resolve())
 
-    monkeypatch.setenv(CHEMSTACK_REPO_ROOT_ENV_VAR, str(tmp_path / "repo"))
+    monkeypatch.setenv(ORCA_AUTO_REPO_ROOT_ENV_VAR, str(tmp_path / "repo"))
     assert _activity_sources.discover_orca_repo_root(None) == str((tmp_path / "repo").resolve())
     assert _activity_sources.discover_orca_repo_root(str(tmp_path / "explicit")) == str(
         (tmp_path / "explicit").resolve()
@@ -381,7 +381,7 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     entries = [
         QueueEntry(
             queue_id="q-1",
-            app_name="chemstack_orca",
+            app_name="orca_auto_orca",
             task_id="task-1",
             task_kind="orca_run",
             engine="orca",
@@ -399,7 +399,7 @@ def test_orca_records_merge_queue_entries_and_snapshots(
         ),
         QueueEntry(
             queue_id="q-2",
-            app_name="chemstack_orca",
+            app_name="orca_auto_orca",
             task_id="task-2",
             task_kind="orca_run",
             engine="orca",
@@ -440,7 +440,7 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     ]
     reconciled: list[Path] = []
 
-    from chemstack.orca import queue_adapter, run_snapshot
+    from orca_auto.orca import queue_adapter, run_snapshot
 
     monkeypatch.setattr(
         activity, "engine_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed}
@@ -471,10 +471,10 @@ def test_orca_records_merge_queue_entries_and_snapshots(
 def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     records = [
         activity.ActivityRecord(
-            "a", "job", "xtb", "running", "A", "chemstack_xtb", "", "", "target", aliases=("same",)
+            "a", "job", "xtb", "running", "A", "orca_auto_xtb", "", "", "target", aliases=("same",)
         ),
         activity.ActivityRecord(
-            "b", "job", "xtb", "running", "B", "chemstack_xtb", "", "", "target", aliases=("same",)
+            "b", "job", "xtb", "running", "B", "orca_auto_xtb", "", "", "target", aliases=("same",)
         ),
     ]
     with pytest.raises(ValueError, match="empty"):
@@ -497,7 +497,7 @@ def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.Monkey
 
     collect_one(
         activity.ActivityRecord(
-            "crest", "job", "crest", "running", "C", "chemstack_crest", "", "", "crest-q"
+            "crest", "job", "crest", "running", "C", "orca_auto_crest", "", "", "crest-q"
         )
     )
     with pytest.raises(ValueError, match="crest_config"):
@@ -505,7 +505,7 @@ def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.Monkey
 
     collect_one(
         activity.ActivityRecord(
-            "xtb", "job", "xtb", "running", "X", "chemstack_xtb", "", "", "xtb-q"
+            "xtb", "job", "xtb", "running", "X", "orca_auto_xtb", "", "", "xtb-q"
         )
     )
     with pytest.raises(ValueError, match="xtb_config"):
@@ -513,10 +513,10 @@ def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.Monkey
 
     collect_one(
         activity.ActivityRecord(
-            "orca", "job", "orca", "running", "O", CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"
+            "orca", "job", "orca", "running", "O", ORCA_AUTO_ORCA_SOURCE, "", "", "orca-q"
         )
     )
-    with pytest.raises(ValueError, match="chemstack_config"):
+    with pytest.raises(ValueError, match="orca_auto_config"):
         activity.cancel_activity(target="orca-q")
 
     collect_one(
@@ -529,10 +529,10 @@ def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.Monkey
 def test_cancel_activity_routes_crest_and_orca_targets(monkeypatch: pytest.MonkeyPatch) -> None:
     records = {
         "crest-q": activity.ActivityRecord(
-            "crest-q", "job", "crest", "running", "C", "chemstack_crest", "", "", "crest-q"
+            "crest-q", "job", "crest", "running", "C", "orca_auto_crest", "", "", "crest-q"
         ),
         "orca-q": activity.ActivityRecord(
-            "orca-q", "job", "orca", "running", "O", CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"
+            "orca-q", "job", "orca", "running", "O", ORCA_AUTO_ORCA_SOURCE, "", "", "orca-q"
         ),
     }
     monkeypatch.setattr(
@@ -556,7 +556,7 @@ def test_cancel_activity_routes_crest_and_orca_targets(monkeypatch: pytest.Monke
 
 
 def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatch) -> None:
-    import chemstack.orca.run_cleanup as orca_run_cleanup
+    import orca_auto.orca.run_cleanup as orca_run_cleanup
 
     captured_statuses: tuple[str, ...] = ()
 
@@ -598,9 +598,9 @@ def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatc
 
     payload = activity.clear_activities(
         workflow_root="/tmp/workflows",
-        crest_config="/tmp/chemstack.yaml",
-        xtb_config="/tmp/chemstack.yaml",
-        orca_config="/tmp/chemstack.yaml",
+        crest_config="/tmp/orca_auto.yaml",
+        xtb_config="/tmp/orca_auto.yaml",
+        orca_config="/tmp/orca_auto.yaml",
     )
 
     assert payload["total_cleared"] == 17
@@ -661,7 +661,7 @@ def test_list_activities_autodiscovers_defaults_when_no_args(monkeypatch) -> Non
     monkeypatch.setattr(
         _activity_sources,
         "discover_shared_config",
-        lambda explicit: "/tmp/chemstack.yaml",
+        lambda explicit: "/tmp/orca_auto.yaml",
     )
     captured: dict[str, Any] = {}
 
@@ -676,14 +676,14 @@ def test_list_activities_autodiscovers_defaults_when_no_args(monkeypatch) -> Non
     assert payload["count"] == 0
     assert payload["sources"] == {
         "workflow_root": str(Path("/tmp/workflow_root").resolve()),
-        "crest_config": "/tmp/chemstack.yaml",
-        "xtb_config": "/tmp/chemstack.yaml",
-        "orca_config": "/tmp/chemstack.yaml",
+        "crest_config": "/tmp/orca_auto.yaml",
+        "xtb_config": "/tmp/orca_auto.yaml",
+        "orca_config": "/tmp/orca_auto.yaml",
     }
     assert captured["workflow_root"] == "/tmp/workflow_root"
-    assert captured["crest_config"] == "/tmp/chemstack.yaml"
-    assert captured["xtb_config"] == "/tmp/chemstack.yaml"
-    assert captured["orca_config"] == "/tmp/chemstack.yaml"
+    assert captured["crest_config"] == "/tmp/orca_auto.yaml"
+    assert captured["xtb_config"] == "/tmp/orca_auto.yaml"
+    assert captured["orca_config"] == "/tmp/orca_auto.yaml"
 
 
 def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
@@ -693,7 +693,7 @@ def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
     monkeypatch.setattr(
         _activity_sources,
         "discover_shared_config",
-        lambda explicit: "/tmp/chemstack.yaml",
+        lambda explicit: "/tmp/orca_auto.yaml",
     )
     monkeypatch.setattr(
         _activity_list,
@@ -705,7 +705,7 @@ def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
                 engine="workflow",
                 status="running",
                 label="wf-77",
-                source="chemstack_flow",
+                source="orca_auto_flow",
                 submitted_at="2026-04-20T10:00:00+00:00",
                 updated_at="2026-04-20T10:00:00+00:00",
                 cancel_target="wf-77",
@@ -726,6 +726,6 @@ def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
 
     assert payload["status"] == "cancelled"
     assert captured["workflow_root"] == "/tmp/workflow_root"
-    assert captured["crest_config"] == "/tmp/chemstack.yaml"
-    assert captured["xtb_config"] == "/tmp/chemstack.yaml"
-    assert captured["orca_config"] == "/tmp/chemstack.yaml"
+    assert captured["crest_config"] == "/tmp/orca_auto.yaml"
+    assert captured["xtb_config"] == "/tmp/orca_auto.yaml"
+    assert captured["orca_config"] == "/tmp/orca_auto.yaml"

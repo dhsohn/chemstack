@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack import cli_handlers as cli_run_dir
-from chemstack.flow import cli_run_dir as flow_cli
-from chemstack.flow.restart import restart_failed_workflow
+from orca_auto import cli_handlers as cli_run_dir
+from orca_auto.flow import cli_run_dir as flow_cli
+from orca_auto.flow.restart import restart_failed_workflow
 
 
 def _write_workflow(workspace: Path, payload: dict[str, object]) -> None:
@@ -45,7 +45,7 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
                         "submission_result": {"status": "submitted", "queue_id": "q_old"},
                         "payload": {"reaction_dir": "/tmp/rxn", "last_out_path": "/tmp/old.out"},
                         "enqueue_payload": {
-                            "submitter": "chemstack_orca",
+                            "submitter": "orca_auto_orca",
                             "reaction_dir": "/tmp/rxn",
                             "priority": 10,
                             "force": False,
@@ -381,11 +381,11 @@ def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings
                             "job_dir": str(workspace / "old_xtb"),
                             "priority": 10,
                             "command": (
-                                "chemstack.xtb.submission.direct_enqueue "
+                                "orca_auto.flow.engines.xtb.submission.direct_enqueue "
                                 "config=<xtb_config> job_dir=<job_dir> priority=10"
                             ),
                             "command_argv": [
-                                "chemstack.xtb.submission.direct_enqueue",
+                                "orca_auto.flow.engines.xtb.submission.direct_enqueue",
                                 "config=<xtb_config>",
                                 "job_dir=<job_dir>",
                                 "priority=10",
@@ -403,7 +403,7 @@ def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings
                         "status": "failed",
                         "payload": {"reaction_dir": "/tmp/rxn"},
                         "enqueue_payload": {
-                            "submitter": "chemstack_orca",
+                            "submitter": "orca_auto_orca",
                             "reaction_dir": "/tmp/rxn",
                             "priority": 10,
                             "command_argv": ["orca", "--priority", "10", "--run"],
@@ -432,11 +432,11 @@ def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings
     assert xtb_task["resource_request"] == {"max_cores": 7, "max_memory_gb": 21}
     assert xtb_task["enqueue_payload"]["priority"] == 5
     assert xtb_task["enqueue_payload"]["command"] == (
-        "chemstack.xtb.submission.direct_enqueue "
+        "orca_auto.flow.engines.xtb.submission.direct_enqueue "
         "config=<xtb_config> job_dir=<job_dir> priority=5"
     )
     assert xtb_task["enqueue_payload"]["command_argv"] == [
-        "chemstack.xtb.submission.direct_enqueue",
+        "orca_auto.flow.engines.xtb.submission.direct_enqueue",
         "config=<xtb_config>",
         "job_dir=<job_dir>",
         "priority=5",

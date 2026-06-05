@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.queue import store
-from chemstack.core.queue.types import QueueStatus
+from orca_auto.core.queue import store
+from orca_auto.core.queue.types import QueueStatus
 
 
 def _install_deterministic_helpers(monkeypatch: pytest.MonkeyPatch) -> None:

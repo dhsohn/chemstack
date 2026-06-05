@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow.submitters import orca as orca_submitter
-from chemstack.flow.submitters.orca_models import ensure_submission_metadata
-from chemstack.flow.submitters.orca_submission import submission_summary_state
+from orca_auto.flow.submitters import orca as orca_submitter
+from orca_auto.flow.submitters.orca_models import ensure_submission_metadata
+from orca_auto.flow.submitters.orca_submission import submission_summary_state
 
 
 def _install_workflow_io(
@@ -118,7 +118,7 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/fail", "priority": "6", "submitter": "chemstack_orca"},
+                    "enqueue_payload": {"reaction_dir": "/tmp/fail", "priority": "6", "submitter": "orca_auto_orca"},
                 },
             },
         ],
@@ -235,7 +235,7 @@ def test_submit_reaction_ts_search_workflow_sets_queued_when_only_submitted(
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/success", "priority": 4, "submitter": "chemstack_orca"},
+                    "enqueue_payload": {"reaction_dir": "/tmp/success", "priority": 4, "submitter": "orca_auto_orca"},
                 },
             }
         ],
@@ -294,7 +294,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
             {
                 "stage_id": "terminal_stage",
                 "status": "completed",
-                "task": {"status": "submitted", "enqueue_payload": {"submitter": "chemstack_orca"}},
+                "task": {"status": "submitted", "enqueue_payload": {"submitter": "orca_auto_orca"}},
             },
             {
                 "stage_id": "missing_target_stage",
@@ -317,7 +317,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
                 "task": {
                     "status": "submitted",
                     "payload": {"reaction_dir": "/tmp/cancel_fail"},
-                    "enqueue_payload": {"reaction_dir": "/tmp/cancel_fail", "submitter": "chemstack_orca"},
+                    "enqueue_payload": {"reaction_dir": "/tmp/cancel_fail", "submitter": "orca_auto_orca"},
                 },
             },
         ],
@@ -349,7 +349,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
                 "returncode": 5,
                 "stdout": "cancel failed",
                 "stderr": "boom",
-                "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
+                "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
             },
             **kwargs,
         ),
@@ -403,7 +403,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
         "returncode": 5,
         "stdout": "cancel failed",
         "stderr": "boom",
-        "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
+        "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
         "cancelled_at": "2026-04-19T01:21:00+00:00",
         "target": "q_fail",
     }

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.config import TelegramConfig
-from chemstack.flow.telegram_bot import TelegramBotSettings
+from orca_auto.core.config import TelegramConfig
+from orca_auto.flow.telegram_bot import TelegramBotSettings
 
 
 def telegram_bot_settings(
     *,
     bot_token: str = "bot-token",
     chat_id: str = "chat-id",
-    config_path: str = "/tmp/chemstack.yaml",
+    config_path: str = "/tmp/orca_auto.yaml",
     workflow_root: str | None = "/tmp/workflow_root",
 ) -> TelegramBotSettings:
     return TelegramBotSettings(
@@ -38,7 +38,7 @@ def workflow_activity(
         "kind": kind,
         "engine": engine,
         "status": status,
-        "source": "chemstack_flow" if engine == "workflow" else f"chemstack_{engine}",
+        "source": "orca_auto_flow" if engine == "workflow" else f"orca_auto_{engine}",
         "metadata": dict(metadata or {}),
     }
 

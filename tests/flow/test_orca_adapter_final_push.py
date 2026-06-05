@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack.core.indexing import JobLocationRecord
-from chemstack.flow.adapters import (
+from orca_auto.core.indexing import JobLocationRecord
+from orca_auto.flow.adapters import (
     _orca_local_lookup,
     _orca_path_helpers,
     _orca_tracking,
 )
-from chemstack.flow.adapters import (
+from orca_auto.flow.adapters import (
     orca as orca_adapter,
 )
 
@@ -103,7 +103,7 @@ def test_resolve_job_dir_and_record_organized_dir_skip_oserror_candidates(
     bad_latest = tmp_path / "bad_latest"
     record = JobLocationRecord(
         job_id="job_refresh",
-        app_name="chemstack_orca",
+        app_name="orca_auto_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir="",
@@ -250,7 +250,7 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
         _orca_local_lookup.load_tracked_organized_ref_impl(
             JobLocationRecord(
                 job_id="job_stub_empty",
-                app_name="chemstack_orca",
+                app_name="orca_auto_orca",
                 job_type="orca_opt",
                 status="running",
                 original_run_dir="",
@@ -263,7 +263,7 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
         _orca_local_lookup.load_tracked_organized_ref_impl(
             JobLocationRecord(
                 job_id="job_stub_bad",
-                app_name="chemstack_orca",
+                app_name="orca_auto_orca",
                 job_type="orca_opt",
                 status="running",
                 original_run_dir=str(tmp_path / "bad_stub"),

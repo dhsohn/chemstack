@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.indexing import store as indexing_store
-from chemstack.core.indexing.location import JobLocationRecord
-from chemstack.core.indexing.store import (
+from orca_auto.core.indexing import store as indexing_store
+from orca_auto.core.indexing.location import JobLocationRecord
+from orca_auto.core.indexing.store import (
     JOB_LOCATION_INDEX_FILE_NAME,
     JobLocationIndexCorruptError,
     _normalize_resource_payload,

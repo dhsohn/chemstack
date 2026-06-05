@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow.submitters import orca as orca_submitter
+from orca_auto.flow.submitters import orca as orca_submitter
 
 
 def install_orca_workflow_io(

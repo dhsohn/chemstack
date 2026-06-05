@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from chemstack.orca.attempt_engine import _retry_recipe_step, run_attempts
-from chemstack.orca.orca_runner import WorkerShutdownInterrupt
-from chemstack.orca.state import load_state, new_state
+from orca_auto.orca.attempt_engine import _retry_recipe_step, run_attempts
+from orca_auto.orca.orca_runner import WorkerShutdownInterrupt
+from orca_auto.orca.state import load_state, new_state
 
 
 class _InterruptRunner:

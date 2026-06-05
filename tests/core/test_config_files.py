@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.config.files import (
+from orca_auto.core.config.files import (
     engine_config_mapping,
     load_required_yaml_mapping,
     load_yaml_mapping,
@@ -32,7 +32,7 @@ def test_workflow_root_from_mapping_accepts_only_canonical_root_key(tmp_path: Pa
 def test_shared_workflow_root_from_config_ignores_removed_workflow_root_alias(
     tmp_path: Path,
 ) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text(
         f"workflow:\n  workflow_root: {tmp_path / 'legacy-workflows'}\n",
         encoding="utf-8",
@@ -52,7 +52,7 @@ def test_engine_config_mapping_requires_engine_section() -> None:
 
 
 def test_yaml_mapping_and_section_helpers(tmp_path: Path) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text("scheduler:\n  max_active_simulations: 4\n", encoding="utf-8")
 
     path, raw = load_yaml_mapping(config_path)
@@ -78,7 +78,7 @@ def test_required_yaml_mapping_uses_custom_missing_error(tmp_path: Path) -> None
 
 
 def test_configured_path_and_admission_root_helpers(tmp_path: Path) -> None:
-    config_path = tmp_path / "config" / "chemstack.yaml"
+    config_path = tmp_path / "config" / "orca_auto.yaml"
     runtime_root = tmp_path / "runtime-admission"
     scheduler_root = tmp_path / "scheduler-admission"
 
@@ -106,7 +106,7 @@ def test_configured_path_and_admission_root_helpers(tmp_path: Path) -> None:
 
 
 def test_secure_config_file_permissions_sets_owner_only_mode(tmp_path: Path) -> None:
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text("telegram:\n  bot_token: token\n", encoding="utf-8")
     config_path.chmod(0o644)
 

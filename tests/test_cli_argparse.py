@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from chemstack import cli as unified_cli
-from chemstack.cli_argparse import _suggestion_hint
+from orca_auto import cli as unified_cli
+from orca_auto.cli_argparse import _suggestion_hint
 
 
 def test_suggestion_hint_offers_close_match() -> None:
@@ -34,6 +34,6 @@ def test_parser_error_suggests_subcommand(capsys: pytest.CaptureFixture[str]) ->
 
 def test_scan_notify_alias_preserves_monitor(capsys: pytest.CaptureFixture[str]) -> None:
     parser = unified_cli.build_parser()
-    monitor_args = parser.parse_args(["monitor", "--chemstack-config", "/tmp/chemstack.yaml"])
-    scan_args = parser.parse_args(["scan-notify", "--chemstack-config", "/tmp/chemstack.yaml"])
+    monitor_args = parser.parse_args(["monitor", "--orca_auto-config", "/tmp/orca_auto.yaml"])
+    scan_args = parser.parse_args(["scan-notify", "--orca_auto-config", "/tmp/orca_auto.yaml"])
     assert monitor_args.func is scan_args.func

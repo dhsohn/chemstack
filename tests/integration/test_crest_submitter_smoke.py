@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import get_job_location
-from chemstack.core.queue import list_queue
-from chemstack.crest import queue_runtime as crest_queue_cmd
-from chemstack.flow.adapters.crest import load_crest_artifact_contract
-from chemstack.flow.submitters import crest as crest_submitter
+from orca_auto.core.indexing import get_job_location
+from orca_auto.core.queue import list_queue
+from orca_auto.flow.adapters.crest import load_crest_artifact_contract
+from orca_auto.flow.engines.crest import queue_runtime as crest_queue_cmd
+from orca_auto.flow.submitters import crest as crest_submitter
 from tests.engine_artifact_helpers import engine_payload as _engine_payload
 from tests.engine_artifact_helpers import status as _status
 from tests.engine_process_helpers import process_one_crest_for_test
@@ -51,7 +51,7 @@ def test_crest_submitter_roundtrip_smoke(
 
     record = get_job_location(smoke_workspace.crest_allowed_root, submission["job_id"])
     assert record is not None
-    assert record.app_name == "chemstack_crest"
+    assert record.app_name == "orca_auto_crest"
     assert record.status == "completed"
     assert record.original_run_dir == str(crest_job.resolve())
     assert record.organized_output_dir == ""

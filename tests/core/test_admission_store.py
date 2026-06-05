@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.core.admission import store
+from orca_auto.core.admission import store
 
 
 def _patch_deterministic_liveness(

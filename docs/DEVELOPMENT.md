@@ -1,33 +1,33 @@
-# ChemStack Development Notes
+# Orca Auto Development Notes
 
-This repository now uses a monorepo-style package layout under `src/chemstack`.
+This repository now uses a monorepo-style package layout under `src/orca_auto`.
 
 ## Canonical Import Rules
 
-- ORCA implementation: `chemstack.orca.*`
-- Shared infrastructure: `chemstack.core.*`
-- Workflow orchestration: `chemstack.flow.*`
-- Engine packages: `chemstack.xtb.*`, `chemstack.crest.*`
+- ORCA implementation: `orca_auto.orca.*`
+- Shared infrastructure: `orca_auto.core.*`
+- Workflow orchestration: `orca_auto.flow.*`
+- Engine packages: `orca_auto.flow.engines.xtb.*`, `orca_auto.flow.engines.crest.*`
 
-New code, tests, and docs should import from `chemstack.*`.
+New code, tests, and docs should import from `orca_auto.*`.
 
 ## Current Package Layout
 
 ```text
 <repo_root>/
 ├── src/
-│   └── chemstack/
+│   └── orca_auto/
 │       ├── core/
 │       ├── flow/
-│       ├── xtb/
-│       ├── crest/
+│       │   └── engines/
+│       │       ├── xtb/
+│       │       └── crest/
 │       └── orca/
 ├── tests/
 │   ├── core/
 │   ├── flow/
 │   ├── integration/
-│   ├── xtb/
-│   └── crest/
+│   └── flow/engines/
 └── docs/
 ```
 
@@ -35,12 +35,12 @@ New code, tests, and docs should import from `chemstack.*`.
 
 User-facing docs should standardize on these command forms:
 
-- `chemstack queue ...`
-- `chemstack run-dir <path>`
-- `chemstack init`
-- `chemstack scaffold <ts_search|conformer_search> <path>`
-- `chemstack organize orca ...`
-- `chemstack scan-notify` (alias: `chemstack monitor`)
+- `orca_auto queue ...`
+- `orca_auto run-dir <path>`
+- `orca_auto init`
+- `orca_auto scaffold <ts_search|conformer_search> <path>`
+- `orca_auto organize orca ...`
+- `orca_auto scan-notify` (alias: `orca_auto monitor`)
 
 Long-running services are not part of the public CLI surface. Users should run
 them only through the `systemd/` units.
@@ -48,7 +48,7 @@ them only through the `systemd/` units.
 Engine-specific CLI modules are runtime-only worker entrypoints. Do not add new
 user-facing commands there.
 
-Flow internals are not public CLI modules. Keep examples on `chemstack ...`
+Flow internals are not public CLI modules. Keep examples on `orca_auto ...`
 and avoid module-level `python -m` examples for flow internals.
 
 ## Practical Import Map
@@ -56,22 +56,23 @@ and avoid module-level `python -m` examples for flow internals.
 Use these patterns in new code:
 
 ```python
-from chemstack.cli import main
-from chemstack.orca.commands.run_inp import cmd_run_inp
-from chemstack.core.engines import EngineDefinition, EngineQueueWorker
+from orca_auto.cli import main
+from orca_auto.orca.commands.run_inp import cmd_run_inp
+from orca_auto.core.engines import EngineDefinition, EngineQueueWorker
 
-from chemstack.core.queue import enqueue
-from chemstack.core.admission import reserve_slot
-from chemstack.core.indexing import get_job_location
+from orca_auto.core.queue import enqueue
+from orca_auto.core.admission import reserve_slot
+from orca_auto.core.indexing import get_job_location
 ```
 
-Keep imports under `chemstack.*`; avoid top-level aliases or compatibility shims.
+Keep imports under `orca_auto.*`; avoid top-level aliases or compatibility shims.
 
 ## Test Layout
 
 - `tests/flow/`: flow unit and contract tests
+- `tests/flow/engines/`: internal xTB/CREST engine tests
 - `tests/integration/`: in-repo integration smoke tests
-- `tests/core/`, `tests/xtb/`, `tests/crest/`: absorbed package-specific suites
+- `tests/core/`: shared infrastructure tests
 - top-level `tests/test_*.py`: ORCA-focused regression tests
 
 Common commands:
@@ -108,22 +109,24 @@ implementation-coupled tests. Treat it as an audit report, not a failure gate.
 
 ## Package Policy
 
-- `chemstack.orca` is the only implementation source of truth
-- All supported package imports live under `src/chemstack`
-- If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
+- `orca_auto.orca` is the only implementation source of truth
+- All supported package imports live under `src/orca_auto`
+- If a new feature requires code changes in ORCA logic, make them under `src/orca_auto/orca`
 - Shared engine definitions, queue workers, child entrypoints, artifacts, and
-  registry helpers live under `chemstack.core.engines`
-- Keep top-level alias packages and alternate runtime readers out of the codebase
+  registry helpers live under `orca_auto.core.engines`
+- Internal xTB/CREST implementations live under `orca_auto.flow.engines`
+- Keep top-level alias packages, legacy console-script aliases, and alternate
+  runtime readers out of the codebase
 
 ## Internal Engine Workers
 
 xTB, CREST, and ORCA all execute through the common engine runtime. Engine-local
 packages should expose an `EngineDefinition`; parent workers use
 `EngineQueueWorker`, and children use
-`python -m chemstack.core.engines.worker_child --engine <orca|xtb|crest> --config <path> --queue-root <path> --queue-id <id> --admission-token <token>`.
+`python -m orca_auto.core.engines.worker_child --engine <orca|xtb|crest> --config <path> --queue-root <path> --queue-id <id> --admission-token <token>`.
 
 ORCA-specific state, retry, input selection, reports, auto-organize behavior,
-and the downstream `reaction_dir` contract stay in `chemstack.orca`. The
+and the downstream `reaction_dir` contract stay in `orca_auto.orca`. The
 direct ORCA worker-job `--reaction-dir` mode is not supported.
 
 ## Related Docs

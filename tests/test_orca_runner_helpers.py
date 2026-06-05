@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
-from chemstack.orca.orca_runner import OrcaRunner
+from orca_auto.orca.orca_runner import OrcaRunner
 from tests.process_helpers import patch_missing_process_group
 
 
@@ -36,7 +36,7 @@ def test_terminate_subprocess_tree_falls_back_to_terminate_when_sigterm_group_ki
     proc.pid = 4242
     proc.wait.return_value = 0
 
-    with patch_missing_process_group("chemstack.orca.orca_runner.os.killpg"):
+    with patch_missing_process_group("orca_auto.orca.orca_runner.os.killpg"):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -53,7 +53,7 @@ def test_terminate_subprocess_tree_falls_back_to_proc_kill_when_sigkill_group_ki
     ]
 
     with patch(
-        "chemstack.orca.orca_runner.os.killpg",
+        "orca_auto.orca.orca_runner.os.killpg",
         side_effect=[None, ProcessLookupError("no pg kill")],
     ):
         runner._terminate_subprocess_tree(proc)
@@ -71,7 +71,7 @@ def test_terminate_subprocess_tree_waits_after_sigkill() -> None:
         0,
     ]
 
-    with patch("chemstack.orca.orca_runner.os.killpg") as killpg:
+    with patch("orca_auto.orca.orca_runner.os.killpg") as killpg:
         runner._terminate_subprocess_tree(proc)
 
     assert killpg.mock_calls == [
@@ -89,7 +89,7 @@ def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_
     proc.terminate.side_effect = Exception("terminate failed")
     proc.wait.return_value = 0
 
-    with patch_missing_process_group("chemstack.orca.orca_runner.os.killpg"):
+    with patch_missing_process_group("orca_auto.orca.orca_runner.os.killpg"):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -107,7 +107,7 @@ def test_terminate_subprocess_tree_ignores_proc_kill_failure_when_sigkill_group_
     proc.kill.side_effect = Exception("kill failed")
 
     with patch(
-        "chemstack.orca.orca_runner.os.killpg",
+        "orca_auto.orca.orca_runner.os.killpg",
         side_effect=[None, ProcessLookupError("no pg kill")],
     ):
         runner._terminate_subprocess_tree(proc)
@@ -115,9 +115,9 @@ def test_terminate_subprocess_tree_ignores_proc_kill_failure_when_sigkill_group_
     proc.kill.assert_called_once()
 
 
-@patch("chemstack.orca.orca_runner.subprocess.Popen")
-@patch("chemstack.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
-@patch("chemstack.orca.orca_runner.signal.signal", side_effect=ValueError("not main thread"))
+@patch("orca_auto.orca.orca_runner.subprocess.Popen")
+@patch("orca_auto.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
+@patch("orca_auto.orca.orca_runner.signal.signal", side_effect=ValueError("not main thread"))
 def test_run_handles_signal_install_value_error(
     _mock_signal: MagicMock,
     _mock_getsignal: MagicMock,
@@ -137,8 +137,8 @@ def test_run_handles_signal_install_value_error(
     assert result.out_path.endswith("test.out")
 
 
-@patch("chemstack.orca.orca_runner.subprocess.Popen")
-@patch("chemstack.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
+@patch("orca_auto.orca.orca_runner.subprocess.Popen")
+@patch("orca_auto.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
 def test_run_ignores_restore_signal_value_error(
     _mock_getsignal: MagicMock,
     mock_popen: MagicMock,
@@ -156,7 +156,7 @@ def test_run_ignores_restore_signal_value_error(
         return None
 
     runner = OrcaRunner("/opt/orca/orca")
-    with patch("chemstack.orca.orca_runner.signal.signal", side_effect=_signal):
+    with patch("orca_auto.orca.orca_runner.signal.signal", side_effect=_signal):
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "test.inp"
             inp.write_text("! Opt\n", encoding="utf-8")

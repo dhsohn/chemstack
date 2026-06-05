@@ -8,20 +8,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.core.admission import reserve_slot
-from chemstack.orca.commands.run_inp import _cmd_run_inp_execute
-from chemstack.orca.completion_rules import CompletionMode
-from chemstack.orca.inp_rewriter import rewrite_for_retry
-from chemstack.orca.orca_runner import RunResult
-from chemstack.orca.out_analyzer import analyze_output
-from chemstack.orca.state import load_state, save_state
-from chemstack.orca.state_machine import (
+from orca_auto.core.admission import reserve_slot
+from orca_auto.orca.commands.run_inp import _cmd_run_inp_execute
+from orca_auto.orca.completion_rules import CompletionMode
+from orca_auto.orca.inp_rewriter import rewrite_for_retry
+from orca_auto.orca.orca_runner import RunResult
+from orca_auto.orca.out_analyzer import analyze_output
+from orca_auto.orca.state import load_state, save_state
+from orca_auto.orca.state_machine import (
     RESUMABLE_FAILED_REASONS,
     decide_attempt_outcome,
     is_resumable_state,
 )
-from chemstack.orca.statuses import AnalyzerStatus
-from chemstack.orca.types import RunState
+from orca_auto.orca.statuses import AnalyzerStatus
+from orca_auto.orca.types import RunState
 
 # ── Retry Strategy Expansion ──
 
@@ -158,7 +158,7 @@ class TestCrashRecovery(unittest.TestCase):
         fake_orca = root / "fake_orca"
         fake_orca.touch()
         fake_orca.chmod(0o755)
-        config = root / "chemstack.yaml"
+        config = root / "orca_auto.yaml"
         config.write_text(
             json.dumps(
                 {
@@ -237,7 +237,7 @@ class TestCrashRecovery(unittest.TestCase):
                 out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 token = reserve_slot(
                     reaction.parent,
                     1,
@@ -270,7 +270,7 @@ class TestCrashRecovery(unittest.TestCase):
 
 class TestCLILogFileFlag(unittest.TestCase):
     def test_log_file_flag_is_accepted(self) -> None:
-        from chemstack.cli import build_parser
+        from orca_auto.cli import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["monitor", "--log-file", "/tmp/test.log"])

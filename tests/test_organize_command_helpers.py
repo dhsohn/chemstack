@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from chemstack.orca.commands.organize import (
+from orca_auto.orca.commands.organize import (
     _build_index_record,
     _build_organize_message,
 )
-from chemstack.orca.commands.organize_notifications import _ORGANIZE_RESULT_LIMIT
-from chemstack.orca.result_organizer import OrganizePlan, SkipReason
+from orca_auto.orca.commands.organize_notifications import _ORGANIZE_RESULT_LIMIT
+from orca_auto.orca.result_organizer import OrganizePlan, SkipReason
 
 
 def _plan(*, run_id: str = "run_1234567890ab") -> OrganizePlan:
@@ -72,7 +72,7 @@ class TestOrganizeCommandHelpers(unittest.TestCase):
         message = _build_organize_message(organized, skipped, failures, skip_reasons)
 
         assert message is not None
-        self.assertIn("chemstack organize", message)
+        self.assertIn("orca_auto organize", message)
         self.assertIn("Summary", message)
         self.assertIn("Organized", message)
         self.assertIn("Failed", message)

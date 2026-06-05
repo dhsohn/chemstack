@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chemstack.flow import scaffold
+from orca_auto.flow import scaffold
 
 
 def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -40,7 +40,7 @@ def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys:
     assert "# crest:" in flow_text
     assert "#   gfn: ff" in flow_text
     assert "#   no_preopt: true" in flow_text
-    assert "chemstack scaffold ts_search" in readme
+    assert "orca_auto scaffold ts_search" in readme
     assert "crest_mode: nci" in readme
     assert "`gfn: ff` or `no_preopt: true`" in readme
     assert "waits for the xTB phase to finish" in readme

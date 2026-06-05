@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.flow import orchestration
-from chemstack.flow.orchestration.builders import new_crest_stage_impl
+from orca_auto.flow import orchestration
+from orca_auto.flow.orchestration.builders import new_crest_stage_impl
 
 
 def _write_xyz(path: Path, atoms: list[tuple[str, float, float, float]]) -> None:
@@ -47,9 +47,9 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
     assert task["payload"]["input_role"] == "reactant"
     assert task["payload"]["mode"] == "nci"
     assert task["enqueue_payload"]["priority"] == 7
-    assert task["enqueue_payload"]["submitter"] == "chemstack_crest"
+    assert task["enqueue_payload"]["submitter"] == "orca_auto_crest"
     assert task["enqueue_payload"]["command_argv"] == [
-        "chemstack.crest.submission.direct_enqueue",
+        "orca_auto.flow.engines.crest.submission.direct_enqueue",
         "config=<crest_config>",
         "job_dir=<job_dir>",
         "priority=7",

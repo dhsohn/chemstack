@@ -4,9 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.queue import child_execution, engine_child
-from chemstack.core.queue.child_entrypoint import ChildWorkerEntrypointJob
-from chemstack.core.queue.internal_engine import InternalEngineSpec
+from orca_auto.core.queue import child_execution, engine_child
+from orca_auto.core.queue.child_entrypoint import ChildWorkerEntrypointJob
+from orca_auto.core.queue.internal_engine import InternalEngineSpec
 
 
 class _WorkerShutdownRequested(RuntimeError):
@@ -18,15 +18,15 @@ class _WorkerShutdownRequested(RuntimeError):
 def test_build_engine_worker_child_command_supports_admission_root_modes(
     tmp_path: Path,
 ) -> None:
-    with_root = engine_child.WorkerChildCommandSpec("chemstack.demo.worker_execution")
+    with_root = engine_child.WorkerChildCommandSpec("orca_auto.demo.worker_execution")
     without_root = engine_child.WorkerChildCommandSpec(
-        "chemstack.demo_no_root.worker_execution",
+        "orca_auto.demo_no_root.worker_execution",
         include_admission_root=False,
     )
 
     with_root_command = engine_child.build_engine_worker_child_command(
         spec=with_root,
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
         admission_root="/tmp/admission",
@@ -34,7 +34,7 @@ def test_build_engine_worker_child_command_supports_admission_root_modes(
     )
     without_root_command = engine_child.build_engine_worker_child_command(
         spec=without_root,
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-2",
         admission_token="slot-2",
@@ -85,7 +85,7 @@ def test_run_engine_worker_child_job_processes_entry_with_extra_kwargs(
             shutdown_exception_type=_WorkerShutdownRequested,
             entry_ready_fn=lambda loaded_entry: loaded_entry.status == "running",
         ),
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
         admission_token="slot-1",
@@ -124,7 +124,7 @@ def test_run_engine_worker_child_job_can_map_outcome_to_exit_code(tmp_path: Path
             entry_ready_fn=lambda loaded_entry: loaded_entry.status == "running",
             outcome_exit_code_fn=lambda outcome: outcome.exit_code,
         ),
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
         admission_token="slot-1",
@@ -146,7 +146,7 @@ def test_run_engine_worker_child_job_can_map_outcome_to_exit_code(tmp_path: Path
 def test_internal_engine_worker_child_builds_shutdown_signal_installer() -> None:
     child = InternalEngineSpec(
         engine="demo",
-        worker_job_module="chemstack.demo.worker_execution",
+        worker_job_module="orca_auto.demo.worker_execution",
     ).worker_child(_WorkerShutdownRequested)
     controller = child_execution.ChildWorkerShutdownController()
     callbacks: list[Any] = []
@@ -165,7 +165,7 @@ def test_internal_engine_worker_child_builds_shutdown_signal_installer() -> None
 def test_internal_engine_worker_child_module_facade_keeps_patchable_exports() -> None:
     facade = InternalEngineSpec(
         engine="demo",
-        worker_job_module="chemstack.demo.worker_execution",
+        worker_job_module="orca_auto.demo.worker_execution",
         include_admission_root=False,
     ).worker_child_module_facade(
         _WorkerShutdownRequested,
@@ -173,7 +173,7 @@ def test_internal_engine_worker_child_module_facade_keeps_patchable_exports() ->
         build_worker_child_command=lambda **kwargs: ["worker", kwargs["queue_id"]],
     )
 
-    assert facade.WORKER_JOB_MODULE == "chemstack.demo.worker_execution"
+    assert facade.WORKER_JOB_MODULE == "orca_auto.demo.worker_execution"
     assert facade.WorkerShutdownRequested is _WorkerShutdownRequested
     assert facade.build_worker_child_command(
         config_path="/tmp/cfg.yaml",
@@ -210,7 +210,7 @@ def test_run_engine_worker_child_job_requeues_and_marks_recovery_on_shutdown(
             shutdown_exception_type=_WorkerShutdownRequested,
             entry_ready_fn=lambda loaded_entry: loaded_entry.status == "running",
         ),
-        config_path="/tmp/chemstack.yaml",
+        config_path="/tmp/orca_auto.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
         admission_token="slot-1",

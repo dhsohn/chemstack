@@ -6,15 +6,15 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import orchestration, runtime, runtime_advance
-from chemstack.flow.orchestration import (
+from orca_auto.flow import orchestration, runtime, runtime_advance
+from orca_auto.flow.orchestration import (
     dep_builders,
     reaction_materialization,
     reaction_orca_materialization,
 )
-from chemstack.flow.orchestration import materialization as stage_materialization
-from chemstack.flow.orchestration.builders import _copy_input_impl
-from chemstack.flow.orchestration.deps import (
+from orca_auto.flow.orchestration import materialization as stage_materialization
+from orca_auto.flow.orchestration.builders import _copy_input_impl
+from orca_auto.flow.orchestration.deps import (
     _ORCHESTRATION_STAGE_DEP_REGISTRY,
     OrchestrationStageDeps,
     orchestration_deps,
@@ -36,7 +36,7 @@ def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Pat
 
 
 def test_orchestration_modules_live_under_orchestration_package() -> None:
-    flow_root = Path(__file__).resolve().parents[2] / "src" / "chemstack" / "flow"
+    flow_root = Path(__file__).resolve().parents[2] / "src" / "orca_auto" / "flow"
 
     assert not list(flow_root.glob("_orchestration*.py"))
     assert (flow_root / "orchestration" / "__init__.py").is_file()

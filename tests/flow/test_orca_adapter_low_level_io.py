@@ -6,8 +6,8 @@ from typing import cast
 
 import pytest
 
-from chemstack.core.utils.coercion import normalize_bool, safe_int
-from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers
+from orca_auto.core.utils.coercion import normalize_bool, safe_int
+from orca_auto.flow.adapters import _orca_local_lookup, _orca_path_helpers
 
 
 def test_normalize_bool_and_safe_int_cover_string_and_default_paths() -> None:

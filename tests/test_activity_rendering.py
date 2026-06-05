@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from chemstack import activity_rendering as rendering
+from orca_auto import activity_rendering as rendering
 
 
 def test_queue_elapsed_uses_restart_metadata_and_clamps_negative_durations() -> None:

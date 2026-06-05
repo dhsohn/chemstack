@@ -1,4 +1,4 @@
-"""Tests for chemstack.orca.commands.queue foreground worker behavior."""
+"""Tests for orca_auto.orca.commands.queue foreground worker behavior."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from chemstack.orca.commands.queue import cmd_queue_worker
-from chemstack.orca.config import AppConfig, RuntimeConfig
+from orca_auto.orca.commands.queue import cmd_queue_worker
+from orca_auto.orca.config import AppConfig, RuntimeConfig
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -27,8 +27,8 @@ def _make_args(tmp: str, **overrides):
 
 
 class TestCmdQueueWorker(unittest.TestCase):
-    @patch("chemstack.orca.commands.queue.load_config")
-    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=12345)
+    @patch("orca_auto.orca.commands.queue.load_config")
+    @patch("orca_auto.orca.commands.queue.read_worker_pid", return_value=12345)
     def test_worker_already_running(self, mock_pid: MagicMock, mock_load: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
@@ -38,9 +38,9 @@ class TestCmdQueueWorker(unittest.TestCase):
 
         self.assertEqual(rc, 1)
 
-    @patch("chemstack.orca.commands.queue.load_config")
-    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
-    @patch("chemstack.orca.commands.queue.QueueWorker")
+    @patch("orca_auto.orca.commands.queue.load_config")
+    @patch("orca_auto.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("orca_auto.orca.commands.queue.QueueWorker")
     def test_worker_runs_in_foreground_only(
         self,
         mock_worker_cls: MagicMock,
@@ -62,9 +62,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=False,
         )
 
-    @patch("chemstack.orca.commands.queue.load_config")
-    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
-    @patch("chemstack.orca.commands.queue.QueueWorker")
+    @patch("orca_auto.orca.commands.queue.load_config")
+    @patch("orca_auto.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("orca_auto.orca.commands.queue.QueueWorker")
     def test_worker_uses_config_max_concurrent_when_flag_omitted(
         self,
         mock_worker_cls: MagicMock,
@@ -88,9 +88,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=False,
         )
 
-    @patch("chemstack.orca.commands.queue.load_config")
-    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
-    @patch("chemstack.orca.commands.queue.QueueWorker")
+    @patch("orca_auto.orca.commands.queue.load_config")
+    @patch("orca_auto.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("orca_auto.orca.commands.queue.QueueWorker")
     def test_worker_uses_configured_auto_organize_by_default(
         self,
         mock_worker_cls: MagicMock,
@@ -114,9 +114,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=True,
         )
 
-    @patch("chemstack.orca.commands.queue.load_config")
-    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
-    @patch("chemstack.orca.commands.queue.QueueWorker")
+    @patch("orca_auto.orca.commands.queue.load_config")
+    @patch("orca_auto.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("orca_auto.orca.commands.queue.QueueWorker")
     def test_worker_cli_can_enable_auto_organize(
         self,
         mock_worker_cls: MagicMock,
@@ -139,9 +139,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=True,
         )
 
-    @patch("chemstack.orca.commands.queue.load_config")
-    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
-    @patch("chemstack.orca.commands.queue.QueueWorker")
+    @patch("orca_auto.orca.commands.queue.load_config")
+    @patch("orca_auto.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("orca_auto.orca.commands.queue.QueueWorker")
     def test_worker_cli_can_disable_configured_auto_organize(
         self,
         mock_worker_cls: MagicMock,

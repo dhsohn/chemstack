@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack import activity_presenter
+from orca_auto import activity_presenter
 
 
 def _workflow_payload() -> dict[str, list[dict[str, Any]]]:

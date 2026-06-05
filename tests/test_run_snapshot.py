@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from chemstack.orca import run_snapshot
-from chemstack.orca.run_snapshot import (
+from orca_auto.orca import run_snapshot
+from orca_auto.orca.run_snapshot import (
     RunSnapshot,
     _compute_elapsed,
     _latest_out_path,
@@ -16,7 +16,7 @@ from chemstack.orca.run_snapshot import (
     sort_snapshots_by_completed,
     sort_snapshots_by_started,
 )
-from chemstack.orca.state import save_state, state_path
+from orca_auto.orca.state import save_state, state_path
 
 
 class _FrozenDateTime(datetime):
@@ -257,7 +257,7 @@ def test_collect_run_snapshots_uses_tracking_record_for_tracked_run(tmp_path: Pa
     job_locations = [
         {
             "job_id": "job-tracked",
-            "app_name": "chemstack_orca",
+            "app_name": "orca_auto_orca",
             "job_type": "orca_opt",
             "status": "completed",
             "original_run_dir": str(original_run),
@@ -325,7 +325,7 @@ def test_collect_run_snapshots_includes_untracked_state_when_index_is_incomplete
     job_locations = [
         {
             "job_id": "job-tracked",
-            "app_name": "chemstack_orca",
+            "app_name": "orca_auto_orca",
             "job_type": "orca_opt",
             "status": "completed",
             "original_run_dir": str(allowed_root / "project" / "rxn_tracked"),

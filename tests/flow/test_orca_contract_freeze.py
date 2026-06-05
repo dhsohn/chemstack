@@ -4,11 +4,11 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from chemstack.flow.orchestration import (
+from orca_auto.flow.orchestration import (
     advance_workflow,
 )
-from chemstack.flow.registry import sync_workflow_registry
-from chemstack.flow.state import (
+from orca_auto.flow.registry import sync_workflow_registry
+from orca_auto.flow.state import (
     load_workflow_payload,
     resolve_workflow_workspace,
     workflow_artifacts,
@@ -57,7 +57,7 @@ def _prepare_orca_contract_freeze_fixture(tmp_path: Path) -> OrcaContractFreezeF
     orca_organized_root = tmp_path / "orca_outputs"
     original_dir = orca_allowed_root / "rxn_original"
     organized_dir = orca_organized_root / "opt" / "H2" / "run_hist_1"
-    config_path = tmp_path / "chemstack.yaml"
+    config_path = tmp_path / "orca_auto.yaml"
 
     workflow_workspace.mkdir(parents=True)
     original_dir.mkdir(parents=True)
@@ -172,7 +172,7 @@ def _prepare_orca_contract_freeze_fixture(tmp_path: Path) -> OrcaContractFreezeF
         [
             {
                 "job_id": "job_hist_1",
-                "app_name": "chemstack_orca",
+                "app_name": "orca_auto_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(original_dir),

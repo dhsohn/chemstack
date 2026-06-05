@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.indexing import roots
+from orca_auto.core.indexing import roots
 
 
 def _cfg(allowed_root: Path, *, workflow_root: Path | str = "") -> Any:

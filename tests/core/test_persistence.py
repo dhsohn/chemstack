@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.utils import persistence
+from orca_auto.core.utils import persistence
 
 FIXED_NOW = datetime(2026, 4, 19, 12, 34, 56, tzinfo=timezone.utc)
 

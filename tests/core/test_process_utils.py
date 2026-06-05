@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from chemstack.core.utils import process as process_utils
+from orca_auto.core.utils import process as process_utils
 
 
 def test_memory_limit_preexec_applies_address_space_limit() -> None:

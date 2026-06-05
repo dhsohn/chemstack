@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import orchestration
-from chemstack.flow.orchestration.deps import orchestration_deps
+from orca_auto.flow import orchestration
+from orca_auto.flow.orchestration.deps import orchestration_deps
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:

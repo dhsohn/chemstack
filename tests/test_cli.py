@@ -10,24 +10,24 @@ from pathlib import Path
 from typing import Callable
 from unittest.mock import MagicMock, patch
 
-from chemstack import cli as unified_cli
-from chemstack import cli_handlers as cli_run_dir
-from chemstack.core.admission import reserve_slot
-from chemstack.orca.cli_logging import (
+from orca_auto import cli as unified_cli
+from orca_auto import cli_handlers as cli_run_dir
+from orca_auto.core.admission import reserve_slot
+from orca_auto.orca.cli_logging import (
     configure_logging as _configure_logging,
 )
-from chemstack.orca.cli_logging import (
+from orca_auto.orca.cli_logging import (
     remove_managed_handlers as _remove_managed_handlers,
 )
-from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
-from chemstack.orca.commands.run_inp import (
+from orca_auto.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
+from orca_auto.orca.commands.run_inp import (
     _cmd_run_inp_execute,
     _retry_inp_path,
     _select_latest_inp,
 )
-from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
-from chemstack.orca.state import load_state, save_state, state_path
-from chemstack.orca.types import RunFinalResult, RunState
+from orca_auto.orca.orca_runner import RunResult, WorkerShutdownInterrupt
+from orca_auto.orca.state import load_state, save_state, state_path
+from orca_auto.orca.types import RunFinalResult, RunState
 
 build_parser = unified_cli.build_parser
 main = unified_cli.main
@@ -66,7 +66,7 @@ class TestCli(unittest.TestCase):
                 "bot_token": "123:ABC",
                 "chat_id": "999",
             }
-        config = root / "chemstack.yaml"
+        config = root / "orca_auto.yaml"
         config.write_text(
             json.dumps(payload),
             encoding="utf-8",
@@ -125,8 +125,8 @@ class TestCli(unittest.TestCase):
         self.assertEqual(retry_next.name, "rxn.retry01.inp")
 
     def test_default_config_path_prefers_env_var(self) -> None:
-        with patch.dict(os.environ, {CONFIG_ENV_VAR: "/tmp/custom_chemstack.yaml"}, clear=False):
-            self.assertEqual(default_config_path(), "/tmp/custom_chemstack.yaml")
+        with patch.dict(os.environ, {CONFIG_ENV_VAR: "/tmp/custom_orca_auto.yaml"}, clear=False):
+            self.assertEqual(default_config_path(), "/tmp/custom_orca_auto.yaml")
 
     def test_run_dir_accepts_queue_submission_flags(self) -> None:
         parser = build_parser()
@@ -155,26 +155,26 @@ class TestCli(unittest.TestCase):
             parser.parse_args(["run-dir", "/tmp/rxn", "--foreground"])
         self.assertEqual(exc.exception.code, 2)
 
-    @patch("chemstack.cli_handlers.cmd_run_dir", return_value=8)
+    @patch("orca_auto.cli_handlers.cmd_run_dir", return_value=8)
     def test_main_dispatches_run_dir_command(self, mock_cmd_run_dir: MagicMock) -> None:
         rc = main(["run-dir", "/tmp/rxn"])
 
         self.assertEqual(rc, 8)
         mock_cmd_run_dir.assert_called_once()
 
-    @patch("chemstack.cli_queue.cmd_queue_list", return_value=9)
+    @patch("orca_auto.cli_queue.cmd_queue_list", return_value=9)
     def test_main_dispatches_list_command(self, mock_cmd_list: MagicMock) -> None:
         rc = main(["queue", "list", "--engine", "orca"])
 
         self.assertEqual(rc, 9)
         mock_cmd_list.assert_called_once()
 
-    def test_configure_logging_replaces_previous_chemstack_handler(self) -> None:
+    def test_configure_logging_replaces_previous_orca_auto_handler(self) -> None:
         root_logger = logging.getLogger()
         original_level = root_logger.level
         original_handlers = list(root_logger.handlers)
         for handler in list(root_logger.handlers):
-            if getattr(handler, "_chemstack_managed_handler", False):
+            if getattr(handler, "_orca_auto_managed_handler", False):
                 root_logger.removeHandler(handler)
                 handler.close()
 
@@ -185,13 +185,13 @@ class TestCli(unittest.TestCase):
             managed_handlers = [
                 handler
                 for handler in root_logger.handlers
-                if getattr(handler, "_chemstack_managed_handler", False)
+                if getattr(handler, "_orca_auto_managed_handler", False)
             ]
             self.assertEqual(len(managed_handlers), 1)
             self.assertEqual(root_logger.level, logging.DEBUG)
         finally:
             for handler in list(root_logger.handlers):
-                if getattr(handler, "_chemstack_managed_handler", False):
+                if getattr(handler, "_orca_auto_managed_handler", False):
                     root_logger.removeHandler(handler)
                     handler.close()
             root_logger.setLevel(original_level)
@@ -216,9 +216,9 @@ class TestCli(unittest.TestCase):
             seen.append(args)
             return 41
 
-        with patch("chemstack.orca.commands.run_inp.cmd_run_inp", side_effect=_fake_run_inp):
+        with patch("orca_auto.orca.commands.run_inp.cmd_run_inp", side_effect=_fake_run_inp):
             args = Namespace(
-                config="/tmp/chemstack.yaml",
+                config="/tmp/orca_auto.yaml",
                 verbose=True,
                 log_file="/tmp/orca.log",
                 path="/tmp/rxn",
@@ -243,19 +243,19 @@ class TestCli(unittest.TestCase):
             return _inner
 
         with (
-            patch("chemstack.orca.commands.init.cmd_init", side_effect=_record("init", 42)),
+            patch("orca_auto.orca.commands.init.cmd_init", side_effect=_record("init", 42)),
             patch(
-                "chemstack.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)
+                "orca_auto.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)
             ),
         ):
             init_args = Namespace(
-                config="/tmp/chemstack.yaml",
+                config="/tmp/orca_auto.yaml",
                 verbose=False,
                 log_file=None,
                 force=True,
             )
             organize_args = Namespace(
-                config="/tmp/chemstack.yaml",
+                config="/tmp/orca_auto.yaml",
                 verbose=False,
                 log_file=None,
                 reaction_dir="/tmp/rxn",
@@ -275,9 +275,9 @@ class TestCli(unittest.TestCase):
             ],
         )
 
-    @patch("chemstack.orca.cli_logging.remove_managed_handlers")
-    @patch("chemstack.orca.cli_logging.logging.handlers.RotatingFileHandler")
-    @patch("chemstack.orca.cli_logging.logging.getLogger")
+    @patch("orca_auto.orca.cli_logging.remove_managed_handlers")
+    @patch("orca_auto.orca.cli_logging.logging.handlers.RotatingFileHandler")
+    @patch("orca_auto.orca.cli_logging.logging.getLogger")
     def test_configure_logging_uses_rotating_file_handler_when_log_file_is_set(
         self,
         mock_get_logger: MagicMock,
@@ -289,11 +289,11 @@ class TestCli(unittest.TestCase):
         handler = MagicMock(spec=logging.Handler)
         mock_rotating_handler.return_value = handler
 
-        _configure_logging(Namespace(verbose=False, log_file="/tmp/chemstack.log"))
+        _configure_logging(Namespace(verbose=False, log_file="/tmp/orca_auto.log"))
 
         mock_remove_handlers.assert_called_once_with(root_logger)
         mock_rotating_handler.assert_called_once_with(
-            "/tmp/chemstack.log",
+            "/tmp/orca_auto.log",
             maxBytes=10 * 1024 * 1024,
             backupCount=5,
             encoding="utf-8",
@@ -308,7 +308,7 @@ class TestCli(unittest.TestCase):
 
         unmanaged = logging.StreamHandler()
         managed = MagicMock(spec=logging.Handler)
-        managed._chemstack_managed_handler = True
+        managed._orca_auto_managed_handler = True
         managed.close.side_effect = RuntimeError("boom")
 
         root_logger.addHandler(unmanaged)
@@ -351,7 +351,7 @@ class TestCli(unittest.TestCase):
             )
             config = self._write_config(root, root / "orca_runs")
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(["run-dir", "--config", str(config), str(reaction)])
             self.assertFalse(run_mock.called)
         self.assertEqual(rc, 0)
@@ -422,7 +422,7 @@ class TestCli(unittest.TestCase):
             }
             save_state(reaction, state)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(["run-dir", "--config", str(config), str(reaction)])
             self.assertFalse(run_mock.called)
             saved = _loaded_state(reaction)
@@ -444,7 +444,7 @@ class TestCli(unittest.TestCase):
             def _fake_run(_self, inp_path: Path) -> RunResult:
                 raise WorkerShutdownInterrupt
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             saved = _loaded_state(reaction)
 
@@ -488,7 +488,7 @@ class TestCli(unittest.TestCase):
                 )
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
 
             state = _loaded_state(reaction)
@@ -499,7 +499,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(state["status"], "completed")
         self.assertEqual(len(state["attempts"]), 2)
 
-    @patch("chemstack.orca.commands.run_inp.notify_retry_event", return_value=True)
+    @patch("orca_auto.orca.commands.run_inp.notify_retry_event", return_value=True)
     def test_retry_flow_sends_telegram_notification_when_configured(
         self, mock_notify: MagicMock
     ) -> None:
@@ -529,7 +529,7 @@ class TestCli(unittest.TestCase):
                 )
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
 
         self.assertEqual(rc, 0)
@@ -559,7 +559,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("COULD NOT WRITE TO DISK\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=99)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             state = _loaded_state(reaction)
             retry01_exists = (reaction / "rxn.retry01.inp").exists()
@@ -585,7 +585,7 @@ class TestCli(unittest.TestCase):
             fake_orca = root / "fake_orca"
             fake_orca.touch()
             fake_orca.chmod(0o755)
-            config = root / "chemstack.yaml"
+            config = root / "orca_auto.yaml"
             config.write_text(
                 json.dumps(
                     {
@@ -608,7 +608,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("COULD NOT WRITE TO DISK\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=99)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             state = _loaded_state(reaction)
 
@@ -629,7 +629,7 @@ class TestCli(unittest.TestCase):
             fake_orca = root / "fake_orca"
             fake_orca.touch()
             fake_orca.chmod(0o755)
-            config = root / "chemstack.yaml"
+            config = root / "orca_auto.yaml"
             config.write_text(
                 json.dumps(
                     {
@@ -680,7 +680,7 @@ class TestCli(unittest.TestCase):
             }
             save_state(reaction, state)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = self._run_internal_execute(config, reaction)
             self.assertFalse(run_mock.called)
             saved = _loaded_state(reaction)
@@ -732,7 +732,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             saved = _loaded_state(reaction)
             retry_exists = (reaction / "rxn.retry01.inp").exists()
@@ -794,7 +794,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             saved = _loaded_state(reaction)
             retry_exists = (reaction / "rxn.retry01.inp").exists()
@@ -843,7 +843,7 @@ class TestCli(unittest.TestCase):
             }
             save_state(reaction, state)
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = self._run_internal_execute(config, reaction)
             self.assertFalse(run_mock.called)
             saved = _loaded_state(reaction)
@@ -867,7 +867,7 @@ class TestCli(unittest.TestCase):
             def _fake_run(_self, inp_path: Path) -> RunResult:
                 raise KeyboardInterrupt
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             saved = _loaded_state(reaction)
 
@@ -890,7 +890,7 @@ class TestCli(unittest.TestCase):
             def _fake_run(_self, inp_path: Path) -> RunResult:
                 raise RuntimeError("runner exploded")
 
-            with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
+            with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
             saved = _loaded_state(reaction)
 

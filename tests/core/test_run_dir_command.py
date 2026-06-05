@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.commands import run_dir
+from orca_auto.core.commands import run_dir
 
 
 def _cfg(allowed_root: Path, *, workflow_root: Path | None = None) -> SimpleNamespace:
@@ -87,7 +87,7 @@ def test_build_engine_run_dir_submission_from_spec_adds_common_payloads(
     submission = run_dir.build_engine_run_dir_submission_from_spec(
         spec=run_dir.EngineSubmissionSpec(
             queue_root=tmp_path / "queue",
-            app_name="chemstack_crest",
+            app_name="orca_auto_crest",
             task_id="job-1",
             task_kind="crest_conformer_search",
             engine="crest",
@@ -100,7 +100,7 @@ def test_build_engine_run_dir_submission_from_spec_adds_common_payloads(
     )
 
     assert submission.queue_root == tmp_path / "queue"
-    assert submission.app_name == "chemstack_crest"
+    assert submission.app_name == "orca_auto_crest"
     assert submission.task_id == "job-1"
     assert submission.task_kind == "crest_conformer_search"
     assert submission.engine == "crest"
@@ -269,13 +269,13 @@ def test_engine_run_dir_queued_recorder_from_callbacks_applies_shared_fields(
                 (cfg_arg, kwargs),
             ),
         ),
-        module_name="chemstack.demo.submission",
+        module_name="orca_auto.demo.submission",
     )
 
     recorder(cfg, submission, entry)
 
     assert recorder.__name__ == "_record_queued"
-    assert recorder.__module__ == "chemstack.demo.submission"
+    assert recorder.__module__ == "orca_auto.demo.submission"
     assert calls["build"] == (submission, entry)
     assert calls["state"] == (job_dir, {"status": "queued"})
     assert calls["index"] == (
@@ -322,7 +322,7 @@ def test_engine_run_dir_queued_recorder_preserves_namespace_late_lookup(
     entry = SimpleNamespace(queue_id="q-1")
     calls: dict[str, Any] = {}
     namespace: dict[str, Any] = {
-        "__name__": "chemstack.demo.legacy_submission",
+        "__name__": "orca_auto.demo.legacy_submission",
         "_queued_record": lambda *_args: pytest.fail("old callback should not be used"),
         "write_state": lambda path, payload: calls.setdefault("state", (path, payload)),
         "upsert_job_record": lambda cfg_arg, **kwargs: calls.setdefault(
@@ -351,7 +351,7 @@ def test_engine_run_dir_queued_recorder_preserves_namespace_late_lookup(
     namespace["_queued_record"] = replacement_record
     recorder(cfg, submission, entry)
 
-    assert recorder.__module__ == "chemstack.demo.legacy_submission"
+    assert recorder.__module__ == "orca_auto.demo.legacy_submission"
     assert calls["build"] == (submission, entry)
     assert calls["state"] == (job_dir, {"status": "queued"})
     assert calls["index"] == (

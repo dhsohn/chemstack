@@ -1,8 +1,8 @@
-# ChemStack
+# Orca Auto
 
-[![CI](https://github.com/dhsohn/chemstack/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/chemstack/actions/workflows/ci.yml)
+[![CI](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml)
 
-ChemStack is a queue-first interface for ORCA and workflow orchestration on Linux and WSL. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public surfaces. It submits work durably, runs it under supervised workers, records per-job state and reports, and organizes completed outputs.
+Orca Auto is a queue-first interface for ORCA and workflow orchestration on Linux and WSL. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public surfaces. It submits work durably, runs it under supervised workers, records per-job state and reports, and organizes completed outputs.
 
 ## Docs
 
@@ -28,22 +28,22 @@ bash scripts/bootstrap_wsl.sh
 source .venv/bin/activate
 ```
 
-`bootstrap_wsl.sh` creates `.venv`, installs the project, and seeds `config/chemstack.yaml` from the example template when needed.
-If you do not activate the virtual environment, you can still run the installed CLI directly as `.venv/bin/chemstack ...`.
+`bootstrap_wsl.sh` creates `.venv`, installs the project, and seeds `config/orca_auto.yaml` from the example template when needed.
+If you do not activate the virtual environment, you can still run the installed CLI directly as `.venv/bin/orca_auto ...`.
 
 ## Configure
 
-Create or update `chemstack.yaml`:
+Create or update `orca_auto.yaml`:
 
 ```bash
-chemstack init
+orca_auto init
 ```
 
 Config search order:
 
-1. `CHEMSTACK_CONFIG`
-2. `<project_root>/config/chemstack.yaml`
-3. `~/chemstack/config/chemstack.yaml`
+1. `ORCA_AUTO_CONFIG`
+2. `<project_root>/config/orca_auto.yaml`
+3. `~/orca_auto/config/orca_auto.yaml`
 
 Minimal example:
 
@@ -81,32 +81,32 @@ Notes:
 - `workflow.root` is the workflow root used by the unified CLI and workflow worker.
 - Internal xTB/CREST runtimes no longer use a shared `workflow.root/internal/...` root.
 - Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and organized outputs live only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`.
-- The full template lives at [config/chemstack.yaml.example](config/chemstack.yaml.example).
+- The full template lives at [config/orca_auto.yaml.example](config/orca_auto.yaml.example).
 
 ## User Commands
 
-User-facing submission, inspection, and maintenance commands use `chemstack ...`.
+User-facing submission, inspection, and maintenance commands use `orca_auto ...`.
 
 ```bash
 # create/update shared config
-chemstack init
+orca_auto init
 
 # create raw input scaffolds when they help
-chemstack scaffold ts_search '/home/user/workflow_inputs/rxn_001'
-chemstack scaffold conformer_search '/home/user/workflow_inputs/conf_001'
+orca_auto scaffold ts_search '/home/user/workflow_inputs/rxn_001'
+orca_auto scaffold conformer_search '/home/user/workflow_inputs/conf_001'
 
 # submit work
-chemstack run-dir '/home/user/orca_runs/sample_rxn'
-chemstack run-dir '/home/user/workflow_inputs/reaction_case'
+orca_auto run-dir '/home/user/orca_runs/sample_rxn'
+orca_auto run-dir '/home/user/workflow_inputs/reaction_case'
 
 # inspect and maintain
-chemstack queue list --engine orca
-chemstack queue list clear
-chemstack queue cancel <target>
-chemstack service status
-chemstack service restart
-chemstack organize orca --root '/home/user/orca_runs' --apply
-chemstack scan-notify
+orca_auto queue list --engine orca
+orca_auto queue list clear
+orca_auto queue cancel <target>
+orca_auto service status
+orca_auto service restart
+orca_auto organize orca --root '/home/user/orca_runs' --apply
+orca_auto scan-notify
 ```
 
 `queue list` prints a compact table with `Status`, `Name`, `Detail`, `ID`, and `Elapsed`
@@ -114,7 +114,7 @@ columns that adapt to the terminal width (long values are truncated with `...`).
 Workflow child simulations stay grouped under their parent workflow with indentation.
 By default, only ORCA child jobs are expanded in the combined text view; internal xTB/CREST
 workflow children stay hidden unless you ask for them with filters or `--json`.
-Use `chemstack queue list clear` to prune completed, failed, and cancelled entries from
+Use `orca_auto queue list clear` to prune completed, failed, and cancelled entries from
 the unified list. The Telegram bot uses the same `/list` table layout (minus the `ID`
 column, so each row fits on one line on mobile) and supports the same cleanup via
 `/list clear`.
@@ -123,13 +123,13 @@ The `active_simulations` line counts only simulations that currently consume the
 
 CLI table output is colorized by status when stdout is a terminal; color is disabled
 automatically when piped or when `NO_COLOR` is set, and can be forced off with
-`--no-color` (e.g. `chemstack --no-color queue list`). `chemstack --version` prints the
-installed version, and running `chemstack` with no command prints help. Errors and
+`--no-color` (e.g. `orca_auto --no-color queue list`). `orca_auto --version` prints the
+installed version, and running `orca_auto` with no command prints help. Errors and
 recovery hints are written to stderr. The `queue cancel`, `run-dir`, and `service status`
 outputs colorize status fields the same way.
 
-`chemstack queue list --watch` continuously refreshes the list until interrupted
-(`--interval` sets the refresh seconds, default 2.0). `chemstack service status --json`
+`orca_auto queue list --watch` continuously refreshes the list until interrupted
+(`--interval` sets the refresh seconds, default 2.0). `orca_auto service status --json`
 emits machine-readable output for scripting.
 
 The Telegram bot supports `/cancel <target>` with confirmation via inline buttons before cancelling.
@@ -140,14 +140,14 @@ and pruning completed/failed/cancelled entries (the same as `/list clear`) are e
 activities are cancellable the actions message notes how many are shown, and executing a
 cancel or clear auto-refreshes the list.
 
-Long-running services are managed through `systemd` only. After `chemstack.yaml`
+Long-running services are managed through `systemd` only. After `orca_auto.yaml`
 is configured, enable the combined runtime target once and let `systemd` start
 both the worker and the bot automatically:
 
 ```bash
 cd <repo_root>
-chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
-chemstack service status
+orca_auto systemd install --user "$(whoami)" --repo "$(pwd)"
+orca_auto service status
 ```
 
 If Telegram is not configured yet, the installer enables only the queue worker.
@@ -157,13 +157,13 @@ Run the same command again after setting `telegram.bot_token` and
 Restart examples:
 
 ```bash
-chemstack service restart
+orca_auto service restart
 ```
 
 If you edited files under `systemd/`, run `sudo systemctl daemon-reload` before restarting.
 
 If you want only the worker managed automatically, enable
-`chemstack-queue-worker@$(whoami)` instead.
+`orca_auto-queue-worker@$(whoami)` instead.
 
 ## Runtime Notes
 
@@ -173,7 +173,7 @@ If you want only the worker managed automatically, enable
   `reaction_dir` contract is preserved.
 - If no worker is running, queued jobs remain pending until one returns.
 - ORCA selects the most recently modified `.inp` when execution starts.
-- When retrying or resuming an interrupted ORCA run, ChemStack uses a matching
+- When retrying or resuming an interrupted ORCA run, Orca Auto uses a matching
   non-empty `.gbw` file by generating a restart input with `MORead` and `%moinp`.
 - Completed ORCA runs write state and report files such as `job_state.json`, `job_report.json`, and `job_report.md`.
 - Use the `systemd` assets in [systemd/README.md](systemd/README.md) for unattended WSL or Linux execution.

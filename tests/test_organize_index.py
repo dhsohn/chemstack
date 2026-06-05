@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chemstack.orca.organize_index import (
+from orca_auto.orca.organize_index import (
     append_record,
     index_dir,
     load_index,
     rebuild_index,
     records_path,
 )
-from chemstack.orca.state import save_state
+from orca_auto.orca.state import save_state
 
 
 def _write_records(organized_root: Path, records: list) -> None:

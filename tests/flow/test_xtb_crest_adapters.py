@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.flow.adapters.crest import (
+from orca_auto.flow.adapters.crest import (
     load_crest_artifact_contract,
     select_crest_downstream_inputs,
 )
-from chemstack.flow.adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
-from chemstack.flow.contracts.crest import CrestDownstreamPolicy
-from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbDownstreamPolicy
+from orca_auto.flow.adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
+from orca_auto.flow.contracts.crest import CrestDownstreamPolicy
+from orca_auto.flow.contracts.xtb import XtbArtifactContract, XtbDownstreamPolicy
 from tests.engine_artifact_helpers import artifact_payload
 
 
@@ -201,7 +201,7 @@ def test_load_xtb_artifact_contract_preserves_selected_candidate_paths_without_d
         [
             {
                 "job_id": "xtb_job_fallback",
-                "app_name": "chemstack_xtb",
+                "app_name": "orca_auto_xtb",
                 "job_type": "xtb_ts",
                 "status": "completed",
                 "original_run_dir": str(job_dir),
@@ -306,7 +306,7 @@ def test_load_xtb_artifact_contract_rejects_non_xtb_index_records(tmp_path: Path
         [
             {
                 "job_id": "xtb_bad_app",
-                "app_name": "chemstack_crest",
+                "app_name": "orca_auto_crest",
                 "job_type": "xtb_path",
                 "status": "completed",
                 "original_run_dir": str(job_dir),
@@ -319,7 +319,7 @@ def test_load_xtb_artifact_contract_rejects_non_xtb_index_records(tmp_path: Path
         artifact_payload(engine="xtb", job_id="xtb_bad_app", job_dir=str(job_dir)),
     )
 
-    with pytest.raises(ValueError, match="Expected chemstack_xtb index record"):
+    with pytest.raises(ValueError, match="Expected orca_auto_xtb index record"):
         load_xtb_artifact_contract(xtb_index_root=index_root, target="xtb_bad_app")
 
 
@@ -423,7 +423,7 @@ def test_load_crest_artifact_contract_uses_index_target_without_organized_ref(
         [
             {
                 "job_id": "crest_index_job",
-                "app_name": "chemstack_crest",
+                "app_name": "orca_auto_crest",
                 "job_type": "crest_standard",
                 "status": "completed",
                 "original_run_dir": str(job_dir),

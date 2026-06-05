@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from chemstack.core.engines.artifacts import (
+from orca_auto.core.engines.artifacts import (
     EngineArtifactInput,
     EngineArtifactJob,
     EngineArtifactRecovery,
@@ -128,7 +128,7 @@ def orca_artifact_payload(
     final_result: Mapping[str, Any] | None = None,
     max_retries: int = 0,
     queue_id: str = "",
-    app_name: str = "chemstack_orca",
+    app_name: str = "orca_auto_orca",
     task_id: str = "",
     resource_request: Mapping[str, Any] | None = None,
     resource_actual: Mapping[str, Any] | None = None,
