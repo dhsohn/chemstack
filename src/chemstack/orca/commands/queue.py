@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_queue_worker(args: Any) -> int:
-    return _queue_worker_runtime._engine_runtime.run_pidfile_worker_command(
+    return _queue_worker_runtime._queue_module.run_pidfile_worker_command(
         args,
         load_config_fn=load_config,
         config_path_fn=lambda worker_args: str(worker_args.config),

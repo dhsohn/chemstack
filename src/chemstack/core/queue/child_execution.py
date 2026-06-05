@@ -84,6 +84,22 @@ def find_queue_entry_by_id(
     return None
 
 
+def build_queue_entry_lookup(
+    *,
+    list_queue_fn: Callable[[str | Path], Iterable[Any]],
+    coerce_root_to_path: bool = False,
+) -> Callable[[str | Path, str], Any | None]:
+    def queue_entry_by_id(queue_root: str | Path, queue_id: str) -> Any | None:
+        resolved_root: str | Path = Path(queue_root) if coerce_root_to_path else queue_root
+        return find_queue_entry_by_id(
+            resolved_root,
+            queue_id,
+            list_queue_fn=list_queue_fn,
+        )
+
+    return queue_entry_by_id
+
+
 def load_child_queue_job(
     *,
     config_path: str,
@@ -155,6 +171,7 @@ __all__ = [
     "ChildQueueJob",
     "ChildWorkerShutdownController",
     "activate_child_admission_token",
+    "build_queue_entry_lookup",
     "find_queue_entry_by_id",
     "install_shutdown_request_handlers",
     "load_child_queue_job",

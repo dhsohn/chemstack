@@ -35,6 +35,10 @@ def entry_metadata_dict(entry: Any, key: str) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def object_attribute_fields(source: Any, *field_names: str) -> dict[str, Any]:
+    return {field_name: getattr(source, field_name) for field_name in field_names}
+
+
 __all__ = [
     "entry_metadata_dict",
     "entry_metadata_resolved_path",
@@ -42,4 +46,5 @@ __all__ = [
     "entry_metadata_value",
     "mapping_metadata",
     "mapping_metadata_value",
+    "object_attribute_fields",
 ]

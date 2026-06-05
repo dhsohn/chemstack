@@ -12,12 +12,22 @@ from .internal_engine_spec import (
     InternalEngineLifecycleModuleExports,
     InternalEngineSpec,
     InternalEngineWorkerChildModuleExports,
+    InternalEngineWorkerChildModuleFacade,
 )
 from .internal_engine_status import entry_status_is_running
 from .internal_engine_worker_deps import (
     InternalEngineQueueWorkerDeps,
     InternalEngineQueueWorkerDepsResolver,
+    InternalEngineQueueWorkerFacadeBindings,
+    InternalEngineQueueWorkerFacadeCallbacks,
+    InternalEngineQueueWorkerNamespaceNames,
+    build_internal_engine_queue_worker_deps,
+    build_late_bound_internal_engine_queue_worker_deps,
+    build_late_bound_internal_engine_queue_worker_facade_callbacks,
+    internal_engine_queue_worker_callbacks_from_namespace,
+    internal_engine_queue_worker_callbacks_from_namespace_names,
     internal_engine_queue_worker_deps_from_namespace,
+    internal_engine_queue_worker_deps_from_namespace_names,
 )
 from .internal_engine_worker_facade import (
     InternalEngineQueueWorkerCommandRunner,
@@ -28,8 +38,11 @@ from .internal_engine_worker_facade import (
 __all__ = [
     "InternalEngineAdmission",
     "InternalEngineLifecycle",
+    "InternalEngineQueueWorkerFacadeBindings",
+    "InternalEngineQueueWorkerFacadeCallbacks",
     "InternalEngineQueueWorkerDeps",
     "InternalEngineQueueWorkerDepsResolver",
+    "InternalEngineQueueWorkerNamespaceNames",
     "InternalEngineQueueWorkerLifecycleFacade",
     "InternalEngineQueueWorkerCommandRunner",
     "InternalEngineQueueModule",
@@ -37,10 +50,17 @@ __all__ = [
     "InternalEngineQueueWorkerFacade",
     "InternalEngineSpec",
     "InternalEngineWorkerChild",
+    "InternalEngineWorkerChildModuleFacade",
     "InternalEngineLifecycleModuleExports",
     "InternalEngineWorkerChildModuleExports",
     "InternalEngineWorkerEntrypoint",
     "create_worker_shutdown_exception_type",
     "entry_status_is_running",
+    "build_internal_engine_queue_worker_deps",
+    "build_late_bound_internal_engine_queue_worker_deps",
+    "build_late_bound_internal_engine_queue_worker_facade_callbacks",
+    "internal_engine_queue_worker_callbacks_from_namespace",
+    "internal_engine_queue_worker_callbacks_from_namespace_names",
     "internal_engine_queue_worker_deps_from_namespace",
+    "internal_engine_queue_worker_deps_from_namespace_names",
 ]

@@ -134,6 +134,108 @@ class EngineQueueWorker(HookedPidFileChildProcessQueueWorker):
         self._check_cancel_requests_callback(self)
 
 
+def build_engine_queue_worker(
+    cfg: Any,
+    *,
+    config_path: str,
+    engine: str,
+    max_concurrent: int | None,
+    deps: Any,
+    hooks: Any,
+    worker_pid_file_name: str,
+    admission_root: str | Path,
+    auto_organize: bool = False,
+    after_init: WorkerCallback | None = None,
+    before_run: WorkerCallback | None = None,
+    after_run: WorkerCallback | None = None,
+    keyboard_interrupt: WorkerCallback | None = None,
+    running_queue_id: WorkerCallback | None = None,
+    running_job_factory: WorkerCallback | None = None,
+    finalize_finished_job: WorkerCallback | None = None,
+    finalize_child_exit: WorkerCallback | None = None,
+    reconcile_orphaned_running: WorkerCallback | None = None,
+    check_cancel_requests: WorkerCallback | None = None,
+) -> EngineQueueWorker:
+    return EngineQueueWorker(
+        cfg,
+        config_path=config_path,
+        engine=engine,
+        max_concurrent=max_concurrent,
+        deps=deps,
+        hooks=hooks,
+        worker_pid_file_name=worker_pid_file_name,
+        admission_root=admission_root,
+        auto_organize=auto_organize,
+        after_init=after_init,
+        before_run=before_run,
+        after_run=after_run,
+        keyboard_interrupt=keyboard_interrupt,
+        running_queue_id=running_queue_id,
+        running_job_factory=running_job_factory,
+        finalize_finished_job=finalize_finished_job,
+        finalize_child_exit=finalize_child_exit,
+        reconcile_orphaned_running=reconcile_orphaned_running,
+        check_cancel_requests=check_cancel_requests,
+    )
+
+
+def build_runtime_engine_queue_worker(
+    cfg: Any,
+    *,
+    config_path: str | None,
+    default_config_path: Callable[[], str],
+    engine: str,
+    max_concurrent: int | None,
+    deps: Any,
+    hooks: Any,
+    worker_pid_file_name: str,
+    admission_root: str | Path,
+    auto_organize: bool = False,
+    after_init: WorkerCallback | None = None,
+    before_run: WorkerCallback | None = None,
+    after_run: WorkerCallback | None = None,
+    keyboard_interrupt: WorkerCallback | None = None,
+    running_queue_id: WorkerCallback | None = None,
+    running_job_factory: WorkerCallback | None = None,
+    finalize_finished_job: WorkerCallback | None = None,
+    finalize_child_exit: WorkerCallback | None = None,
+    reconcile_orphaned_running: WorkerCallback | None = None,
+    check_cancel_requests: WorkerCallback | None = None,
+    normalize_max_concurrent: bool = False,
+    worker_builder: Callable[..., EngineQueueWorker] = build_engine_queue_worker,
+) -> EngineQueueWorker:
+    resolved_config_path = str(config_path or "").strip() or default_config_path()
+    resolved_max_concurrent = max_concurrent
+    if normalize_max_concurrent:
+        raw_max_concurrent: Any = (
+            max_concurrent
+            if max_concurrent is not None
+            else getattr(cfg.runtime, "max_concurrent", 1)
+        )
+        resolved_max_concurrent = max(1, int(raw_max_concurrent))
+    return worker_builder(
+        cfg,
+        config_path=resolved_config_path,
+        engine=engine,
+        max_concurrent=resolved_max_concurrent,
+        deps=deps,
+        hooks=hooks,
+        worker_pid_file_name=worker_pid_file_name,
+        admission_root=admission_root,
+        auto_organize=auto_organize,
+        after_init=after_init,
+        before_run=before_run,
+        after_run=after_run,
+        keyboard_interrupt=keyboard_interrupt,
+        running_queue_id=running_queue_id,
+        running_job_factory=running_job_factory,
+        finalize_finished_job=finalize_finished_job,
+        finalize_child_exit=finalize_child_exit,
+        reconcile_orphaned_running=reconcile_orphaned_running,
+        check_cancel_requests=check_cancel_requests,
+    )
+
+
 def run_engine_queue_worker(engine: str, argv: list[str]) -> int:
     from .registry import get_engine_definition
 
@@ -158,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "EngineQueueWorker",
     "QUEUE_WORKER_MODULE",
+    "build_engine_queue_worker",
+    "build_runtime_engine_queue_worker",
     "build_parser",
     "main",
     "run_engine_queue_worker",

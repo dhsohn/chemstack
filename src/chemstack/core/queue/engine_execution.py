@@ -13,6 +13,7 @@ from .engine_artifacts import (
     build_terminal_artifact_payloads,
     build_terminal_report_payload,
     build_terminal_result,
+    build_terminal_result_from_context,
     build_terminal_state_payload,
     default_engine_resource_caps,
     default_entry_resource_request,
@@ -29,6 +30,7 @@ from .engine_lifecycle import (
     run_engine_worker_lifecycle,
 )
 from .internal_worker import (
+    EngineWorkerExecutionSpecFactory,
     InternalEngineWorkerAdapter,
     InternalEngineWorkerExecutionSpec,
     InternalEngineWorkerHooks,
@@ -53,6 +55,7 @@ from .internal_worker import (
     run_internal_engine_worker_entry,
     run_internal_engine_worker_entry_with_hooks,
     run_internal_engine_worker_entry_with_spec,
+    run_internal_engine_worker_entry_with_spec_factory_options,
     run_internal_engine_worker_entry_with_spec_options,
     run_internal_worker_process_job,
 )
@@ -61,6 +64,7 @@ from .metadata import (
     entry_metadata_resolved_path,
     entry_metadata_text,
     entry_metadata_value,
+    object_attribute_fields,
 )
 from .resource_requests import (
     coerce_resource_request,
@@ -81,6 +85,7 @@ __all__ = [
     "EngineWorkerLifecycle",
     "InternalEngineWorkerAdapter",
     "InternalEngineWorkerExecutionSpec",
+    "EngineWorkerExecutionSpecFactory",
     "InternalEngineWorkerHooks",
     "InternalWorkerProcessDependencies",
     "InternalWorkerQueueDependencies",
@@ -93,6 +98,7 @@ __all__ = [
     "build_terminal_artifact_payloads",
     "build_terminal_report_payload",
     "build_terminal_result",
+    "build_terminal_result_from_context",
     "build_terminal_state_payload",
     "coerce_resource_request",
     "default_engine_resource_caps",
@@ -102,6 +108,7 @@ __all__ = [
     "entry_metadata_resolved_path",
     "entry_metadata_text",
     "entry_metadata_value",
+    "object_attribute_fields",
     "entry_resource_request",
     "is_resumed_state",
     "mark_engine_job_running",
@@ -127,6 +134,7 @@ __all__ = [
     "run_internal_cancellable_engine_process",
     "run_internal_engine_worker_entry",
     "run_internal_engine_worker_entry_with_spec",
+    "run_internal_engine_worker_entry_with_spec_factory_options",
     "run_internal_engine_worker_entry_with_spec_options",
     "run_internal_engine_worker_entry_with_hooks",
     "run_internal_worker_process_job",

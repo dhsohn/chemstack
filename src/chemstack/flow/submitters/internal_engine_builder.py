@@ -61,6 +61,17 @@ def submitter_deps_from_namespace(namespace: Mapping[str, Any]) -> InternalEngin
     )
 
 
+def submitter_deps_factory_from_namespace(
+    namespace: Mapping[str, Any],
+) -> Callable[[], InternalEngineSubmitterDeps]:
+    """Compatibility adapter; prefer passing a deps_factory explicitly."""
+
+    def namespace_deps_factory() -> InternalEngineSubmitterDeps:
+        return submitter_deps_from_namespace(namespace)
+
+    return namespace_deps_factory
+
+
 def build_internal_engine_submitter(
     *,
     run_dir_api_name: str,
@@ -74,12 +85,7 @@ def build_internal_engine_submitter(
     if deps_factory is None:
         if namespace is None:
             raise ValueError("build_internal_engine_submitter requires deps_factory or namespace")
-        namespace_ref = namespace
-
-        def namespace_deps_factory() -> InternalEngineSubmitterDeps:
-            return submitter_deps_from_namespace(namespace_ref)
-
-        deps_factory = namespace_deps_factory
+        deps_factory = submitter_deps_factory_from_namespace(namespace)
 
     submitter = InternalEngineSubmitter(
         spec=InternalEngineSubmitterSpec(
@@ -95,7 +101,8 @@ def build_internal_engine_submitter(
 def build_internal_engine_module_submitter(
     *,
     engine: str,
-    namespace: Mapping[str, Any],
+    deps_factory: Callable[[], InternalEngineSubmitterDeps] | None = None,
+    namespace: Mapping[str, Any] | None = None,
     extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None,
 ) -> tuple[Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
     engine_name = normalize_text(engine)
@@ -104,6 +111,7 @@ def build_internal_engine_module_submitter(
     return build_internal_engine_submitter(
         run_dir_api_name=f"chemstack.{engine_name}.submission.direct_enqueue",
         cancel_api_name=f"chemstack.{engine_name}.queue_runtime.direct_cancel",
+        deps_factory=deps_factory,
         namespace=namespace,
         extra_fields_fn=extra_fields_fn,
     )

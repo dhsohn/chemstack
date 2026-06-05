@@ -9,6 +9,63 @@ import pytest
 from chemstack.core.queue import engine_execution
 
 
+def test_object_attribute_fields_extracts_named_context_values() -> None:
+    context = SimpleNamespace(
+        job_type="ranking",
+        reaction_key="rxn-1",
+        input_summary={"candidate_count": 3},
+    )
+
+    assert engine_execution.object_attribute_fields(
+        context,
+        "job_type",
+        "reaction_key",
+        "input_summary",
+    ) == {
+        "job_type": "ranking",
+        "reaction_key": "rxn-1",
+        "input_summary": {"candidate_count": 3},
+    }
+
+
+def test_build_terminal_result_from_context_merges_identity_and_timestamp(
+    tmp_path: Path,
+) -> None:
+    entry = SimpleNamespace(queue_id="queue-1", started_at="")
+    context = SimpleNamespace(
+        entry=entry,
+        job_dir=tmp_path / "job",
+        selected_xyz=tmp_path / "job" / "input.xyz",
+        resource_request={"max_cores": 2},
+    )
+    captured: dict[str, Any] = {}
+
+    def build_terminal_result(entry_obj: Any, **kwargs: Any) -> Any:
+        captured["entry"] = entry_obj
+        captured["kwargs"] = kwargs
+        return "terminal-result"
+
+    result = engine_execution.build_terminal_result_from_context(
+        build_terminal_result,
+        context,
+        identity_fields={"mode": "nci"},
+        status="failed",
+        reason="runner_error:boom",
+        now_utc_iso="2026-01-01T00:00:00+00:00",
+    )
+
+    assert result == "terminal-result"
+    assert captured["entry"] is entry
+    assert captured["kwargs"]["job_dir"] == tmp_path / "job"
+    assert captured["kwargs"]["selected_xyz"] == tmp_path / "job" / "input.xyz"
+    assert captured["kwargs"]["resource_request"] == {"max_cores": 2}
+    assert captured["kwargs"]["mode"] == "nci"
+    assert captured["kwargs"]["status"] == "failed"
+    assert captured["kwargs"]["reason"] == "runner_error:boom"
+    assert captured["kwargs"]["exit_code"] == 1
+    assert captured["kwargs"]["now_utc_iso_fn"]() == "2026-01-01T00:00:00+00:00"
+
+
 def test_run_engine_worker_lifecycle_stops_on_shutdown_before_mark_running(
     tmp_path: Path,
 ) -> None:
@@ -353,6 +410,35 @@ def test_run_internal_engine_worker_entry_with_spec_options_builds_options(
         "emit_output": True,
     }
     assert calls == [("mark", 101), ("register", running_process)]
+
+
+def test_run_internal_engine_worker_entry_with_spec_factory_options_builds_once(
+    tmp_path: Path,
+) -> None:
+    cfg = object()
+    entry = SimpleNamespace(queue_id="q-1")
+    calls: list[str] = []
+
+    def build_spec() -> engine_execution.InternalEngineWorkerExecutionSpec:
+        calls.append("build")
+        return engine_execution.InternalEngineWorkerExecutionSpec(
+            build_context=lambda _cfg, current_entry: SimpleNamespace(entry=current_entry),
+            mark_running=lambda *_args: calls.append("mark"),
+            run_job=lambda *_args: "result",
+            finalize_entry=lambda *_args: "finalized",
+            shutdown_exception_type=RuntimeError,
+        )
+
+    outcome = engine_execution.run_internal_engine_worker_entry_with_spec_factory_options(
+        cfg,
+        entry,
+        queue_root=tmp_path / "queue",
+        spec_factory=build_spec,
+        worker_job_pid=101,
+    )
+
+    assert outcome == "finalized"
+    assert calls == ["build", "mark"]
 
 
 def test_raise_if_shutdown_requested_uses_engine_context() -> None:

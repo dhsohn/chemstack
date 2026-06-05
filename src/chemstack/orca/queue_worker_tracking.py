@@ -20,8 +20,8 @@ class OrcaQueueWorkerTrackingCallbacks:
     finished_notification_already_sent: Callable[[Any], bool]
     load_organized_ref: Callable[[Path], Any]
     load_report_json: Callable[[Path], Any]
-    load_state: Callable[[Path], dict[str, Any] | None]
-    mark_finished_notification_sent: Callable[[Path, dict[str, Any]], Any]
+    load_state: Callable[[Path], Any]
+    mark_finished_notification_sent: Callable[..., Any]
     notify_run_finished_event: Callable[..., bool]
     queue_entry_metadata: Callable[[Any], dict[str, Any]]
     queue_entry_reaction_dir: Callable[[Any], str]
@@ -32,28 +32,6 @@ class OrcaQueueWorkerTrackingCallbacks:
     resource_dict: Callable[[Any, Any], dict[str, int]]
     selected_input_artifacts: Callable[[str], Any]
     upsert_job_record: Callable[..., Any]
-
-
-def tracking_callbacks_from_namespace(namespace: Any) -> OrcaQueueWorkerTrackingCallbacks:
-    return OrcaQueueWorkerTrackingCallbacks(
-        build_run_finished_notification=namespace.build_run_finished_notification,
-        coerce_resource_request=namespace.coerce_resource_request,
-        finished_notification_already_sent=namespace.finished_notification_already_sent,
-        load_organized_ref=namespace.load_organized_ref,
-        load_report_json=namespace.load_report_json,
-        load_state=namespace.load_state,
-        mark_finished_notification_sent=namespace.mark_finished_notification_sent,
-        notify_run_finished_event=namespace.notify_run_finished_event,
-        queue_entry_metadata=namespace.queue_entry_metadata,
-        queue_entry_reaction_dir=namespace.queue_entry_reaction_dir,
-        queue_entry_task_id=namespace.queue_entry_task_id,
-        read_resource_request_from_input=namespace.read_resource_request_from_input,
-        record_from_artifacts=namespace.record_from_artifacts,
-        resolve_job_metadata=namespace.resolve_job_metadata,
-        resource_dict=namespace.resource_dict,
-        selected_input_artifacts=namespace.selected_input_artifacts,
-        upsert_job_record=namespace.upsert_job_record,
-    )
 
 
 def get_run_id_from_state(
@@ -224,7 +202,6 @@ __all__ = [
     "OrcaQueueWorkerTrackingCallbacks",
     "get_run_id_from_state",
     "notify_terminal_job_from_state",
-    "tracking_callbacks_from_namespace",
     "tracking_metadata_from_queue_entry",
     "upsert_running_job_record",
     "upsert_terminal_job_record",

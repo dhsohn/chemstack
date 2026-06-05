@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from chemstack.core.queue import child_entrypoint, child_execution
 
@@ -35,6 +36,25 @@ def test_find_queue_entry_by_id_returns_matching_entry(tmp_path: Path) -> None:
         )
         is None
     )
+
+
+def test_build_queue_entry_lookup_reuses_lister_and_optional_path_coercion(
+    tmp_path: Path,
+) -> None:
+    wanted = SimpleNamespace(queue_id="q-wanted")
+    seen_roots: list[Path | str] = []
+
+    def list_queue(root: str | Path) -> list[Any]:
+        seen_roots.append(root)
+        return [wanted]
+
+    lookup = child_execution.build_queue_entry_lookup(
+        list_queue_fn=list_queue,
+        coerce_root_to_path=True,
+    )
+
+    assert lookup(str(tmp_path), "q-wanted") is wanted
+    assert seen_roots == [tmp_path]
 
 
 def test_load_child_queue_job_resolves_paths_and_entry(tmp_path: Path) -> None:

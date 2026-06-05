@@ -36,29 +36,6 @@ class OrcaQueueWorkerLifecycleCallbacks:
     requeue_running_entry: Callable[..., Any]
 
 
-def lifecycle_callbacks_from_namespace(namespace: Any) -> OrcaQueueWorkerLifecycleCallbacks:
-    return OrcaQueueWorkerLifecycleCallbacks(
-        queue_entry_id=namespace.queue_entry_id,
-        queue_entry_app_name=namespace.queue_entry_app_name,
-        queue_entry_task_id=namespace.queue_entry_task_id,
-        update_slot_metadata=namespace.update_slot_metadata,
-        terminate_process=namespace._terminate_process,
-        mark_failed=namespace.mark_failed,
-        upsert_running_job_record=namespace._upsert_running_job_record,
-        get_run_id_from_state=namespace._get_run_id_from_state,
-        get_cancel_requested=namespace.get_cancel_requested,
-        mark_cancelled=namespace.mark_cancelled,
-        mark_completed=namespace.mark_completed,
-        upsert_terminal_job_record=namespace._upsert_terminal_job_record,
-        notify_terminal_job_from_state=namespace._notify_terminal_job_from_state,
-        on_completed=lambda worker, job: worker._auto_organize_terminal_job(job),
-        queue_roots=namespace.queue_roots,
-        reconcile_stale_slots=namespace.reconcile_stale_slots,
-        reconcile_orphaned_running_entries=namespace.reconcile_orphaned_running_entries,
-        requeue_running_entry=namespace.requeue_running_entry,
-    )
-
-
 def build_orca_worker_lifecycle_hooks(
     callbacks: OrcaQueueWorkerLifecycleCallbacks,
 ) -> EngineQueueProcessLifecycleHooks:
@@ -122,7 +99,6 @@ def shutdown_running_job(
 __all__ = [
     "OrcaQueueWorkerLifecycleCallbacks",
     "build_orca_worker_lifecycle_hooks",
-    "lifecycle_callbacks_from_namespace",
     "reconcile_orphaned_running",
     "shutdown_running_job",
 ]

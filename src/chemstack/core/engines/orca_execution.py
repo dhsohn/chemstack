@@ -11,9 +11,7 @@ from chemstack.core.admission import release_slot
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.core.engines.worker_child import (
     WORKER_CHILD_MODULE,
-)
-from chemstack.core.engines.worker_child import (
-    build_worker_child_command as _build_unified_worker_child_command,
+    build_worker_child_command_for_engine,
 )
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.child_execution import find_queue_entry_by_id
@@ -22,6 +20,7 @@ from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
     resolve_admission_root,
 )
+from chemstack.core.queue.worker_execution_dependencies import run_worker_child_entrypoint
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute
 from chemstack.orca.config import load_config
 from chemstack.orca.orca_runner import OrcaRunner
@@ -71,10 +70,15 @@ def _orca_worker_outcome_exit_code(outcome: OrcaWorkerExecutionOutcome) -> int:
     return int(outcome.exit_code)
 
 
-_WORKER_CHILD = _ENGINE_SPEC.worker_child(
+build_worker_child_command = build_worker_child_command_for_engine("orca")
+
+
+_worker_child = _ENGINE_SPEC.worker_child_module_facade(
     WorkerShutdownRequested,
     outcome_exit_code_fn=_orca_worker_outcome_exit_code,
+    build_worker_child_command=build_worker_child_command,
 )
+_WORKER_CHILD = _worker_child.worker_child
 
 
 def _canonical_admission_app_name(value: str | None) -> str | None:
@@ -109,24 +113,6 @@ def start_background_run_job(
     runner_cls: Type[OrcaRunner] = OrcaRunner,
 ) -> BackgroundRunJobProcess[str]:
     raise ValueError("legacy ORCA --reaction-dir worker mode has been removed")
-
-
-def build_worker_child_command(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    admission_token: str | None = None,
-    admission_root: str | Path | None = None,
-) -> list[str]:
-    return _build_unified_worker_child_command(
-        engine="orca",
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_root=admission_root,
-        admission_token=admission_token,
-    )
 
 
 def _queue_entry_by_id(queue_root: Path, queue_id: str) -> Any | None:
@@ -206,11 +192,11 @@ def process_dequeued_entry(
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> OrcaWorkerExecutionOutcome:
     del dependencies
-    return _engine_execution.run_internal_engine_worker_entry_with_spec_options(
+    return _engine_execution.run_internal_engine_worker_entry_with_spec_factory_options(
         cfg,
         entry,
         queue_root=queue_root,
-        spec=_worker_execution_spec(
+        spec_factory=lambda: _worker_execution_spec(
             worker_config_path=worker_config_path,
             admission_token=admission_token,
         ),
@@ -229,7 +215,8 @@ def run_worker_child_job(
     queue_id: str,
     admission_token: str | None = None,
 ) -> int:
-    return _WORKER_CHILD.run_worker_child_job(
+    return run_worker_child_entrypoint(
+        _worker_child,
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -238,9 +225,7 @@ def run_worker_child_job(
         find_queue_entry_fn=_queue_entry_by_id,
         admission_root_fn=resolve_admission_root,
         release_slot_fn=release_slot,
-        install_signal_handlers_fn=_WORKER_CHILD.shutdown_signal_handler_installer(
-            install_shutdown_signal_handlers,
-        ),
+        install_shutdown_signal_handlers_fn=install_shutdown_signal_handlers,
         process_dequeued_entry_fn=process_dequeued_entry,
         dependencies_fn=lambda: None,
         requeue_running_entry_fn=requeue_running_entry,

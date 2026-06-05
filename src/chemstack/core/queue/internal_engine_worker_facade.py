@@ -9,6 +9,7 @@ from .internal_engine_runtime import InternalEngineQueueRuntime
 from .internal_engine_worker_deps import (
     InternalEngineQueueWorkerDeps,
     InternalEngineQueueWorkerDepsResolver,
+    InternalEngineQueueWorkerNamespaceNames,
     internal_engine_queue_worker_deps_from_namespace,
 )
 
@@ -20,47 +21,47 @@ class InternalEngineQueueWorkerLifecycleFacade:
     shutdown_grace_seconds: float
 
     def queue_worker_hooks(self) -> Any:
+        names = self.resolver.namespace_names()
+
         def activate_reserved_slot_fn(*args: Any, **kwargs: Any) -> Any:
             return self.resolver.dep(
                 "activate_reserved_slot",
-                self.resolver.activate_reserved_slot_name,
+                names.activate_reserved_slot,
             )(*args, **kwargs)
 
         def terminate_process_fn(process: Any) -> Any:
             return self.resolver.dep(
                 "terminate_process",
-                self.resolver.terminate_process_name,
+                names.terminate_process,
             )(process)
 
         def mark_failed_fn(*args: Any, **kwargs: Any) -> Any:
             return self.resolver.dep(
                 "mark_failed",
-                self.resolver.mark_failed_name,
+                names.mark_failed,
             )(*args, **kwargs)
 
         def sleep_fn(seconds: float) -> None:
-            self.resolver.dep("time_module", self.resolver.time_module_name).sleep(seconds)
+            self.resolver.dep("time_module", names.time_module).sleep(seconds)
 
-        if self.resolver.deps is not None:
-            deps = self.resolver.deps
-            return self.runtime.child_worker_hooks(
-                engine=self.runtime.spec.engine,
-                handle_worker_start_error_fn=deps.handle_worker_start_error,
-                finalize_completed_job_fn=deps.finalize_completed_job,
-                finalize_child_exit_fn=deps.finalize_child_exit,
-                reconcile_worker_state_fn=deps.reconcile_worker_state,
-                activate_reserved_slot_fn=activate_reserved_slot_fn,
-                terminate_process_fn=terminate_process_fn,
-                mark_failed_fn=mark_failed_fn,
-                shutdown_grace_seconds=self.shutdown_grace_seconds,
-                sleep_fn=sleep_fn,
-                on_worker_process_started_fn=deps.on_worker_process_started,
-                shutdown_running_job_fn=deps.shutdown_running_job,
-                before_shutdown_all_fn=deps.before_shutdown_all,
-            )
-
-        return self.runtime.child_worker_hooks_from_namespace(
-            namespace=self.resolver.namespace or {},
+        return self.runtime.child_worker_hooks(
+            engine=self.runtime.spec.engine,
+            handle_worker_start_error_fn=self.resolver.dep(
+                "handle_worker_start_error",
+                names.handle_worker_start_error,
+            ),
+            finalize_completed_job_fn=self.resolver.dep(
+                "finalize_completed_job",
+                names.finalize_completed_job,
+            ),
+            finalize_child_exit_fn=self.resolver.dep(
+                "finalize_child_exit",
+                names.finalize_child_exit,
+            ),
+            reconcile_worker_state_fn=self.resolver.dep(
+                "reconcile_worker_state",
+                names.reconcile_worker_state,
+            ),
             activate_reserved_slot_fn=activate_reserved_slot_fn,
             terminate_process_fn=terminate_process_fn,
             mark_failed_fn=mark_failed_fn,
@@ -68,19 +69,20 @@ class InternalEngineQueueWorkerLifecycleFacade:
             sleep_fn=sleep_fn,
             on_worker_process_started_fn=self.resolver.optional_dep(
                 "on_worker_process_started",
-                self.resolver.on_worker_process_started_name,
+                names.on_worker_process_started,
             ),
             shutdown_running_job_fn=self.resolver.optional_dep(
                 "shutdown_running_job",
-                self.resolver.shutdown_running_job_name,
+                names.shutdown_running_job,
             ),
             before_shutdown_all_fn=self.resolver.optional_dep(
                 "before_shutdown_all",
-                self.resolver.before_shutdown_all_name,
+                names.before_shutdown_all,
             ),
         )
 
     def finalize_child_exit(self, worker: Any, job: Any, *, rc: int) -> None:
+        names = self.resolver.namespace_names()
         self.runtime.spec.lifecycle().finalize_child_exit(
             worker.cfg,
             job,
@@ -89,16 +91,16 @@ class InternalEngineQueueWorkerLifecycleFacade:
             find_queue_entry_fn=self.resolver.find_queue_entry,
             mark_cancelled_fn=self.resolver.dep(
                 "mark_cancelled",
-                self.resolver.mark_cancelled_name,
+                names.mark_cancelled,
             ),
             requeue_running_entry_fn=self.resolver.dep(
                 "requeue_running_entry",
-                self.resolver.requeue_running_entry_name,
+                names.requeue_running_entry,
             ),
-            mark_failed_fn=self.resolver.dep("mark_failed", self.resolver.mark_failed_name),
+            mark_failed_fn=self.resolver.dep("mark_failed", names.mark_failed),
             mark_recovery_pending_fn=self.resolver.dep(
                 "mark_recovery_pending",
-                self.resolver.mark_recovery_pending_name,
+                names.mark_recovery_pending,
             ),
             release_admission_slot_fn=worker._release_admission_slot,
         )
@@ -109,33 +111,34 @@ class InternalEngineQueueWorkerLifecycleFacade:
         *,
         list_slots_fn: Callable[[Any], list[Any]] | None = None,
     ) -> None:
+        names = self.resolver.namespace_names()
         self.runtime.spec.lifecycle().reconcile_orphaned_running(
             worker.cfg,
             admission_root=worker.admission_root,
             queue_roots_fn=self.runtime.queue_roots,
-            list_queue_fn=self.resolver.dep("list_queue", self.resolver.list_queue_name),
+            list_queue_fn=self.resolver.dep("list_queue", names.list_queue),
             list_slots_fn=(
-                list_slots_fn or self.resolver.dep("list_slots", self.resolver.list_slots_name)
+                list_slots_fn or self.resolver.dep("list_slots", names.list_slots)
             ),
             reconcile_stale_slots_fn=self.resolver.dep(
                 "reconcile_stale_slots",
-                self.resolver.reconcile_stale_slots_name,
+                names.reconcile_stale_slots,
             ),
             reconcile_orphaned_child_queue_entries_fn=self.resolver.dep(
                 "reconcile_orphaned_child_queue_entries",
-                self.resolver.reconcile_orphaned_child_queue_entries_name,
+                names.reconcile_orphaned_child_queue_entries,
             ),
             mark_cancelled_fn=self.resolver.dep(
                 "mark_cancelled",
-                self.resolver.mark_cancelled_name,
+                names.mark_cancelled,
             ),
             requeue_running_entry_fn=self.resolver.dep(
                 "requeue_running_entry",
-                self.resolver.requeue_running_entry_name,
+                names.requeue_running_entry,
             ),
             mark_recovery_pending_fn=self.resolver.dep(
                 "mark_recovery_pending",
-                self.resolver.mark_recovery_pending_name,
+                names.mark_recovery_pending,
             ),
         )
 
@@ -151,30 +154,32 @@ class InternalEngineQueueWorkerCommandRunner:
         *,
         config_path_fn: Callable[[Any], str],
         config_path_keyword: bool = True,
+        load_config_fn: Callable[[Any], Any] | None = None,
+        read_worker_pid_fn: Callable[[Path], int | None] | None = None,
+        existing_pid_report_fn: Callable[[int], Any] | None = None,
+        max_concurrent_fn: Callable[[Any], int] | None = None,
+        worker_factory: Callable[..., Any] | None = None,
     ) -> int:
-        if self.resolver.deps is not None:
+        names = self.resolver.namespace_names()
 
-            def worker_factory(cfg: Any, config_path: str, **kwargs: Any) -> Any:
-                deps = self.resolver.deps
-                if deps is None or deps.worker_class is None:
-                    raise ValueError("worker_class is required for queue worker command support")
-                if config_path_keyword:
-                    return deps.worker_class(cfg, config_path=config_path, **kwargs)
-                return deps.worker_class(cfg, config_path, **kwargs)
+        def default_worker_factory(cfg: Any, config_path: str, **kwargs: Any) -> Any:
+            worker_cls = self.resolver.dep("worker_class", names.worker_class)
+            if worker_cls is None:
+                raise ValueError("worker_class is required for queue worker command support")
+            if config_path_keyword:
+                return worker_cls(cfg, config_path=config_path, **kwargs)
+            return worker_cls(cfg, config_path, **kwargs)
 
-            return self.runtime.run_pidfile_worker_command(
-                args,
-                config_path_fn=config_path_fn,
-                load_config_fn=self.resolver.deps.load_config,
-                read_worker_pid_fn=self.resolver.deps.read_worker_pid,
-                worker_factory=worker_factory,
-            )
-
-        return self.runtime.run_pidfile_worker_command_from_namespace(
+        return self.runtime.run_pidfile_worker_command(
             args,
-            namespace=self.resolver.namespace or {},
             config_path_fn=config_path_fn,
-            config_path_keyword=config_path_keyword,
+            load_config_fn=load_config_fn or self.resolver.dep("load_config", names.load_config),
+            read_worker_pid_fn=(
+                read_worker_pid_fn or self.resolver.dep("read_worker_pid", names.read_worker_pid)
+            ),
+            existing_pid_report_fn=existing_pid_report_fn,
+            max_concurrent_fn=max_concurrent_fn,
+            worker_factory=worker_factory or default_worker_factory,
         )
 
 
@@ -185,6 +190,7 @@ class InternalEngineQueueWorkerFacade:
     shutdown_grace_seconds: float
     deps: InternalEngineQueueWorkerDeps | None = None
     namespace: Mapping[str, Any] | None = None
+    namespace_names: InternalEngineQueueWorkerNamespaceNames | None = None
     time_module_name: str = "time"
     release_slot_name: str = "release_slot"
     reserve_slot_name: str = "reserve_slot"
@@ -207,11 +213,10 @@ class InternalEngineQueueWorkerFacade:
     shutdown_running_job_name: str | None = None
     before_shutdown_all_name: str | None = None
 
-    def _resolver(self) -> InternalEngineQueueWorkerDepsResolver:
-        return InternalEngineQueueWorkerDepsResolver(
-            runtime=self.runtime,
-            deps=self.deps,
-            namespace=self.namespace,
+    def resolved_namespace_names(self) -> InternalEngineQueueWorkerNamespaceNames:
+        if self.namespace_names is not None:
+            return self.namespace_names
+        return InternalEngineQueueWorkerNamespaceNames.from_legacy_names(
             time_module_name=self.time_module_name,
             release_slot_name=self.release_slot_name,
             reserve_slot_name=self.reserve_slot_name,
@@ -235,6 +240,14 @@ class InternalEngineQueueWorkerFacade:
             on_worker_process_started_name=self.on_worker_process_started_name,
             shutdown_running_job_name=self.shutdown_running_job_name,
             before_shutdown_all_name=self.before_shutdown_all_name,
+        )
+
+    def _resolver(self) -> InternalEngineQueueWorkerDepsResolver:
+        return InternalEngineQueueWorkerDepsResolver(
+            runtime=self.runtime,
+            deps=self.deps,
+            namespace=self.namespace,
+            names=self.resolved_namespace_names(),
         )
 
     def _lifecycle(self) -> InternalEngineQueueWorkerLifecycleFacade:
@@ -283,6 +296,11 @@ class InternalEngineQueueWorkerFacade:
         *,
         config_path_fn: Callable[[Any], str],
         config_path_keyword: bool = True,
+        load_config_fn: Callable[[Any], Any] | None = None,
+        read_worker_pid_fn: Callable[[Path], int | None] | None = None,
+        existing_pid_report_fn: Callable[[int], Any] | None = None,
+        max_concurrent_fn: Callable[[Any], int] | None = None,
+        worker_factory: Callable[..., Any] | None = None,
     ) -> int:
         return InternalEngineQueueWorkerCommandRunner(
             runtime=self.runtime,
@@ -291,6 +309,11 @@ class InternalEngineQueueWorkerFacade:
             args,
             config_path_fn=config_path_fn,
             config_path_keyword=config_path_keyword,
+            load_config_fn=load_config_fn,
+            read_worker_pid_fn=read_worker_pid_fn,
+            existing_pid_report_fn=existing_pid_report_fn,
+            max_concurrent_fn=max_concurrent_fn,
+            worker_factory=worker_factory,
         )
 
     def finalize_child_exit(self, worker: Any, job: Any, *, rc: int) -> None:

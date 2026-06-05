@@ -175,6 +175,7 @@ EngineJobRunner = Callable[[Any, Any, Path, InternalWorkerOptions], Any]
 EngineEntryFinalizer = Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any]
 EngineOutcomeBuilder = Callable[[Any, Any, Any], Any]
 EngineShutdownChecker = Callable[[Any, InternalWorkerOptions], None]
+EngineWorkerExecutionSpecFactory = Callable[[], "InternalEngineWorkerExecutionSpec"]
 
 
 @dataclass(frozen=True)
@@ -424,6 +425,31 @@ def run_internal_engine_worker_entry_with_spec_options(
     )
 
 
+def run_internal_engine_worker_entry_with_spec_factory_options(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None,
+    spec_factory: EngineWorkerExecutionSpecFactory,
+    should_cancel: Callable[[], bool] | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
+    register_running_job: Callable[[Any | None], None] | None = None,
+    worker_job_pid: int | None = None,
+    emit_output: bool = False,
+) -> Any:
+    return run_internal_engine_worker_entry_with_spec_options(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        spec=spec_factory(),
+        should_cancel=should_cancel,
+        shutdown_requested=shutdown_requested,
+        register_running_job=register_running_job,
+        worker_job_pid=worker_job_pid,
+        emit_output=emit_output,
+    )
+
+
 def run_internal_cancellable_engine_process(
     context: Any,
     *,
@@ -491,6 +517,7 @@ def run_internal_worker_process_job(
 __all__ = [
     "InternalEngineWorkerAdapter",
     "InternalEngineWorkerExecutionSpec",
+    "EngineWorkerExecutionSpecFactory",
     "InternalEngineWorkerHooks",
     "InternalWorkerProcessDependencies",
     "InternalWorkerQueueDependencies",
@@ -512,6 +539,7 @@ __all__ = [
     "run_internal_cancellable_engine_process",
     "run_internal_engine_worker_entry",
     "run_internal_engine_worker_entry_with_spec",
+    "run_internal_engine_worker_entry_with_spec_factory_options",
     "run_internal_engine_worker_entry_with_spec_options",
     "run_internal_engine_worker_entry_with_hooks",
     "run_internal_worker_process_job",

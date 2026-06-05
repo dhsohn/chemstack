@@ -17,6 +17,7 @@ from chemstack.core.admission import (
     reserve_slot,
 )
 from chemstack.core.queue.types import QueueEntry
+from chemstack.orca import queue_worker as queue_worker_mod
 from chemstack.orca.config import AppConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.queue_adapter import (
     cancel,
@@ -49,6 +50,37 @@ from tests.queue_worker_helpers import (
 
 def _command_arg(command: list[str], flag: str) -> str:
     return command[command.index(flag) + 1]
+
+
+def test_tracking_callbacks_use_current_queue_worker_symbols() -> None:
+    def notify_run_finished_event(*args: object, **kwargs: object) -> bool:
+        return True
+
+    with patch(
+        "chemstack.orca.queue_worker.notify_run_finished_event",
+        new=notify_run_finished_event,
+    ):
+        callbacks = queue_worker_mod._tracking_callbacks()
+
+    assert callbacks.notify_run_finished_event is notify_run_finished_event
+    assert callbacks.upsert_job_record is queue_worker_mod.upsert_job_record
+    assert callbacks.queue_entry_task_id is queue_worker_mod.queue_entry_task_id
+
+
+def test_lifecycle_callbacks_use_current_queue_worker_symbols() -> None:
+    def terminate_process(proc: object) -> None:
+        del proc
+
+    with patch("chemstack.orca.queue_worker._terminate_process", new=terminate_process):
+        callbacks = queue_worker_mod._lifecycle_callbacks()
+
+    worker = MagicMock()
+    job = object()
+    assert callbacks.terminate_process is terminate_process
+    assert callbacks.requeue_running_entry is queue_worker_mod.requeue_running_entry
+    assert callbacks.on_completed is not None
+    callbacks.on_completed(worker, job)
+    worker._auto_organize_terminal_job.assert_called_once_with(job)
 
 
 class TestTerminateProcess(unittest.TestCase):

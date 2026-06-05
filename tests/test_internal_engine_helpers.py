@@ -10,6 +10,7 @@ from chemstack.core.queue.child_process import reconcile_orphaned_child_queue_en
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueRuntime,
     InternalEngineQueueWorkerFacade,
+    InternalEngineQueueWorkerNamespaceNames,
     InternalEngineSpec,
 )
 from chemstack.core.queue.types import QueueStatus
@@ -278,6 +279,103 @@ def test_internal_engine_queue_worker_facade_finalizes_child_exit(
     assert requeued == [(tmp_path / "queue", "queue-1")]
     assert recovery == [(cfg, job_entry, "worker_shutdown")]
     assert released == ["slot-1"]
+
+
+def test_internal_engine_queue_worker_facade_accepts_namespace_names(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path)))
+    current_entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    job_entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    job = SimpleNamespace(
+        queue_root=tmp_path / "queue",
+        entry=job_entry,
+        admission_token="slot-1",
+    )
+    requeued: list[tuple[Path, str]] = []
+    recovery: list[tuple[object, object, str]] = []
+    released: list[str] = []
+    runtime = InternalEngineQueueRuntime.create(
+        spec=InternalEngineSpec(
+            engine="demo",
+            worker_pid_file_name="demo_worker.pid",
+        ),
+        load_config=lambda _path: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (tmp_path / "queue",),
+        list_queue=lambda _root: [current_entry],
+        dequeue_next=lambda _root: None,
+    )
+    namespace = {
+        "find_entry": lambda _root, _queue_id: current_entry,
+        "mark_cancelled": lambda *_args, **_kwargs: None,
+        "requeue_running_entry": lambda root, queue_id: requeued.append((root, queue_id)),
+        "mark_failed": lambda *_args, **_kwargs: None,
+        "mark_recovery": lambda cfg_obj, entry_obj, *, reason: recovery.append(
+            (cfg_obj, entry_obj, reason)
+        ),
+    }
+    facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        namespace=namespace,
+        namespace_names=InternalEngineQueueWorkerNamespaceNames(
+            find_queue_entry="find_entry",
+            mark_recovery_pending="mark_recovery",
+        ),
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+    )
+    worker = SimpleNamespace(
+        cfg=cfg,
+        _shutdown_requested=True,
+        _release_admission_slot=lambda token: released.append(token),
+    )
+
+    facade.finalize_child_exit(worker, job, rc=0)
+
+    assert requeued == [(tmp_path / "queue", "queue-1")]
+    assert recovery == [(cfg, job_entry, "worker_shutdown")]
+    assert released == ["slot-1"]
+
+
+def test_internal_engine_queue_worker_facade_resolves_legacy_namespace_names(
+    tmp_path: Path,
+) -> None:
+    runtime = InternalEngineQueueRuntime.create(
+        spec=InternalEngineSpec(engine="demo", worker_pid_file_name="demo_worker.pid"),
+        load_config=lambda _path: object(),
+        runtime_roots_for_cfg=lambda _cfg: (),
+        list_queue=lambda _root: [],
+        dequeue_next=lambda _root: None,
+    )
+
+    legacy_facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        namespace={},
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+        find_queue_entry_name="find_entry",
+        mark_recovery_pending_name="mark_recovery",
+    )
+    explicit_facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        namespace={},
+        namespace_names=InternalEngineQueueWorkerNamespaceNames(
+            find_queue_entry="explicit_find",
+            mark_recovery_pending="explicit_recovery",
+        ),
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+        find_queue_entry_name="legacy_find",
+        mark_recovery_pending_name="legacy_recovery",
+    )
+
+    legacy_names = legacy_facade.resolved_namespace_names()
+    explicit_names = explicit_facade.resolved_namespace_names()
+
+    assert legacy_names.find_queue_entry == "find_entry"
+    assert legacy_names.mark_recovery_pending == "mark_recovery"
+    assert explicit_names.find_queue_entry == "explicit_find"
+    assert explicit_names.mark_recovery_pending == "explicit_recovery"
 
 
 def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(

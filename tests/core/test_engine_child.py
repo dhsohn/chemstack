@@ -162,6 +162,36 @@ def test_internal_engine_worker_child_builds_shutdown_signal_installer() -> None
     assert controller.is_requested() is True
 
 
+def test_internal_engine_worker_child_module_facade_keeps_patchable_exports() -> None:
+    facade = InternalEngineSpec(
+        engine="demo",
+        worker_job_module="chemstack.demo.worker_execution",
+        include_admission_root=False,
+    ).worker_child_module_facade(
+        _WorkerShutdownRequested,
+        outcome_exit_code_fn=lambda outcome: int(outcome.exit_code),
+        build_worker_child_command=lambda **kwargs: ["worker", kwargs["queue_id"]],
+    )
+
+    assert facade.WORKER_JOB_MODULE == "chemstack.demo.worker_execution"
+    assert facade.WorkerShutdownRequested is _WorkerShutdownRequested
+    assert facade.build_worker_child_command(
+        config_path="/tmp/cfg.yaml",
+        queue_root="/tmp/queue",
+        queue_id="queue-1",
+    ) == ["worker", "queue-1"]
+    outcome_exit_code_fn = facade.worker_child.run_spec.outcome_exit_code_fn
+    assert outcome_exit_code_fn is not None
+    assert outcome_exit_code_fn(SimpleNamespace(exit_code=8)) == 8
+
+    facade.run_worker_child_job = lambda **_kwargs: 5
+    assert facade.run_worker_child_job(
+        config_path="/tmp/cfg.yaml",
+        queue_root="/tmp/queue",
+        queue_id="queue-1",
+    ) == 5
+
+
 def test_run_engine_worker_child_job_requeues_and_marks_recovery_on_shutdown(
     tmp_path: Path,
 ) -> None:

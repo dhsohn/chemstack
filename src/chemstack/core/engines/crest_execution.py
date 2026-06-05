@@ -7,7 +7,6 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
@@ -36,9 +35,7 @@ from chemstack.core.engines.crest_terminal import (
 )
 from chemstack.core.engines.worker_child import (
     WORKER_CHILD_MODULE,
-)
-from chemstack.core.engines.worker_child import (
-    build_worker_child_command as _build_unified_worker_child_command,
+    build_worker_child_command_for_engine,
 )
 from chemstack.core.notifications.engines import (
     notify_crest_job_finished as notify_job_finished,
@@ -96,38 +93,15 @@ _ENGINE_SPEC = InternalEngineSpec(
     worker_job_module="chemstack.core.engines.crest_execution",
     include_admission_root=False,
 )
-_WORKER_CHILD = _ENGINE_SPEC.worker_child(
+build_worker_child_command = build_worker_child_command_for_engine("crest")
+
+
+_worker_child = _ENGINE_SPEC.worker_child_module_facade(
     WorkerShutdownRequested,
     process_dequeued_entry_kwargs_fn=lambda: {"molecule_key_resolver": _molecule_key},
-)
-
-
-def build_worker_child_command(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    admission_root: str | Path | None = None,
-    admission_token: str | None = None,
-) -> list[str]:
-    return _build_unified_worker_child_command(
-        engine="crest",
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_root=admission_root,
-        admission_token=admission_token,
-    )
-
-
-_worker_child = SimpleNamespace(
-    WORKER_JOB_MODULE=WORKER_JOB_MODULE,
-    WorkerShutdownRequested=WorkerShutdownRequested,
-    build_parser=_WORKER_CHILD.build_parser,
     build_worker_child_command=build_worker_child_command,
-    run_worker_child_job=_WORKER_CHILD.run_worker_child_job,
-    shutdown_signal_handler_installer=_WORKER_CHILD.shutdown_signal_handler_installer,
 )
+_WORKER_CHILD = _worker_child.worker_child
 
 
 WorkerConfigDependencies = _worker_dependencies.WorkerConfigDependencies
@@ -209,27 +183,35 @@ def build_worker_execution_dependencies_from_groups(
     )
 
 
+def _worker_process_factory_callbacks() -> (
+    _worker_dependencies.WorkerProcessDependencyCallbacks
+):
+    return _worker_dependencies.build_worker_process_dependency_callbacks(
+        terminate_process=_terminate_process,
+        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+        sleep=time.sleep,
+        now_utc_iso=now_utc_iso,
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
+        engine_runner_dependencies={
+            "start_crest_job": start_crest_job,
+            "finalize_crest_job": finalize_crest_job,
+        },
+    )
+
+
 def _worker_execution_default_factories() -> dict[str, Callable[[], Any]]:
     return {
-        **_worker_dependencies.build_worker_process_default_factories(
+        **_worker_dependencies.build_worker_process_default_factories_from_callbacks(
+            _worker_process_factory_callbacks(),
             config_factory=_default_config_dependencies,
             admission_factory=_default_admission_dependencies,
             timing_dependencies_type=WorkerTimingDependencies,
             queue_dependencies_type=WorkerQueueDependencies,
             runner_dependencies_type=WorkerRunnerDependencies,
-            terminate_process=_terminate_process,
-            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
-            sleep=time.sleep,
             cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-            now_utc_iso=now_utc_iso,
-            get_cancel_requested=get_cancel_requested,
-            mark_completed=mark_completed,
-            mark_cancelled=mark_cancelled,
-            mark_failed=mark_failed,
-            engine_runner_dependencies={
-                "start_crest_job": start_crest_job,
-                "finalize_crest_job": finalize_crest_job,
-            },
         ),
         "context": _default_context_dependencies,
         "artifacts": _default_artifact_dependencies,
@@ -237,12 +219,9 @@ def _worker_execution_default_factories() -> dict[str, Callable[[], Any]]:
     }
 
 
-def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    return _worker_dependencies.queue_entry_by_id(
-        queue_root,
-        queue_id,
-        list_queue_fn=list_queue,
-    )
+_queue_entry_by_id = _worker_dependencies.build_queue_entry_lookup(
+    list_queue_fn=lambda root: list_queue(root),
+)
 
 
 def _default_config_dependencies() -> WorkerConfigDependencies:
@@ -380,6 +359,11 @@ def _build_execution_context(
 
 
 def _mark_recovery_pending_context(cfg: Any, context: ExecutionContext, *, reason: str) -> None:
+    identity_fields = _engine_execution.object_attribute_fields(
+        context,
+        "mode",
+        "molecule_key",
+    )
     _engine_execution.mark_recovery_pending_and_record(
         cfg,
         entry=context.entry,
@@ -389,14 +373,8 @@ def _mark_recovery_pending_context(cfg: Any, context: ExecutionContext, *, reaso
         resource_request=context.resource_request,
         mark_recovery_pending_fn=mark_recovery_pending,
         upsert_job_record_fn=upsert_job_record,
-        state_identity_fields={
-            "mode": context.mode,
-            "molecule_key": context.molecule_key,
-        },
-        record_identity_fields={
-            "mode": context.mode,
-            "molecule_key": context.molecule_key,
-        },
+        state_identity_fields=identity_fields,
+        record_identity_fields=identity_fields,
     )
 
 
@@ -470,16 +448,14 @@ def _failed_result_from_exception(
     exc: Exception,
     failure_time: str,
 ) -> CrestRunResult:
-    return _queue_artifacts.build_terminal_result(
-        context.entry,
-        job_dir=context.job_dir,
-        selected_xyz=context.selected_xyz,
-        mode=context.mode,
-        resource_request=context.resource_request,
+    return _engine_execution.build_terminal_result_from_context(
+        _queue_artifacts.build_terminal_result,
+        context,
+        identity_fields=_engine_execution.object_attribute_fields(context, "mode"),
         status="failed",
         reason=f"runner_error:{exc}",
         exit_code=1,
-        now_utc_iso_fn=lambda: failure_time,
+        now_utc_iso=failure_time,
     )
 
 
@@ -605,11 +581,11 @@ def _run_worker_entry_lifecycle(
     worker_job_pid: int | None = None,
     emit_output: bool = False,
 ) -> WorkerExecutionOutcome:
-    return _engine_execution.run_internal_engine_worker_entry_with_spec_options(
+    return _engine_execution.run_internal_engine_worker_entry_with_spec_factory_options(
         cfg,
         entry,
         queue_root=queue_root,
-        spec=_worker_execution_spec(
+        spec_factory=lambda: _worker_execution_spec(
             molecule_key_resolver=molecule_key_resolver,
             dependencies=dependencies,
         ),
@@ -679,20 +655,16 @@ def run_worker_child_job(
     dependencies: WorkerExecutionDependencies | None = None,
 ) -> int:
     deps = dependencies or default_worker_execution_dependencies()
-    return _worker_child.run_worker_child_job(
+    return _worker_dependencies.run_worker_child_entrypoint_with_dependencies(
+        _worker_child,
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
         admission_token=admission_token,
-        load_config_fn=deps.config.load_config,
-        find_queue_entry_fn=deps.config.queue_entry_by_id,
         admission_root_fn=_admission_root_for_cfg,
-        release_slot_fn=deps.admission.release_slot,
-        install_signal_handlers_fn=_worker_child.shutdown_signal_handler_installer(
-            install_shutdown_signal_handlers,
-        ),
+        install_shutdown_signal_handlers_fn=install_shutdown_signal_handlers,
         process_dequeued_entry_fn=process_dequeued_entry,
-        dependencies_fn=lambda: deps,
+        dependencies=deps,
         requeue_running_entry_fn=requeue_running_entry,
         mark_recovery_pending_context_fn=_mark_recovery_pending_context,
     )

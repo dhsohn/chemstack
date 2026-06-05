@@ -225,3 +225,140 @@ def test_record_queued_common_applies_shared_fields(tmp_path: Path) -> None:
             "selected_xyz": "input.xyz",
         },
     )
+
+
+def test_engine_run_dir_queued_recorder_from_callbacks_applies_shared_fields(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="config")
+    job_dir = tmp_path / "job-1"
+    submission = run_dir.EngineRunDirSubmission(
+        queue_root=tmp_path,
+        app_name="app",
+        task_id="job-1",
+        task_kind="run_dir",
+        engine="crest",
+        priority=5,
+        metadata={},
+        context={"job_dir": job_dir},
+    )
+    entry = SimpleNamespace(queue_id="q-1")
+    calls: dict[str, Any] = {}
+
+    def build_record(
+        submission_arg: run_dir.EngineRunDirSubmission,
+        entry_arg: Any,
+    ) -> run_dir.EngineQueuedRecord:
+        calls["build"] = (submission_arg, entry_arg)
+        return run_dir.EngineQueuedRecord(
+            state_payload={"status": "queued"},
+            index_fields={"mode": "nci"},
+            notification_fields={"mode": "nci"},
+        )
+
+    recorder = run_dir.engine_run_dir_queued_recorder_from_callbacks(
+        run_dir.EngineQueuedRecordCallbacks(
+            build_record=build_record,
+            write_state=lambda path, payload: calls.setdefault("state", (path, payload)),
+            upsert_job_record=lambda cfg_arg, **kwargs: calls.setdefault(
+                "index",
+                (cfg_arg, kwargs),
+            ),
+            notify_job_queued=lambda cfg_arg, **kwargs: calls.setdefault(
+                "notify",
+                (cfg_arg, kwargs),
+            ),
+        ),
+        module_name="chemstack.demo.submission",
+    )
+
+    recorder(cfg, submission, entry)
+
+    assert recorder.__name__ == "_record_queued"
+    assert recorder.__module__ == "chemstack.demo.submission"
+    assert calls["build"] == (submission, entry)
+    assert calls["state"] == (job_dir, {"status": "queued"})
+    assert calls["index"] == (
+        cfg,
+        {"job_id": "job-1", "status": "queued", "job_dir": job_dir, "mode": "nci"},
+    )
+    assert calls["notify"] == (
+        cfg,
+        {"job_id": "job-1", "queue_id": "q-1", "job_dir": job_dir, "mode": "nci"},
+    )
+
+
+def test_engine_queued_record_callbacks_from_namespace_maps_legacy_symbols() -> None:
+    namespace = {
+        "_queued_record": lambda *_args: "record",
+        "write_state": lambda *_args: "state",
+        "upsert_job_record": lambda *_args, **_kwargs: "index",
+        "notify_job_queued": lambda *_args, **_kwargs: "notify",
+    }
+
+    callbacks = run_dir.engine_queued_record_callbacks_from_namespace(namespace)
+
+    assert callbacks.build_record is namespace["_queued_record"]
+    assert callbacks.write_state is namespace["write_state"]
+    assert callbacks.upsert_job_record is namespace["upsert_job_record"]
+    assert callbacks.notify_job_queued is namespace["notify_job_queued"]
+
+
+def test_engine_run_dir_queued_recorder_preserves_namespace_late_lookup(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="config")
+    job_dir = tmp_path / "job-1"
+    submission = run_dir.EngineRunDirSubmission(
+        queue_root=tmp_path,
+        app_name="app",
+        task_id="job-1",
+        task_kind="run_dir",
+        engine="xtb",
+        priority=5,
+        metadata={},
+        context={"job_dir": job_dir},
+    )
+    entry = SimpleNamespace(queue_id="q-1")
+    calls: dict[str, Any] = {}
+    namespace: dict[str, Any] = {
+        "__name__": "chemstack.demo.legacy_submission",
+        "_queued_record": lambda *_args: pytest.fail("old callback should not be used"),
+        "write_state": lambda path, payload: calls.setdefault("state", (path, payload)),
+        "upsert_job_record": lambda cfg_arg, **kwargs: calls.setdefault(
+            "index",
+            (cfg_arg, kwargs),
+        ),
+        "notify_job_queued": lambda cfg_arg, **kwargs: calls.setdefault(
+            "notify",
+            (cfg_arg, kwargs),
+        ),
+    }
+
+    recorder = run_dir.engine_run_dir_queued_recorder(namespace)
+
+    def replacement_record(
+        submission_arg: run_dir.EngineRunDirSubmission,
+        entry_arg: Any,
+    ) -> run_dir.EngineQueuedRecord:
+        calls["build"] = (submission_arg, entry_arg)
+        return run_dir.EngineQueuedRecord(
+            state_payload={"status": "queued"},
+            index_fields={"job_type": "path"},
+            notification_fields={"job_type": "path"},
+        )
+
+    namespace["_queued_record"] = replacement_record
+    recorder(cfg, submission, entry)
+
+    assert recorder.__module__ == "chemstack.demo.legacy_submission"
+    assert calls["build"] == (submission, entry)
+    assert calls["state"] == (job_dir, {"status": "queued"})
+    assert calls["index"] == (
+        cfg,
+        {"job_id": "job-1", "status": "queued", "job_dir": job_dir, "job_type": "path"},
+    )
+    assert calls["notify"] == (
+        cfg,
+        {"job_id": "job-1", "queue_id": "q-1", "job_dir": job_dir, "job_type": "path"},
+    )

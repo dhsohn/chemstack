@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -21,20 +20,17 @@ from chemstack.core.config.engines import (
     load_crest_config as load_config,
 )
 from chemstack.core.engines.crest_execution import (
-    WorkerArtifactDependencies,
-    WorkerExecutionDependencies,
-    WorkerQueueDependencies,
-    WorkerRunnerDependencies,
-    WorkerTimingDependencies,
-    WorkerTrackingDependencies,
     _mark_recovery_pending_entry,
     _terminate_process,
     _write_execution_artifacts,
     _write_running_state,
     build_worker_child_command,
-    build_worker_execution_dependencies,
 )
-from chemstack.core.engines.queue_worker import EngineQueueWorker
+from chemstack.core.engines.queue_worker import (
+    EngineQueueWorker,
+    build_engine_queue_worker,
+    build_runtime_engine_queue_worker,
+)
 from chemstack.core.notifications.engines import (
     notify_crest_job_finished as notify_job_finished,
 )
@@ -51,15 +47,14 @@ from chemstack.core.queue import (
     requeue_running_entry,
 )
 from chemstack.core.queue import (
-    engine_execution as _engine_execution,
-)
-from chemstack.core.queue import (
     execution as _queue_execution,
 )
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
     InternalEngineQueueWorkerDeps,
+    InternalEngineQueueWorkerFacadeBindings,
     InternalEngineSpec,
+    build_late_bound_internal_engine_queue_worker_deps,
 )
 from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
@@ -73,7 +68,11 @@ from chemstack.core.utils import now_utc_iso
 
 from . import queue_admission as _queue_admission
 from .engine import ENGINE_DEFINITION
-from .job_locations import runtime_roots_for_cfg, upsert_job_record
+from .job_locations import upsert_job_record
+from .queue_runtime_execution import (
+    CrestQueueRuntimeWorkerExecutionCallbacks,
+    build_queue_runtime_worker_execution_dependencies,
+)
 from .runner import finalize_crest_job, start_crest_job
 
 # Keep queue_runtime.subprocess available for tests/callers that patch Popen.
@@ -87,78 +86,54 @@ _ENGINE_SPEC = InternalEngineSpec(
     worker_pid_file_name=WORKER_PID_FILE,
 )
 
-
 def _queue_worker_deps() -> Any:
     return _queue_module.queue_worker_deps()
 
 
 def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
-    return InternalEngineQueueWorkerDeps(
+    return build_late_bound_internal_engine_queue_worker_deps(
+        InternalEngineQueueWorkerFacadeBindings(
+            release_slot=lambda: release_slot,
+            reserve_slot=lambda: reserve_slot,
+            start_background_process=lambda: start_background_process,
+            build_worker_child_command=lambda: build_worker_child_command,
+            config_path_for_worker=lambda: config_path_for_worker,
+            default_config_path=lambda: default_config_path,
+            activate_reserved_slot=lambda: activate_reserved_slot,
+            terminate_process=lambda: _terminate_process,
+            mark_failed=lambda: mark_failed,
+            handle_worker_start_error=lambda: _handle_worker_start_error,
+            finalize_completed_job=lambda: _finalize_completed_job,
+            finalize_child_exit=lambda: _finalize_child_exit,
+            reconcile_worker_state=lambda: _reconcile_worker_state,
+            list_queue=lambda: list_queue,
+            list_slots=lambda: list_slots,
+            reconcile_stale_slots=lambda: reconcile_stale_slots,
+            reconcile_orphaned_child_queue_entries=lambda: (
+                reconcile_orphaned_child_queue_entries
+            ),
+            mark_cancelled=lambda: mark_cancelled,
+            requeue_running_entry=lambda: requeue_running_entry,
+            mark_recovery_pending=lambda: _mark_recovery_pending_entry,
+            try_reserve_admission_slot=lambda: _try_reserve_admission_slot,
+            start_background_job_process=lambda: _start_background_job_process,
+            find_queue_entry=lambda: _find_queue_entry,
+            load_config=lambda: load_config,
+            read_worker_pid=lambda: read_worker_pid,
+            worker_class=lambda: QueueWorker,
+        ),
         time_module=time,
-        release_slot=lambda root, token: release_slot(root, token),
-        reserve_slot=lambda *args, **kwargs: reserve_slot(*args, **kwargs),
-        start_background_process=lambda command: start_background_process(command),
-        build_worker_child_command=lambda **kwargs: build_worker_child_command(**kwargs),
-        config_path_for_worker=lambda args, *, default_config_path_fn: config_path_for_worker(
-            args,
-            default_config_path_fn=default_config_path_fn,
-        ),
-        default_config_path=lambda: default_config_path(),
-        activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(*args, **kwargs),
-        terminate_process=lambda process: _terminate_process(process),
-        mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
-        handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
-            *args,
-            **kwargs,
-        ),
-        finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
-            *args,
-            **kwargs,
-        ),
-        finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(*args, **kwargs),
-        reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
-        list_queue=lambda root: list_queue(root),
-        list_slots=lambda root: list_slots(root),
-        reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
-        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: (
-            reconcile_orphaned_child_queue_entries(*args, **kwargs)
-        ),
-        mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
-        requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(*args, **kwargs),
-        mark_recovery_pending=lambda *args, **kwargs: _mark_recovery_pending_entry(
-            *args,
-            **kwargs,
-        ),
-        load_config=lambda config_path: load_config(config_path),
-        read_worker_pid=lambda allowed_root: _queue_module.read_worker_pid(allowed_root),
-        worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
-        try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
-        start_background_job_process_fn=lambda **kwargs: _start_background_job_process(**kwargs),
-        find_queue_entry=lambda root, queue_id: _find_queue_entry(root, queue_id),
-    )
-
-
-def _queue_runtime_definition() -> Any:
-    queue_functions = ENGINE_DEFINITION.queue_functions
-    if queue_functions is None:
-        return ENGINE_DEFINITION
-    return replace(
-        ENGINE_DEFINITION,
-        queue_functions=replace(
-            queue_functions,
-            runtime_roots_for_cfg=lambda cfg: runtime_roots_for_cfg(cfg),
-            list_queue=lambda root: list_queue(root),
-            dequeue_next=lambda root: dequeue_next(root),
-        ),
     )
 
 
 _queue_module = InternalEngineQueueModule.create_from_definition(
-    definition=_queue_runtime_definition(),
+    definition=ENGINE_DEFINITION,
     spec=_ENGINE_SPEC,
     poll_interval_seconds=POLL_INTERVAL_SECONDS,
     shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
     deps=_runtime_facade_deps(),
+    list_queue=lambda root: list_queue(root),
+    dequeue_next=lambda root: dequeue_next(root),
 )
 _engine_runtime = _queue_module.runtime
 
@@ -173,37 +148,30 @@ def _try_reserve_admission_slot(cfg: Any) -> str | None:
     return _queue_module.try_reserve_admission_slot(cfg)
 
 
-def _worker_dependencies() -> WorkerExecutionDependencies:
-    return build_worker_execution_dependencies(
-        timing=_engine_execution.build_internal_worker_timing_dependencies(
-            WorkerTimingDependencies,
-            now_utc_iso=now_utc_iso,
-        ),
-        queue=_engine_execution.build_internal_worker_queue_dependencies(
-            WorkerQueueDependencies,
-            get_cancel_requested=get_cancel_requested,
-            mark_completed=mark_completed,
-            mark_cancelled=mark_cancelled,
-            mark_failed=mark_failed,
-        ),
-        runner=_engine_execution.build_internal_worker_process_dependencies(
-            WorkerRunnerDependencies,
-            terminate_process=_terminate_process,
-            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
-            sleep=time.sleep,
-            cancel_check_interval_seconds=1,
-            start_crest_job=start_crest_job,
-            finalize_crest_job=finalize_crest_job,
-        ),
-        artifacts=WorkerArtifactDependencies(
-            write_running_state=_write_running_state,
-            write_execution_artifacts=_write_execution_artifacts,
-        ),
-        tracking=WorkerTrackingDependencies(
-            upsert_job_record=upsert_job_record,
-            notify_job_started=notify_job_started,
-            notify_job_finished=notify_job_finished,
-        ),
+def _worker_execution_callbacks() -> CrestQueueRuntimeWorkerExecutionCallbacks:
+    return CrestQueueRuntimeWorkerExecutionCallbacks(
+        terminate_process=_terminate_process,
+        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+        sleep=time.sleep,
+        now_utc_iso=now_utc_iso,
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
+        start_crest_job=start_crest_job,
+        finalize_crest_job=finalize_crest_job,
+        write_running_state=_write_running_state,
+        write_execution_artifacts=_write_execution_artifacts,
+        upsert_job_record=upsert_job_record,
+        notify_job_started=notify_job_started,
+        notify_job_finished=notify_job_finished,
+    )
+
+
+def _worker_dependencies() -> Any:
+    return build_queue_runtime_worker_execution_dependencies(
+        _worker_execution_callbacks(),
+        cancel_check_interval_seconds=1,
     )
 
 
@@ -274,21 +242,20 @@ def QueueWorker(
     *,
     max_concurrent: int | None = None,
 ) -> EngineQueueWorker:
-    raw_max_concurrent: Any = (
-        max_concurrent if max_concurrent is not None else getattr(cfg.runtime, "max_concurrent", 1)
-    )
-    configured_max = max(1, int(raw_max_concurrent))
-    return EngineQueueWorker(
+    return build_runtime_engine_queue_worker(
         cfg,
-        config_path=str(config_path or "").strip() or default_config_path(),
+        config_path=config_path,
+        default_config_path=default_config_path,
         engine="crest",
-        max_concurrent=configured_max,
+        max_concurrent=max_concurrent,
         deps=_queue_worker_deps(),
         hooks=_queue_worker_hooks(),
         worker_pid_file_name=WORKER_PID_FILE,
         admission_root=_admission_root_for_cfg(cfg),
         finalize_child_exit=_finalize_child_exit,
         reconcile_orphaned_running=_reconcile_orphaned_running,
+        normalize_max_concurrent=True,
+        worker_builder=build_engine_queue_worker,
     )
 
 

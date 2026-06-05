@@ -8,8 +8,6 @@ management, and signal handling remain centralized.
 from __future__ import annotations
 
 import logging
-import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -27,7 +25,11 @@ from chemstack.core.engines.orca_execution import (
     BackgroundRunJobProcess,
     build_worker_child_command,
 )
-from chemstack.core.engines.queue_worker import EngineQueueWorker
+from chemstack.core.engines.queue_worker import (
+    EngineQueueWorker,
+    build_engine_queue_worker,
+    build_runtime_engine_queue_worker,
+)
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
@@ -62,6 +64,7 @@ from chemstack.core.queue.worker import (
 )
 
 from . import queue_worker_lifecycle as _lifecycle_helpers
+from . import queue_worker_runtime as _runtime_helpers
 from . import queue_worker_tracking as _tracking_helpers
 from .attempt_reporting import (
     build_run_finished_notification,
@@ -93,7 +96,9 @@ from .queue_adapter import (
     requeue_running_entry,
 )
 from .queue_worker_deps import (
+    OrcaQueueWorkerFacadeBindings,
     OrcaQueueWorkerFacadeCallbacks,
+    build_late_bound_orca_runtime_facade_deps,
     build_orca_runtime_facade_deps,
 )
 from .state import load_organized_ref, load_report_json, load_state
@@ -111,6 +116,7 @@ _LEGACY_COMPAT_EXPORTS = (
     coerce_resource_request,
     finished_notification_already_sent,
     list_slots,
+    load_config,
     load_organized_ref,
     load_report_json,
     load_state,
@@ -130,6 +136,7 @@ _LEGACY_COMPAT_EXPORTS = (
     resource_dict,
     selected_input_artifacts,
     shutdown_running_process_job,
+    time,
     upsert_job_record,
     update_slot_metadata,
     read_resource_request_from_input,
@@ -151,55 +158,52 @@ _ENGINE_SPEC = InternalEngineSpec(
 _ENGINE_ADMISSION = _ENGINE_SPEC.admission()
 
 
+def _default_config_path() -> str:
+    return ""
+
+
+def config_path_for_worker(args: Any, *, default_config_path_fn: Any) -> str:
+    return str(getattr(args, "config", "") or default_config_path_fn())
+
+
+def _list_queue_for_runtime(root: str | Path) -> list[QueueEntry]:
+    return list_queue(Path(root))
+
+
+def _mark_recovery_pending_entry(*_args: Any, **_kwargs: Any) -> None:
+    return None
+
+
 def _runtime_facade_deps() -> Any:
-    return build_orca_runtime_facade_deps(
-        OrcaQueueWorkerFacadeCallbacks(
-            release_slot=lambda root, token: release_slot(root, token),
-            reserve_slot=lambda *args, **kwargs: _reserve_orca_worker_slot(*args, **kwargs),
-            start_background_process=lambda command: start_background_process(command),
-            build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
-                *args,
-                **kwargs,
-            ),
-            activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(
-                *args,
-                **kwargs,
-            ),
-            terminate_process=lambda process: _terminate_process(process),
-            mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
-            handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
-                *args,
-                **kwargs,
-            ),
-            finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
-                *args,
-                **kwargs,
-            ),
-            finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(*args, **kwargs),
-            reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
-            list_queue=lambda root: list_queue(Path(root)),
-            list_slots=lambda root: list_slots(root),
-            reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
-            mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
-            requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
-                *args,
-                **kwargs,
-            ),
-            try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
-            start_background_job_process=lambda **kwargs: _start_background_job_process(**kwargs),
-            find_queue_entry=lambda root, queue_id: _queue_module.queue_entry_by_id(
-                root,
-                queue_id,
-            ),
-            load_config=lambda config_path: load_config(config_path),
-            read_worker_pid=lambda allowed_root: _queue_module.read_worker_pid(allowed_root),
-            worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
-            on_worker_process_started=lambda *args, **kwargs: _on_worker_process_started(
-                *args,
-                **kwargs,
-            ),
-            shutdown_running_job=lambda *args, **kwargs: _shutdown_running_job(*args, **kwargs),
-            before_shutdown_all=lambda *args, **kwargs: _before_shutdown_all(*args, **kwargs),
+    return build_late_bound_orca_runtime_facade_deps(
+        OrcaQueueWorkerFacadeBindings(
+            release_slot=lambda: release_slot,
+            reserve_slot=lambda: _reserve_orca_worker_slot,
+            start_background_process=lambda: start_background_process,
+            build_worker_child_command=lambda: build_worker_child_command,
+            config_path_for_worker=lambda: config_path_for_worker,
+            default_config_path=lambda: _default_config_path,
+            activate_reserved_slot=lambda: activate_reserved_slot,
+            terminate_process=lambda: _terminate_process,
+            mark_failed=lambda: mark_failed,
+            handle_worker_start_error=lambda: _handle_worker_start_error,
+            finalize_completed_job=lambda: _finalize_completed_job,
+            finalize_child_exit=lambda: _finalize_child_exit,
+            reconcile_worker_state=lambda: _reconcile_worker_state,
+            list_queue=lambda: _list_queue_for_runtime,
+            list_slots=lambda: list_slots,
+            reconcile_stale_slots=lambda: reconcile_stale_slots,
+            mark_cancelled=lambda: mark_cancelled,
+            requeue_running_entry=lambda: requeue_running_entry,
+            mark_recovery_pending=lambda: _mark_recovery_pending_entry,
+            try_reserve_admission_slot=lambda: _try_reserve_admission_slot,
+            start_background_job_process=lambda: _start_background_job_process,
+            load_config=lambda: load_config,
+            read_worker_pid=lambda: read_worker_pid,
+            worker_class=lambda: QueueWorker,
+            on_worker_process_started=lambda: _on_worker_process_started,
+            shutdown_running_job=lambda: _shutdown_running_job,
+            before_shutdown_all=lambda: _before_shutdown_all,
         ),
         time_module=time,
     )
@@ -282,7 +286,25 @@ def _terminate_process(proc: _ManagedProcess) -> None:
 
 
 def _tracking_callbacks() -> _tracking_helpers.OrcaQueueWorkerTrackingCallbacks:
-    return _tracking_helpers.tracking_callbacks_from_namespace(sys.modules[__name__])
+    return _tracking_helpers.OrcaQueueWorkerTrackingCallbacks(
+        build_run_finished_notification=build_run_finished_notification,
+        coerce_resource_request=coerce_resource_request,
+        finished_notification_already_sent=finished_notification_already_sent,
+        load_organized_ref=load_organized_ref,
+        load_report_json=load_report_json,
+        load_state=load_state,
+        mark_finished_notification_sent=mark_finished_notification_sent,
+        notify_run_finished_event=notify_run_finished_event,
+        queue_entry_metadata=queue_entry_metadata,
+        queue_entry_reaction_dir=queue_entry_reaction_dir,
+        queue_entry_task_id=queue_entry_task_id,
+        read_resource_request_from_input=read_resource_request_from_input,
+        record_from_artifacts=record_from_artifacts,
+        resolve_job_metadata=resolve_job_metadata,
+        resource_dict=resource_dict,
+        selected_input_artifacts=selected_input_artifacts,
+        upsert_job_record=upsert_job_record,
+    )
 
 
 def _get_run_id_from_state(reaction_dir: str) -> str | None:
@@ -343,7 +365,26 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
 
 
 def _lifecycle_callbacks() -> _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbacks:
-    return _lifecycle_helpers.lifecycle_callbacks_from_namespace(sys.modules[__name__])
+    return _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbacks(
+        queue_entry_id=queue_entry_id,
+        queue_entry_app_name=queue_entry_app_name,
+        queue_entry_task_id=queue_entry_task_id,
+        update_slot_metadata=update_slot_metadata,
+        terminate_process=_terminate_process,
+        mark_failed=mark_failed,
+        upsert_running_job_record=_upsert_running_job_record,
+        get_run_id_from_state=_get_run_id_from_state,
+        get_cancel_requested=get_cancel_requested,
+        mark_cancelled=mark_cancelled,
+        mark_completed=mark_completed,
+        upsert_terminal_job_record=_upsert_terminal_job_record,
+        notify_terminal_job_from_state=_notify_terminal_job_from_state,
+        on_completed=lambda worker, job: worker._auto_organize_terminal_job(job),
+        queue_roots=queue_roots,
+        reconcile_stale_slots=reconcile_stale_slots,
+        reconcile_orphaned_running_entries=reconcile_orphaned_running_entries,
+        requeue_running_entry=requeue_running_entry,
+    )
 
 
 def _orca_worker_lifecycle_hooks() -> EngineQueueProcessLifecycleHooks:
@@ -440,22 +481,15 @@ def _after_orca_worker_init(worker: EngineQueueWorker) -> None:
 
 
 def _before_orca_worker_run(worker: EngineQueueWorker) -> None:
-    logger.info(
-        "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d, auto_organize=%s)",
-        os.getpid(),
-        worker.max_concurrent,
-        worker.admission_root,
-        worker.admission_limit,
-        worker.auto_organize,
-    )
+    _runtime_helpers.before_worker_run(worker)
 
 
 def _after_orca_worker_run(_worker: EngineQueueWorker) -> None:
-    logger.info("Queue worker stopped")
+    _runtime_helpers.after_worker_run(_worker)
 
 
 def _log_orca_worker_interrupt(_worker: EngineQueueWorker) -> None:
-    logger.info("Queue worker interrupted")
+    _runtime_helpers.log_worker_interrupt(_worker)
 
 
 def _make_orca_running_job(
@@ -466,42 +500,29 @@ def _make_orca_running_job(
     process: Any,
     admission_token: str,
 ) -> _RunningJob:
-    running = _RunningJob(
-        queue_id=queue_entry_id(entry),
-        reaction_dir=queue_entry_reaction_dir(entry),
-        task_id=queue_entry_task_id(entry) or None,
+    return _runtime_helpers.make_running_job(
+        queue_root=queue_root,
+        entry=entry,
         process=process,
         admission_token=admission_token,
+        queue_entry_id_fn=queue_entry_id,
+        queue_entry_reaction_dir_fn=queue_entry_reaction_dir,
+        queue_entry_task_id_fn=queue_entry_task_id,
+        running_job_cls=_RunningJob,
     )
-    queue_root_attr = "queue_root"
-    setattr(running, queue_root_attr, queue_root)
-    return running
 
 
 def _auto_organize_terminal_job(worker: EngineQueueWorker, job: _RunningJob) -> None:
-    if not worker.auto_organize:
-        return
-    try:
-        from .commands.organize import organize_reaction_dir
-
-        result = organize_reaction_dir(
-            worker.cfg,
-            Path(job.reaction_dir),
-            notify_summary=False,
-        )
-        if result.get("action") == "organized":
-            target_dir = str(result.get("target_dir") or "").strip()
-            if target_dir:
-                logger.info("Auto-organized %s -> %s", job.reaction_dir, target_dir)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Auto-organize failed for %s: %s", job.reaction_dir, exc)
+    _runtime_helpers.auto_organize_terminal_job(worker, job)
 
 
 def _check_orca_cancel_requests(worker: EngineQueueWorker) -> None:
-    for queue_id, job in worker._running_jobs():
-        if get_cancel_requested(_job_queue_root(worker, job), queue_id):
-            _cancel_orca_running_job(worker, queue_id, job)
-            worker._discard_running_job(queue_id)
+    _runtime_helpers.check_cancel_requests(
+        worker,
+        get_cancel_requested_fn=get_cancel_requested,
+        job_queue_root_fn=_job_queue_root,
+        cancel_running_job_fn=_cancel_orca_running_job,
+    )
 
 
 def _cancel_orca_running_job(worker: EngineQueueWorker, queue_id: str, job: _RunningJob) -> None:
@@ -523,11 +544,12 @@ def QueueWorker(
     configured_max = max(1, int(max_concurrent))
     if getattr(cfg.runtime, "admission_limit", None) in (None, ""):
         cfg.runtime.max_concurrent = configured_max
-    worker = EngineQueueWorker(
+    worker = build_runtime_engine_queue_worker(
         cfg,
-        config_path=str(config_path),
+        config_path=config_path,
+        default_config_path=_default_config_path,
         engine="orca",
-        max_concurrent=configured_max,
+        max_concurrent=max_concurrent,
         deps=_queue_worker_deps(),
         hooks=_queue_worker_hooks(),
         worker_pid_file_name=WORKER_PID_FILE,
@@ -542,14 +564,13 @@ def QueueWorker(
         finalize_finished_job=_finalize_finished_job,
         reconcile_orphaned_running=_reconcile_orphaned_running,
         check_cancel_requests=_check_orca_cancel_requests,
+        normalize_max_concurrent=True,
+        worker_builder=build_engine_queue_worker,
     )
-    auto_organize_attr = "_auto_organize_terminal_job"
-    cancel_running_attr = "_cancel_running_job"
-    setattr(worker, auto_organize_attr, lambda job: _auto_organize_terminal_job(worker, job))
-    setattr(
+    _runtime_helpers.install_worker_runtime_methods(
         worker,
-        cancel_running_attr,
-        lambda queue_id, job: _cancel_orca_running_job(worker, queue_id, job),
+        auto_organize_fn=_auto_organize_terminal_job,
+        cancel_running_job_fn=_cancel_orca_running_job,
     )
     return worker
 

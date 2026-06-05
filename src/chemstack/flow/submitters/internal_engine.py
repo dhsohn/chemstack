@@ -20,6 +20,9 @@ from .internal_engine_builder import (
     build_internal_engine_submitter as build_internal_engine_submitter,
 )
 from .internal_engine_builder import (
+    submitter_deps_factory_from_namespace as submitter_deps_factory_from_namespace,
+)
+from .internal_engine_builder import (
     submitter_deps_from_namespace as submitter_deps_from_namespace,
 )
 from .internal_engine_cancellation import (

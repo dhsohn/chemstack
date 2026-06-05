@@ -41,6 +41,14 @@ class EngineQueuedRecord:
     notification_fields: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class EngineQueuedRecordCallbacks:
+    build_record: Callable[[EngineRunDirSubmission, Any], EngineQueuedRecord]
+    write_state: Callable[[Path, dict[str, Any]], Any]
+    upsert_job_record: Callable[..., Any]
+    notify_job_queued: Callable[..., Any]
+
+
 def engine_resource_fields(resource_request: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     payload = dict(resource_request or {})
     return {
@@ -119,6 +127,24 @@ def build_engine_queued_record(
     )
 
 
+def engine_queued_record_callbacks_from_namespace(
+    namespace: Mapping[str, Any],
+    *,
+    build_record_name: str = "_queued_record",
+    write_state_name: str = "write_state",
+    upsert_job_record_name: str = "upsert_job_record",
+    notify_job_queued_name: str = "notify_job_queued",
+) -> EngineQueuedRecordCallbacks:
+    """Compatibility adapter; prefer constructing EngineQueuedRecordCallbacks."""
+
+    return EngineQueuedRecordCallbacks(
+        build_record=namespace[build_record_name],
+        write_state=namespace[write_state_name],
+        upsert_job_record=namespace[upsert_job_record_name],
+        notify_job_queued=namespace[notify_job_queued_name],
+    )
+
+
 def record_engine_run_dir_queued(
     cfg: Any,
     submission: EngineRunDirSubmission,
@@ -130,14 +156,35 @@ def record_engine_run_dir_queued(
     upsert_job_record_name: str = "upsert_job_record",
     notify_job_queued_name: str = "notify_job_queued",
 ) -> None:
+    record_engine_run_dir_queued_with_callbacks(
+        cfg,
+        submission,
+        entry,
+        callbacks=engine_queued_record_callbacks_from_namespace(
+            namespace,
+            build_record_name=build_record_name,
+            write_state_name=write_state_name,
+            upsert_job_record_name=upsert_job_record_name,
+            notify_job_queued_name=notify_job_queued_name,
+        ),
+    )
+
+
+def record_engine_run_dir_queued_with_callbacks(
+    cfg: Any,
+    submission: EngineRunDirSubmission,
+    entry: Any,
+    *,
+    callbacks: EngineQueuedRecordCallbacks,
+) -> None:
     record_queued_common(
         cfg,
         submission,
         entry,
-        build_record_fn=namespace[build_record_name],
-        write_state_fn=namespace[write_state_name],
-        upsert_job_record_fn=namespace[upsert_job_record_name],
-        notify_job_queued_fn=namespace[notify_job_queued_name],
+        build_record_fn=callbacks.build_record,
+        write_state_fn=callbacks.write_state,
+        upsert_job_record_fn=callbacks.upsert_job_record,
+        notify_job_queued_fn=callbacks.notify_job_queued,
     )
 
 
@@ -165,6 +212,26 @@ def engine_run_dir_queued_recorder(
     record_queued.__name__ = recorder_name
     record_queued.__qualname__ = recorder_name
     record_queued.__module__ = str(namespace.get("__name__", __name__))
+    return record_queued
+
+
+def engine_run_dir_queued_recorder_from_callbacks(
+    callbacks: EngineQueuedRecordCallbacks,
+    *,
+    recorder_name: str = "_record_queued",
+    module_name: str = __name__,
+) -> Callable[[Any, EngineRunDirSubmission, Any], None]:
+    def record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
+        record_engine_run_dir_queued_with_callbacks(
+            cfg,
+            submission,
+            entry,
+            callbacks=callbacks,
+        )
+
+    record_queued.__name__ = recorder_name
+    record_queued.__qualname__ = recorder_name
+    record_queued.__module__ = module_name
     return record_queued
 
 

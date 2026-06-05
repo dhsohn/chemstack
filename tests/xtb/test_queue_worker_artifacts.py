@@ -276,6 +276,52 @@ def test_run_worker_job_processes_loaded_entry_and_releases_slot(
     assert released == [(cfg.runtime.admission_root, "slot-1")]
 
 
+def test_run_worker_job_uses_dependency_config_and_admission_groups(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="queue-1")
+    released: list[tuple[str, str]] = []
+    deps = worker_exec.build_worker_execution_dependencies(
+        config=worker_exec.WorkerConfigDependencies(
+            load_config=lambda path: cfg,
+            queue_entry_by_id=lambda root, queue_id: entry,
+        ),
+        admission=worker_exec.WorkerAdmissionDependencies(
+            activate_reserved_slot=lambda *args, **kwargs: object(),
+            release_slot=lambda root, token: released.append((str(root), token)),
+        ),
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_run_worker_child_job(**kwargs: Any) -> int:
+        captured.update(kwargs)
+        assert kwargs["load_config_fn"]("/tmp/chemstack.yaml") is cfg
+        assert kwargs["find_queue_entry_fn"](tmp_path / "queue", "queue-1") is entry
+        kwargs["release_slot_fn"]("/tmp/admission", "slot-1")
+        assert kwargs["dependencies_fn"]() is deps
+        return 0
+
+    monkeypatch.setattr(
+        worker_exec._worker_child,
+        "run_worker_child_job",
+        fake_run_worker_child_job,
+    )
+
+    rc = worker_exec.run_worker_job(
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token="slot-1",
+        dependencies=deps,
+    )
+
+    assert rc == 0
+    assert captured["queue_id"] == "queue-1"
+    assert released == [("/tmp/admission", "slot-1")]
+
+
 def test_terminal_summary_helpers_cover_status_reason_and_metadata(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -59,6 +59,9 @@ class InternalEngineQueueModule:
         poll_interval_seconds: int,
         shutdown_grace_seconds: float,
         deps: InternalEngineQueueWorkerDeps,
+        runtime_roots_for_cfg: Callable[[Any], tuple[Path, ...]] | None = None,
+        list_queue: Callable[[str | Path], list[Any]] | None = None,
+        dequeue_next: Callable[[Path], Any | None] | None = None,
     ) -> InternalEngineQueueModule:
         queue_functions = definition.queue_functions
         if queue_functions is None:
@@ -69,9 +72,9 @@ class InternalEngineQueueModule:
         runtime = InternalEngineQueueRuntime.create(
             spec=spec,
             load_config=definition.load_config,
-            runtime_roots_for_cfg=queue_functions.runtime_roots_for_cfg,
-            list_queue=queue_functions.list_queue,
-            dequeue_next=queue_functions.dequeue_next,
+            runtime_roots_for_cfg=runtime_roots_for_cfg or queue_functions.runtime_roots_for_cfg,
+            list_queue=list_queue or queue_functions.list_queue,
+            dequeue_next=dequeue_next or queue_functions.dequeue_next,
             worker_pid_file_name=worker_pid_file_name,
         )
         return cls(
@@ -154,11 +157,21 @@ class InternalEngineQueueModule:
         *,
         config_path_fn: Callable[[Any], str],
         config_path_keyword: bool = True,
+        load_config_fn: Callable[[Any], Any] | None = None,
+        read_worker_pid_fn: Callable[[Path], int | None] | None = None,
+        existing_pid_report_fn: Callable[[int], Any] | None = None,
+        max_concurrent_fn: Callable[[Any], int] | None = None,
+        worker_factory: Callable[..., Any] | None = None,
     ) -> int:
         return self.facade.run_pidfile_worker_command(
             args,
             config_path_fn=config_path_fn,
             config_path_keyword=config_path_keyword,
+            load_config_fn=load_config_fn,
+            read_worker_pid_fn=read_worker_pid_fn,
+            existing_pid_report_fn=existing_pid_report_fn,
+            max_concurrent_fn=max_concurrent_fn,
+            worker_factory=worker_factory,
         )
 
 

@@ -30,7 +30,22 @@ from .registry import get_engine_definition, known_engine_ids
 _LAZY_EXPORTS = {
     "EngineQueueWorker": (".queue_worker", "EngineQueueWorker"),
     "EngineWorkerChild": (".worker_child", "EngineWorkerChild"),
+    "build_engine_runtime_roots": (".definition_builder", "build_engine_runtime_roots"),
+    "build_lazy_queue_worker_runner": (
+        ".definition_builder",
+        "build_lazy_queue_worker_runner",
+    ),
+    "build_lazy_worker_child_runner": (
+        ".definition_builder",
+        "build_lazy_worker_child_runner",
+    ),
+    "build_queue_engine_definition": (".definition_builder", "build_queue_engine_definition"),
+    "build_queue_entry_by_id": (".definition_builder", "build_queue_entry_by_id"),
     "build_worker_child_command": (".worker_child", "build_worker_child_command"),
+    "build_worker_child_command_for_engine": (
+        ".worker_child",
+        "build_worker_child_command_for_engine",
+    ),
     "run_engine_worker_child_job": (".worker_child", "run_engine_worker_child_job"),
 }
 
@@ -62,7 +77,13 @@ __all__ = [
     "EngineWorkerChild",
     "build_engine_artifact_payload",
     "build_engine_report_markdown",
+    "build_engine_runtime_roots",
+    "build_lazy_queue_worker_runner",
+    "build_lazy_worker_child_runner",
+    "build_queue_engine_definition",
+    "build_queue_entry_by_id",
     "build_worker_child_command",
+    "build_worker_child_command_for_engine",
     "get_engine_definition",
     "known_engine_ids",
     "load_engine_artifact_payload",

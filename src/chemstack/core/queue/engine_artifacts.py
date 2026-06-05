@@ -472,6 +472,30 @@ def build_terminal_result(
     )
 
 
+def build_terminal_result_from_context(
+    build_terminal_result_fn: Callable[..., Any],
+    context: Any,
+    *,
+    identity_fields: Mapping[str, Any],
+    status: str,
+    reason: str,
+    exit_code: int = 1,
+    now_utc_iso: str | None = None,
+) -> Any:
+    kwargs: dict[str, Any] = {
+        "job_dir": context.job_dir,
+        "selected_xyz": context.selected_xyz,
+        "resource_request": context.resource_request,
+        "status": status,
+        "reason": reason,
+        "exit_code": exit_code,
+        **dict(identity_fields),
+    }
+    if now_utc_iso is not None:
+        kwargs["now_utc_iso_fn"] = lambda: now_utc_iso
+    return build_terminal_result_fn(context.entry, **kwargs)
+
+
 __all__ = [
     "EngineArtifactFields",
     "TerminalArtifactPayloads",
@@ -480,6 +504,7 @@ __all__ = [
     "build_terminal_artifact_payloads",
     "build_terminal_report_payload",
     "build_terminal_result",
+    "build_terminal_result_from_context",
     "build_terminal_state_payload",
     "default_engine_resource_caps",
     "default_entry_resource_request",

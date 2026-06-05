@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,6 +58,29 @@ def build_worker_child_command(
     return command
 
 
+def build_worker_child_command_for_engine(engine: str) -> Callable[..., list[str]]:
+    engine_id = str(engine).strip().lower()
+
+    def build_engine_worker_child_command(
+        *,
+        config_path: str,
+        queue_root: str | Path,
+        queue_id: str,
+        admission_token: str | None = None,
+        admission_root: str | Path | None = None,
+    ) -> list[str]:
+        return build_worker_child_command(
+            engine=engine_id,
+            config_path=config_path,
+            queue_root=queue_root,
+            queue_id=queue_id,
+            admission_token=admission_token,
+            admission_root=admission_root,
+        )
+
+    return build_engine_worker_child_command
+
+
 def run_engine_worker_child_job(
     *,
     engine: str,
@@ -102,6 +126,7 @@ __all__ = [
     "WORKER_CHILD_MODULE",
     "build_parser",
     "build_worker_child_command",
+    "build_worker_child_command_for_engine",
     "main",
     "run_engine_worker_child_job",
 ]

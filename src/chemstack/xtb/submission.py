@@ -4,11 +4,12 @@ from typing import Any
 
 from chemstack.core.commands.run_dir import (
     EngineQueuedRecord,
+    EngineQueuedRecordCallbacks,
     EngineRunDirSubmission,
     EngineSubmissionSpec,
     build_engine_queued_record,
     build_engine_run_dir_submission_from_spec,
-    engine_run_dir_queued_recorder,
+    engine_run_dir_queued_recorder_from_callbacks,
 )
 from chemstack.core.config.engines import (
     load_xtb_config as load_config,
@@ -108,4 +109,12 @@ def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQue
     )
 
 
-_record_queued = engine_run_dir_queued_recorder(globals())
+_record_queued = engine_run_dir_queued_recorder_from_callbacks(
+    EngineQueuedRecordCallbacks(
+        build_record=lambda submission, entry: _queued_record(submission, entry),
+        write_state=lambda job_dir, payload: write_state(job_dir, payload),
+        upsert_job_record=lambda *args, **kwargs: upsert_job_record(*args, **kwargs),
+        notify_job_queued=lambda *args, **kwargs: notify_job_queued(*args, **kwargs),
+    ),
+    module_name=__name__,
+)

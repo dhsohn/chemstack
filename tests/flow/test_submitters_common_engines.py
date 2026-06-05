@@ -32,6 +32,36 @@ def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
     assert reason == "waiting_for_slot"
 
 
+def test_submitter_deps_factory_from_namespace_uses_current_symbols() -> None:
+    namespace: dict[str, Any] = {
+        "load_config": lambda path: ("old_config", path),
+        "resolve_job_dir": lambda cfg, job_dir: ("job_dir", cfg, job_dir),
+        "load_job_manifest": lambda job_dir: {"job_dir": job_dir},
+        "build_submission": lambda cfg, job_dir, manifest, args: (
+            "submission",
+            cfg,
+            job_dir,
+            manifest,
+            args,
+        ),
+        "record_queued": lambda cfg, submission, entry: ("record", cfg, submission, entry),
+        "enqueue": lambda *args, **kwargs: ("enqueue", args, kwargs),
+        "load_queue_config": lambda path: ("queue_config", path),
+        "queue_entries_with_roots": lambda cfg: [("root", cfg)],
+        "request_cancel": lambda root, queue_id: ("cancel", root, queue_id),
+        "display_status": lambda entry: f"status:{entry}",
+    }
+
+    deps_factory = internal_engine.submitter_deps_factory_from_namespace(namespace)
+    namespace["load_config"] = lambda path: ("new_config", path)
+
+    deps = deps_factory()
+
+    assert deps.load_config_fn("/tmp/config.yaml") == ("new_config", "/tmp/config.yaml")
+    assert deps.resolve_job_dir_fn("cfg", "job") == ("job_dir", "cfg", "job")
+    assert deps.display_status_fn("entry") == "status:entry"
+
+
 def test_worker_module_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = cli_worker_specs.worker_module_command(
         config_path="/tmp/config.yaml",
