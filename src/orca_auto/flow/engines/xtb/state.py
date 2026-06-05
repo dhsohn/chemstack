@@ -25,7 +25,7 @@ _STATE_EXPORTS = _engine_state.create_engine_state_module_exports(
         report_md_file_name=REPORT_MD_FILE_NAME,
         organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
         manifest_file_name=XTB_JOB_MANIFEST_FILE,
-        report_title="Orca Auto xTB Report",
+        report_title="orca_auto xTB Report",
         selected_input_label="Selected Input",
     ),
     now_fn=lambda: now_utc_iso(),

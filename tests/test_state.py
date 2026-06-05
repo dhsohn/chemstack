@@ -211,7 +211,7 @@ class TestState(unittest.TestCase):
             self.assertIsNotNone(report["engine_payload"]["final_result"])
 
             md = report_md_path.read_text(encoding="utf-8")
-            self.assertIn("# Orca Auto ORCA Job Report", md)
+            self.assertIn("# orca_auto ORCA Job Report", md)
             self.assertIn("## Engine Payload", md)
             self.assertIn("attempts", md)
             self.assertIn("final_result", md)

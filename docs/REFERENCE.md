@@ -1,6 +1,6 @@
-# Orca Auto Detailed Reference
+# orca_auto Detailed Reference
 
-Orca Auto is a queue-first executor for ORCA and workflow orchestration. ORCA
+orca_auto is a queue-first executor for ORCA and workflow orchestration. ORCA
 uses the shared internal-engine queue lifecycle for worker admission, child
 entry execution, terminal side effects, and orphan recovery while preserving
 its public ORCA queue contract. xTB and CREST run as internal workflow-stage
@@ -585,7 +585,7 @@ Compatibility note:
 
 5. `error_multiplicity_impossible`
 - Cause: Electron count and multiplicity mismatch
-- Action: Manually adjust the input, because Orca Auto ORCA does not rewrite charge or multiplicity
+- Action: Manually adjust the input, because orca_auto ORCA does not rewrite charge or multiplicity
 
 ## 14) Testing
 

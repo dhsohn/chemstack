@@ -326,7 +326,7 @@ def test_write_report_md_writes_expected_markdown(
 
     assert path == job_dir / state_mod.REPORT_MD_FILE_NAME
     assert path.read_text(encoding="utf-8") == (
-        "# Orca Auto CREST Report\n"
+        "# orca_auto CREST Report\n"
         "\n"
         "- Job ID: `crest-123`\n"
         "- Status: `completed`\n"

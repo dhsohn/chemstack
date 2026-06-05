@@ -1,6 +1,6 @@
 """Queue worker foreground loop for queue execution under an external supervisor.
 
-This engine worker is launched by the unified Orca Auto worker service under
+This engine worker is launched by the unified orca_auto worker service under
 systemd. Each job is spawned in a dedicated child process so locking, state
 management, and signal handling remain centralized.
 """

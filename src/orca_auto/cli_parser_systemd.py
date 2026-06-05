@@ -10,13 +10,13 @@ from .cli_parser_common import add_json_argument
 def add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     systemd_parser = subparsers.add_parser(
         "systemd",
-        help="Install Orca Auto systemd runtime units.",
+        help="Install orca_auto systemd runtime units.",
     )
     systemd_subparsers = systemd_parser.add_subparsers(dest="systemd_command", required=True)
 
     install_parser = systemd_subparsers.add_parser(
         "install",
-        help="Render, install, reload, and optionally enable Orca Auto systemd units.",
+        help="Render, install, reload, and optionally enable orca_auto systemd units.",
     )
     install_parser.add_argument(
         "--user",
@@ -27,7 +27,7 @@ def add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     install_parser.add_argument(
         "--repo",
         required=True,
-        help="Absolute path to the Orca Auto repository checkout",
+        help="Absolute path to the orca_auto repository checkout",
     )
     install_parser.add_argument(
         "--config",
@@ -70,20 +70,20 @@ def add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
 def add_service_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     service_parser = subparsers.add_parser(
         "service",
-        help="Check or restart Orca Auto systemd services.",
+        help="Check or restart orca_auto systemd services.",
     )
     service_subparsers = service_parser.add_subparsers(dest="service_command", required=True)
 
     status_parser = service_subparsers.add_parser(
         "status",
-        help="Show Orca Auto service status.",
+        help="Show orca_auto service status.",
     )
     add_json_argument(status_parser, help_text="Print service status as JSON")
     status_parser.set_defaults(func=cli_systemd.cmd_service_status)
 
     restart_parser = service_subparsers.add_parser(
         "restart",
-        help="Restart the Orca Auto runtime or queue worker service.",
+        help="Restart the orca_auto runtime or queue worker service.",
     )
     restart_parser.set_defaults(func=cli_systemd.cmd_service_restart)
 

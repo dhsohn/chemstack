@@ -1,6 +1,6 @@
 # systemd assets
 
-This directory is the single home for long-running Orca Auto service assets.
+This directory is the single home for long-running orca_auto service assets.
 
 ## Included units
 

@@ -175,7 +175,7 @@ def build_engine_report_markdown(payload: Mapping[str, Any]) -> list[str]:
     timestamps = dict(payload.get("timestamps") or {})
     resources = dict(payload.get("resources") or {})
     lines = [
-        f"# Orca Auto {str(payload.get('engine', '')).upper()} Job Report",
+        f"# orca_auto {str(payload.get('engine', '')).upper()} Job Report",
         "",
         f"- Schema Version: `{payload.get('schema_version', '')}`",
         f"- Engine: `{payload.get('engine', '')}`",

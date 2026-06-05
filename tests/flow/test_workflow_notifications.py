@@ -83,7 +83,7 @@ def test_maybe_notify_workflow_phase_summary_sends_crest_summary_once(
     assert len(transport.messages) == 1
     assert transport.parse_modes == ["HTML"]
     message = transport.messages[0]
-    assert "<b>Orca Auto Flow CREST Phase Summary</b>" in message
+    assert "<b>orca_auto Flow CREST Phase Summary</b>" in message
     assert "<b>Stages</b>: <code>2</code>" in message
     assert "<b>Stage</b>: reactant" in message
     assert "<b>Retained conformers</b>: <code>2</code>" in message
@@ -146,7 +146,7 @@ def test_maybe_notify_workflow_phase_summary_sends_xtb_ready_counts(
     assert len(transport.messages) == 1
     assert transport.parse_modes == ["HTML"]
     message = transport.messages[0]
-    assert "<b>Orca Auto Flow xTB Phase Summary</b>" in message
+    assert "<b>orca_auto Flow xTB Phase Summary</b>" in message
     assert "wf_&lt;xtb&gt;_1" in message
     assert "<b>Ready for ORCA</b>: <code>1</code>" in message
     assert "<b>planned_orca_stages</b>: <code>1</code>" in message

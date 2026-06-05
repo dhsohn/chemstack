@@ -116,7 +116,7 @@ def title_from_event_type(event_type: str) -> str:
         "worker_interrupted": "Worker Interrupted",
         "worker_lock_error": "Worker Lock Error",
     }
-    return f"Orca Auto Flow {labels.get(event_type, 'Event')}"
+    return f"orca_auto Flow {labels.get(event_type, 'Event')}"
 
 
 def notification_event_types_from_env() -> set[str]:

@@ -263,7 +263,7 @@ def _format_phase_summary_message(
     outcome = _phase_outcome(counts)
 
     overview = [
-        f"<b>Orca Auto Flow {phase} Phase Summary</b>",
+        f"<b>orca_auto Flow {phase} Phase Summary</b>",
         f"<b>Workflow</b>: {_metric_code(workflow_id)}",
         f"<b>Template</b>: {_metric_code(template_name)}",
         f"<b>Outcome</b>: {_metric_code(outcome)}",

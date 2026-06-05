@@ -1,4 +1,4 @@
-# Orca Auto Development Notes
+# orca_auto Development Notes
 
 This repository now uses a monorepo-style package layout under `src/orca_auto`.
 

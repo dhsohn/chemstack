@@ -1,5 +1,5 @@
 [Unit]
-Description=Orca Auto unified queue workers for %i
+Description=orca_auto unified queue workers for %i
 After=local-fs.target
 PartOf=orca_auto-runtime@%i.target
 

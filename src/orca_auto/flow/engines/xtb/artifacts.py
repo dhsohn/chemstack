@@ -80,7 +80,7 @@ def report_lines(entry: Any, result: XtbRunResult) -> list[str]:
     lines = _engine_execution.terminal_report_lines(
         entry,
         result,
-        title="Orca Auto xTB Report",
+        title="orca_auto xTB Report",
         selected_input_label="Selected Input XYZ",
         selected_input_xyz=result.selected_input_xyz,
         engine_lines=[

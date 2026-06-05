@@ -1,5 +1,5 @@
 [Unit]
-Description=Orca Auto unified Telegram bot for %i
+Description=orca_auto unified Telegram bot for %i
 After=network-online.target
 Wants=network-online.target
 PartOf=orca_auto-runtime@%i.target

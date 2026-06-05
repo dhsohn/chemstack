@@ -1,4 +1,4 @@
-name: Orca Auto CI
+name: orca_auto CI
 
 on:
   push:

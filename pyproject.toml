@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "orca_auto"
 version = "0.1.0"
-description = "Orca Auto monorepo for ORCA, xTB, CREST, and workflow automation"
+description = "orca_auto monorepo for ORCA, xTB, CREST, and workflow automation"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }

@@ -80,7 +80,7 @@ def report_lines(entry: Any, result: CrestRunResult) -> list[str]:
     lines = _engine_execution.terminal_report_lines(
         entry,
         result,
-        title="Orca Auto CREST Report",
+        title="orca_auto CREST Report",
         selected_input_label="Selected XYZ",
         selected_input_xyz=result.selected_input_xyz,
         engine_lines=[

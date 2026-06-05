@@ -1,7 +1,7 @@
-# Orca Auto Quickstart
+# orca_auto Quickstart
 
 This guide is the shortest path from a fresh checkout to a supervised
-Orca Auto queue worker.
+orca_auto queue worker.
 
 ## 1) Install
 
@@ -11,7 +11,7 @@ bash scripts/bootstrap_wsl.sh
 source .venv/bin/activate
 ```
 
-The bootstrap script creates `.venv`, installs Orca Auto, and creates
+The bootstrap script creates `.venv`, installs orca_auto, and creates
 `config/orca_auto.yaml` from the example template when needed.
 
 ## 2) Configure
@@ -30,8 +30,8 @@ init or edit `config/orca_auto.yaml` afterward.
 orca_auto systemd install --user "$(whoami)" --repo "$(pwd)"
 ```
 
-If Telegram is configured, Orca Auto enables the full runtime target. If
-Telegram is still empty, Orca Auto enables only the queue worker.
+If Telegram is configured, orca_auto enables the full runtime target. If
+Telegram is still empty, orca_auto enables only the queue worker.
 
 ## 4) Check Or Restart Services
 

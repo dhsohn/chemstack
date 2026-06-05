@@ -134,7 +134,7 @@ def format_run_started_event(event: RunStartedNotification) -> str:
     reaction_dir = Path(event["reaction_dir"])
     current_inp = Path(event["current_inp"])
     status = str(event["status"]).strip().lower()
-    title = "Orca Auto ORCA Resumed" if event.get("resumed") else "Orca Auto ORCA Started"
+    title = "orca_auto ORCA Resumed" if event.get("resumed") else "orca_auto ORCA Started"
     lines = [
         f"<b>{escape_html(title)}</b>",
         f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
@@ -157,7 +157,7 @@ def format_retry_event(event: RetryNotification) -> str:
     failed_inp = Path(event["failed_inp"])
     next_inp = Path(event["next_inp"])
     lines = [
-        "<b>Orca Auto ORCA Retry</b>",
+        "<b>orca_auto ORCA Retry</b>",
         f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
         (
             f"<b>Attempt</b>: {event['attempt_index']} failed; "
@@ -183,7 +183,7 @@ def format_run_finished_event(event: RunFinishedNotification) -> str:
     """Format an immediate terminal run notification."""
     reaction_dir = Path(event["reaction_dir"])
     status = str(event["status"]).strip().lower()
-    title = "Orca Auto ORCA Completed" if status == "completed" else "Orca Auto ORCA Failed"
+    title = "orca_auto ORCA Completed" if status == "completed" else "orca_auto ORCA Failed"
     status_text = status or "unknown"
     lines = [
         f"<b>{escape_html(title)}</b>",
@@ -311,7 +311,7 @@ def format_queue_enqueued_event(event: QueueEnqueuedNotification) -> str:
     """Format a queue-enqueued notification as a Telegram HTML message."""
     reaction_dir = Path(event["reaction_dir"])
     lines = [
-        "<b>Orca Auto ORCA Queued</b>",
+        "<b>orca_auto ORCA Queued</b>",
         f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
         f"<b>Queue ID</b>: <code>{escape_html(event['queue_id'])}</code>",
         f"<b>Priority</b>: {event['priority']}",

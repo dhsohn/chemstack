@@ -14,7 +14,7 @@ WorkerCallback = Callable[..., Any]
 
 
 class EngineQueueWorker(HookedPidFileChildProcessQueueWorker):
-    """Common parent queue worker for Orca Auto engine runtimes."""
+    """Common parent queue worker for orca_auto engine runtimes."""
 
     def __init__(
         self,

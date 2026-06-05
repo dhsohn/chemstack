@@ -73,7 +73,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-1",
             },
             [
-                "<b>Orca Auto Flow Status Changed</b>",
+                "<b>orca_auto Flow Status Changed</b>",
                 "<b>Workflow</b>: <code>wf_1</code>",
                 "<b>Template</b>: <code>reaction_ts_search</code>",
                 "<b>Status</b>: <code>planned</code> -> <code>running</code>",
@@ -88,7 +88,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-2",
             },
             [
-                "<b>Orca Auto Flow Advance Failed</b>",
+                "<b>orca_auto Flow Advance Failed</b>",
                 "<b>Workflow</b>: <code>wf_2</code>",
                 "<b>Reason</b>: <code>boom</code>",
                 "<b>Worker session</b>: <code>session-2</code>",
@@ -109,7 +109,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-stage",
             },
             [
-                "<b>Orca Auto Flow Stage Submitted</b>",
+                "<b>orca_auto Flow Stage Submitted</b>",
                 "<b>Workflow</b>: <code>wf_stage</code>",
                 "<b>Event</b>: <code>workflow_stage_submitted</code>",
                 "<b>Stage</b>: <code>xtb_path_search_01</code>",
@@ -132,7 +132,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-handoff",
             },
             [
-                "<b>Orca Auto Flow Handoff Ready</b>",
+                "<b>orca_auto Flow Handoff Ready</b>",
                 "<b>Workflow</b>: <code>wf_stage</code>",
                 "<b>Event</b>: <code>workflow_stage_handoff_ready</code>",
                 "<b>Stage</b>: <code>xtb_path_search_01</code>",
@@ -149,7 +149,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-1",
             },
             [
-                "<b>Orca Auto Flow Worker Started</b>",
+                "<b>orca_auto Flow Worker Started</b>",
                 "<b>Event</b>: <code>worker_started</code>",
                 "<b>Workflow root</b>: <code>/tmp/root_3</code>",
                 "<b>Reason</b>: <code>started</code>",
@@ -181,7 +181,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 },
             },
             [
-                "<b>Orca Auto Flow Phase Finished</b>",
+                "<b>orca_auto Flow Phase Finished</b>",
                 "<b>Workflow</b>: <code>wf_phase</code>",
                 "<b>Event</b>: <code>workflow_phase_finished</code>",
                 "<b>Phase</b>: <code>xTB</code>",
@@ -202,7 +202,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(
                 "worker_session_id": "session-1",
             },
             [
-                "<b>Orca Auto Flow Event</b>",
+                "<b>orca_auto Flow Event</b>",
                 "<b>Event</b>: <code>custom_event</code>",
                 "<b>Workflow</b>: <code>wf_4</code>",
                 "<b>Status</b>: <code>queued</code>",
@@ -216,7 +216,7 @@ def test_journal_event_message_formats_supported_event_types(
 ) -> None:
     message = registry_notifications.journal_event_message(event, "/tmp/root_3")
 
-    assert message.startswith("<b>Orca Auto Flow")
+    assert message.startswith("<b>orca_auto Flow")
     for line in expected_lines:
         assert line in message
 

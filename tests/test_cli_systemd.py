@@ -204,7 +204,7 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
 
     assert result == 0
     output = capsys.readouterr().out
-    assert "Orca Auto service status for alice:" in output
+    assert "orca_auto service status for alice:" in output
     assert "Active" in output
     assert "Startup" not in output
     assert "Enabled" not in output

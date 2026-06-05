@@ -196,7 +196,7 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
 
 
 class PidFileChildProcessQueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
-    """Child-process queue worker with standard Orca Auto pid-file lifecycle."""
+    """Child-process queue worker with standard orca_auto pid-file lifecycle."""
 
     def __init__(
         self,

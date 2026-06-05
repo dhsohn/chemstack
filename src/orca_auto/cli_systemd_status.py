@@ -103,7 +103,7 @@ def _paint_field(text: str, width: int, color: str | None) -> str:
 
 
 def _print_service_status(target_user: str, statuses: Sequence[ServiceUnitStatus]) -> None:
-    print(f"Orca Auto service status for {target_user}:")
+    print(f"orca_auto service status for {target_user}:")
     print(cli_style.paint(f"{'Name':<10} {'Active':<14} Unit", cli_style.BOLD))
     for status in statuses:
         active = _paint_field(status.active, 14, _service_active_color(status.active))
