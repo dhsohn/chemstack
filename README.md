@@ -28,7 +28,10 @@ bash scripts/bootstrap_wsl.sh
 source .venv/bin/activate
 ```
 
-`bootstrap_wsl.sh` creates `.venv`, installs the project, and seeds `config/orca_auto.yaml` from the example template when needed.
+`bootstrap_wsl.sh` creates `.venv`, installs the Python package/CLI, and seeds
+`config/orca_auto.yaml` from the example template when needed. It does not
+install or start the systemd runtime units; do that after configuration with
+`orca_auto systemd install --user "$(whoami)" --repo "$(pwd)"`.
 If you do not activate the virtual environment, you can still run the installed CLI directly as `.venv/bin/orca_auto ...`.
 
 ## Configure
