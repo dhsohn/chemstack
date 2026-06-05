@@ -29,6 +29,36 @@ def test_queue_elapsed_uses_restart_metadata_and_clamps_negative_durations() -> 
     ) == "00:01:05"
 
 
+def test_queue_name_uses_workflow_workspace_for_generic_input_label() -> None:
+    assert (
+        rendering._queue_name_text(
+            {
+                "activity_id": "wf_006",
+                "kind": "workflow",
+                "status": "running",
+                "label": "input",
+                "metadata": {"workspace_dir": "/tmp/workflow_runs/wf_006"},
+            }
+        )
+        == "wf_006"
+    )
+
+
+def test_queue_name_keeps_meaningful_workflow_label() -> None:
+    assert (
+        rendering._queue_name_text(
+            {
+                "activity_id": "wf_001",
+                "kind": "workflow",
+                "status": "running",
+                "label": "reaction-case",
+                "metadata": {"workspace_dir": "/tmp/workflow_runs/wf_001"},
+            }
+        )
+        == "reaction-case"
+    )
+
+
 def test_queue_table_lines_truncates_wide_unicode_without_column_drift(monkeypatch) -> None:
     monkeypatch.setattr(
         rendering,

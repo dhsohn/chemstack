@@ -243,6 +243,7 @@ Workflow notes:
 - `conformer_search` starts with one CREST child job and then hands off up to 20 retained conformers to ORCA child jobs in the next workflow cycle
 - Set top-level `workflow.root` in `orca_auto.yaml` before using workflow commands
 - Public `run-dir` does not expose workflow override flags; workflow settings come from `flow.yaml` and `orca_auto.yaml`
+- CREST topology overrides can be placed under `crest:` in `flow.yaml`, including `gfn: ff`, `no_preopt: true`, `noreftopo: true`, `notopo: true`, and `nocbonds: true`
 - `scaffold ts_search` and `scaffold conformer_search` write `flow.yaml` with `crest_mode: standard` by default; change it to `nci` when needed
 
 There is no public direct-execution mode for new work. `run-dir` is the durable submission path.

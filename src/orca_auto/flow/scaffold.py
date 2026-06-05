@@ -81,6 +81,9 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
                 "# crest:",
                 "#   gfn: ff",
                 "#   no_preopt: true",
+                "#   noreftopo: true",
+                "#   notopo: true",
+                "#   nocbonds: true",
                 "priority: 10",
                 "# Each selected reactant/product CREST conformer pair becomes an xTB path search.",
                 "max_crest_candidates: 3",
@@ -112,6 +115,9 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
                 "# crest:",
                 "#   gfn: ff",
                 "#   no_preopt: true",
+                "#   noreftopo: true",
+                "#   notopo: true",
+                "#   nocbonds: true",
                 "priority: 10",
                 "# Up to 20 retained CREST conformers are handed off to ORCA by default.",
                 "max_orca_stages: 20",
@@ -135,7 +141,8 @@ def _readme(root: Path, workflow_type: str) -> str:
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
             "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
-            "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
+            "`gfn: ff`, `noreftopo: true`, `notopo: true`, or `nocbonds: true` "
+            "when topology filtering is too strict.",
             "- Use `endpoint_pairing:` when multiple CREST conformers create bad reactant/product pairings before xTB.",
             f"- {REACTION_TS_SEARCH_TEMPLATE_ID} expands all selected reactant x product CREST pairs into xTB path searches, waits for the xTB phase to finish, and then batches matching ORCA OptTS child jobs from retained ts_guess artifacts.",
         ]
@@ -145,7 +152,8 @@ def _readme(root: Path, workflow_type: str) -> str:
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
             "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
-            "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
+            "`gfn: ff`, `noreftopo: true`, `notopo: true`, or `nocbonds: true` "
+            "when topology filtering is too strict.",
             f"- {CONFORMER_SCREENING_SHORTCUT} hands off up to 20 retained CREST conformers to ORCA child jobs by default.",
         ]
     else:

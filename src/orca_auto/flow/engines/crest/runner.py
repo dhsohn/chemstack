@@ -91,8 +91,16 @@ def _append_crest_bool_flags(command: list[str], manifest: dict[str, Any]) -> No
         ("dry_run", "--dry"),
         ("keepdir", "--keepdir"),
         ("no_preopt", "--noopt"),
+        ("noreftopo", "--noreftopo"),
+        ("no_reftopo", "--noreftopo"),
+        ("notopo", "--notopo"),
+        ("no_topo", "--notopo"),
+        ("nocbonds", "--nocbonds"),
+        ("no_cbonds", "--nocbonds"),
     ):
         if _engine_runner.bool_flag(manifest, manifest_key):
+            if option in command:
+                continue
             command.append(option)
 
 

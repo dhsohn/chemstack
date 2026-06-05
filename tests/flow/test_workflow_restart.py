@@ -239,6 +239,9 @@ def test_restart_failed_workflow_reloads_flow_yaml_for_crest_stage(tmp_path: Pat
                 "crest:",
                 "  gfn: ff",
                 "  no_preopt: true",
+                "  noreftopo: true",
+                "  notopo: true",
+                "  nocbonds: true",
             ]
         )
         + "\n",
@@ -297,7 +300,14 @@ def test_restart_failed_workflow_reloads_flow_yaml_for_crest_stage(tmp_path: Pat
     saved = json.loads((workspace / "workflow.json").read_text(encoding="utf-8"))
     stage = saved["stages"][0]
     task = stage["task"]
-    expected_overrides = {"rthr": 0.3, "gfn": "ff", "no_preopt": True}
+    expected_overrides = {
+        "rthr": 0.3,
+        "gfn": "ff",
+        "no_preopt": True,
+        "noreftopo": True,
+        "notopo": True,
+        "nocbonds": True,
+    }
     assert result["status"] == "restarted"
     assert saved["metadata"]["restart_summary"]["flow_manifest_applied"] is True
     assert task["resource_request"] == {"max_cores": 3, "max_memory_gb": 11}

@@ -40,9 +40,12 @@ def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys:
     assert "# crest:" in flow_text
     assert "#   gfn: ff" in flow_text
     assert "#   no_preopt: true" in flow_text
+    assert "#   noreftopo: true" in flow_text
+    assert "#   notopo: true" in flow_text
+    assert "#   nocbonds: true" in flow_text
     assert "orca_auto scaffold ts_search" in readme
     assert "crest_mode: nci" in readme
-    assert "`gfn: ff` or `no_preopt: true`" in readme
+    assert "`gfn: ff`, `noreftopo: true`, `notopo: true`, or `nocbonds: true`" in readme
     assert "waits for the xTB phase to finish" in readme
 
 
@@ -65,8 +68,11 @@ def test_cmd_scaffold_is_idempotent_for_conformer_workflow(
     assert manifest["max_orca_stages"] == 20
     assert "#   gfn: ff" in flow_text
     assert "#   no_preopt: true" in flow_text
+    assert "#   noreftopo: true" in flow_text
+    assert "#   notopo: true" in flow_text
+    assert "#   nocbonds: true" in flow_text
     assert "20 retained CREST conformers" in readme
-    assert "`gfn: ff` or `no_preopt: true`" in readme
+    assert "`gfn: ff`, `noreftopo: true`, `notopo: true`, or `nocbonds: true`" in readme
     capsys.readouterr()
 
     custom_input = "1\ncustom\nHe 0.0 0.0 0.0\n"

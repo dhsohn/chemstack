@@ -69,6 +69,9 @@ def test_build_command_includes_manifest_flags(monkeypatch: pytest.MonkeyPatch, 
             "dry_run": True,
             "keepdir": True,
             "no_preopt": True,
+            "noreftopo": True,
+            "notopo": True,
+            "nocbonds": True,
             "gfn": "2//ff",
             "charge": "2",
             "uhf": 1,
@@ -93,6 +96,9 @@ def test_build_command_includes_manifest_flags(monkeypatch: pytest.MonkeyPatch, 
         "--dry",
         "--keepdir",
         "--noopt",
+        "--noreftopo",
+        "--notopo",
+        "--nocbonds",
         "--gfn2//gfnff",
         "--chrg",
         "2",
@@ -114,6 +120,39 @@ def test_build_command_includes_manifest_flags(monkeypatch: pytest.MonkeyPatch, 
         "--scratch",
         str(job_dir / ".crest_scratch"),
     ]
+
+
+def test_build_command_accepts_topology_aliases_without_duplicate_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "input.xyz"
+    _write_xyz(selected_xyz, ("conf_a",))
+    monkeypatch.setattr(
+        "orca_auto.flow.engines.crest.runner._resolve_crest_executable",
+        lambda _cfg: "/usr/bin/crest",
+    )
+
+    command = _build_command(
+        cfg,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        manifest={
+            "noreftopo": True,
+            "no_reftopo": True,
+            "notopo": True,
+            "no_topo": True,
+            "nocbonds": True,
+            "no_cbonds": True,
+        },
+    )
+
+    assert command.count("--noreftopo") == 1
+    assert command.count("--notopo") == 1
+    assert command.count("--nocbonds") == 1
 
 
 def test_start_crest_job_passes_expected_subprocess_options(

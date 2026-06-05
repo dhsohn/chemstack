@@ -454,6 +454,9 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
                 "  speed: squick",
                 "  gfn: ff",
                 "  no_preopt: true",
+                "  noreftopo: true",
+                "  notopo: true",
+                "  nocbonds: true",
                 "xtb:",
                 "  gfn: 1",
                 "  namespace: rxn_case",
@@ -514,6 +517,9 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
         "speed": "squick",
         "gfn": "ff",
         "no_preopt": True,
+        "noreftopo": True,
+        "notopo": True,
+        "nocbonds": True,
     }
     assert captured["xtb_job_manifest"] == {
         "gfn": 1,
