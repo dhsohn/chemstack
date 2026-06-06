@@ -123,6 +123,7 @@ def test_build_materialized_orca_stage_uses_candidate_source_frame_index(
         xyz_filename="conformer_guess.xyz",
         inp_filename="conformer_opt.inp",
     )
+    assert stage.task is not None
     reaction_dir = Path(stage.task.payload["reaction_dir"])
     source_payload = json.loads((reaction_dir / "source_candidate.json").read_text(encoding="utf-8"))
 
