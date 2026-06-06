@@ -10,6 +10,7 @@ from orca_auto.core.app_ids import (
     ORCA_AUTO_ORCA_SUBMITTER,
 )
 from orca_auto.core.utils import atomic_write_json, normalize_text
+from orca_auto.core.utils.coercion import safe_int
 
 from . import _orca_stage_payloads
 from .contracts import WorkflowArtifactRef, WorkflowStage, WorkflowStageInput, WorkflowTask
@@ -189,6 +190,7 @@ class OrcaStageMaterializationRequest:
     max_memory_gb: int
     xyz_filename: str = "input.xyz"
     inp_filename: str = "input.inp"
+    source_frame_index: int = 0
     extra_source_payload: dict[str, Any] | None = None
 
 
@@ -240,6 +242,7 @@ class OrcaStageBuildContext:
             max_memory_gb=self.max_memory_gb,
             xyz_filename=self.xyz_filename,
             inp_filename=self.inp_filename,
+            source_frame_index=_candidate_source_frame_index(self.candidate),
             extra_source_payload=extra_source_payload,
         )
 
@@ -258,6 +261,7 @@ def materialize_orca_stage(
     max_memory_gb: int,
     xyz_filename: str = "input.xyz",
     inp_filename: str = "input.inp",
+    source_frame_index: int = 0,
     extra_source_payload: dict[str, Any] | None = None,
 ) -> OrcaStageMaterialization:
     return materialize_orca_stage_from_request(
@@ -274,9 +278,15 @@ def materialize_orca_stage(
             max_memory_gb=max_memory_gb,
             xyz_filename=xyz_filename,
             inp_filename=inp_filename,
+            source_frame_index=source_frame_index,
             extra_source_payload=extra_source_payload,
         )
     )
+
+
+def _candidate_source_frame_index(candidate: WorkflowStageInput) -> int:
+    metadata = candidate.metadata if isinstance(candidate.metadata, dict) else {}
+    return max(0, safe_int(metadata.get("source_frame_index", 0), default=0))
 
 
 def materialize_orca_stage_from_request(
@@ -331,6 +341,7 @@ def _materialize_orca_geometry(
         source_path=source_xyz,
         target_path=target_xyz,
         candidate_kind=request.candidate_kind,
+        source_frame_index=request.source_frame_index,
     )
     return target_xyz, dict(geometry_metadata)
 

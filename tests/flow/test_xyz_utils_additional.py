@@ -144,3 +144,26 @@ def test_write_orca_ready_xyz_materializes_selected_frame_and_raises_on_invalid_
             target_path=tmp_path / "out.xyz",
             candidate_kind="ts_guess",
         )
+
+
+def test_write_orca_ready_xyz_materializes_requested_multiframe_index(tmp_path: Path) -> None:
+    source = tmp_path / "crest_conformers.xyz"
+    source.write_text(
+        "1\nconf 1\nH 0 0 0\n"
+        "1\nconf 2\nH 0.2 0 0\n"
+        "1\nconf 3\nH 0.3 0 0\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "orca" / "conformer_guess.xyz"
+
+    metadata = xyz_utils.write_orca_ready_xyz(
+        source_path=source,
+        target_path=target,
+        candidate_kind="crest_conformer",
+        source_frame_index=2,
+    )
+
+    assert target.read_text(encoding="utf-8").startswith("1\nconf 2\n")
+    assert metadata["requested_frame_index"] == 2
+    assert metadata["selected_frame_index"] == 2
+    assert metadata["selection_reason"] == "requested_frame"

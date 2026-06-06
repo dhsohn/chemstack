@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from orca_auto.core.utils.coercion import safe_int
+
 _ENERGY_PATTERNS = (
     re.compile(r"energy:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE),
     re.compile(r"\bE\s+([-+]?\d+(?:\.\d+)?)", re.IGNORECASE),
@@ -218,9 +220,16 @@ def _select_energy_ranked_frame(frames: tuple[XYZFrame, ...]) -> tuple[XYZFrame,
 def _select_orca_frame(
     frames: tuple[XYZFrame, ...],
     candidate_kind: str,
+    *,
+    requested_frame_index: int = 0,
 ) -> tuple[XYZFrame | None, str]:
     if not frames:
         return None, "invalid_or_empty_xyz"
+    if requested_frame_index > 0:
+        if requested_frame_index > len(frames):
+            return None, "requested_frame_unavailable"
+        return frames[requested_frame_index - 1], "requested_frame"
+
     normalized_kind = str(candidate_kind).strip().lower()
     if normalized_kind == "ts_guess" and len(frames) != 1:
         return None, "ts_guess_requires_single_frame"
@@ -233,12 +242,19 @@ def _select_orca_frame(
 
 
 def choose_orca_geometry_frame(
-    path: str | Path, *, candidate_kind: str = ""
+    path: str | Path, *, candidate_kind: str = "", source_frame_index: int = 0
 ) -> tuple[XYZFrame | None, dict[str, object]]:
     xyz_path = Path(path).expanduser().resolve()
     parse_result = parse_xyz_file(xyz_path)
     metadata = _build_orca_geometry_metadata(xyz_path, parse_result, candidate_kind)
-    frame, selection_reason = _select_orca_frame(parse_result.frames, candidate_kind)
+    requested_frame_index = max(0, safe_int(source_frame_index, default=0))
+    if requested_frame_index:
+        metadata["requested_frame_index"] = requested_frame_index
+    frame, selection_reason = _select_orca_frame(
+        parse_result.frames,
+        candidate_kind,
+        requested_frame_index=requested_frame_index,
+    )
     _add_selection_metadata(metadata, frame, selection_reason)
     return frame, metadata
 
@@ -248,8 +264,13 @@ def write_orca_ready_xyz(
     source_path: str | Path,
     target_path: str | Path,
     candidate_kind: str = "",
+    source_frame_index: int = 0,
 ) -> dict[str, object]:
-    frame, metadata = choose_orca_geometry_frame(source_path, candidate_kind=candidate_kind)
+    frame, metadata = choose_orca_geometry_frame(
+        source_path,
+        candidate_kind=candidate_kind,
+        source_frame_index=source_frame_index,
+    )
     if frame is None:
         raise ValueError(f"No ORCA-ready XYZ geometry found in source candidate: {source_path}")
     target = Path(target_path).expanduser().resolve()

@@ -82,6 +82,57 @@ def test_materialize_orca_stage_generates_default_input_file(tmp_path: Path) -> 
     assert Path(materialized.selected_xyz).name == "ts_guess.xyz"
 
 
+def test_build_materialized_orca_stage_uses_candidate_source_frame_index(
+    tmp_path: Path,
+) -> None:
+    source_xyz = tmp_path / "crest_conformers.xyz"
+    source_xyz.write_text(
+        "1\nconf 1\nH 0 0 0\n"
+        "1\nconf 2\nH 0.2 0 0\n"
+        "1\nconf 3\nH 0.3 0 0\n",
+        encoding="utf-8",
+    )
+    candidate = WorkflowStageInput(
+        source_job_id="crest_job_01",
+        source_job_type="crest_nci",
+        reaction_key="input",
+        selected_input_xyz="",
+        rank=2,
+        kind="crest_conformer",
+        artifact_path=str(source_xyz),
+        selected=False,
+        metadata={"source_frame_index": 2},
+    )
+
+    stage = orca_stage_utils.build_materialized_orca_stage(
+        workflow_id="wf_conf",
+        template_name="conformer_screening",
+        stage_id="orca_conformer_02",
+        stage_key="02_crest_conformer",
+        stage_root_name="",
+        workspace_dir=tmp_path / "02_orca",
+        input_artifact_kind="crest_conformer",
+        candidate=candidate,
+        task_kind="opt",
+        route_line="! r2scan-3c Opt TightSCF",
+        charge=0,
+        multiplicity=1,
+        max_cores=4,
+        max_memory_gb=16,
+        priority=10,
+        xyz_filename="conformer_guess.xyz",
+        inp_filename="conformer_opt.inp",
+    )
+    reaction_dir = Path(stage.task.payload["reaction_dir"])
+    source_payload = json.loads((reaction_dir / "source_candidate.json").read_text(encoding="utf-8"))
+
+    assert (reaction_dir / "conformer_guess.xyz").read_text(encoding="utf-8").startswith(
+        "1\nconf 2\n"
+    )
+    assert source_payload["geometry_materialization"]["requested_frame_index"] == 2
+    assert source_payload["geometry_materialization"]["selected_frame_index"] == 2
+
+
 def test_build_orca_enqueue_payload_includes_resource_override_flags() -> None:
     payload = orca_stage_utils.build_orca_enqueue_payload(
         workflow_id="wf_orca",
