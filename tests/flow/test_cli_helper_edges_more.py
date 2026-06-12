@@ -96,7 +96,13 @@ def test_cli_run_dir_manifest_and_path_resolution_edges(
 
 
 def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        run_dir_options,
+        "_resolve_required_workflow_root",
+        lambda args, manifest: getattr(args, "workflow_root", None),
+    )
     args = SimpleNamespace(
         workflow_root="/tmp/cli_root",
         crest_mode="cli_nci",
@@ -131,9 +137,6 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
         sections,
         default_orca_route_line="! default",
         default_max_orca_stages=3,
-        deps=SimpleNamespace(
-            _resolve_required_workflow_root=lambda args, manifest: getattr(args, "workflow_root", None)
-        ),
     )
 
     assert options.workflow_root == "/tmp/cli_root"

@@ -117,14 +117,30 @@ was already exercised via module-global monkeypatching
 `signal.*`, `time.sleep`, `worker_module_command`,
 `_discover_shared_config_path`) — late-bound direct calls serve those seams.
 
+**`flow/run_dir_options.py` + `flow/run_dir_manifest.py` DONE 2026-06-13:**
+all 27 lookups removed (11 + 16) and every `deps` parameter dropped. The one
+`deps=`-passing test (`test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence`)
+now monkeypatches `run_dir_options._resolve_required_workflow_root` instead.
+Also deleted: the `_RunDirWorkflowOptionResolvers` indirection (4 all-`Any`
+fields rebuilt per call), its `_run_dir_workflow_option_resolvers()` factory,
+the trivial `_run_dir_workflow_option_defaults()` constructor wrapper, and
+`_workflow_options_to_common_kwargs` (duck-typing relic — the bundle now
+calls `options.common_kwargs()` directly). Two seams preserved by
+construction: `_resolve_required_workflow_root` calls
+`cli_common._discover_workflow_root` via module-attribute access (5 tests
+patch `cli_common`, not `run_dir_options`; the old code reached the same
+effect with a function-local import), and `_cli_workflow_root_for_args` /
+`WORKFLOW_MANIFEST_FILENAMES` stay late-bound module globals
+(`test_cli_plans_and_create_more.py` / `test_cli_helper_edges_more.py` patch
+them).
+
 Usage counts (2026-06-12): `flow/engines/xtb/terminal.py` 18,
-`flow/run_dir_manifest.py` 16, `flow/run_dir_options.py` 11,
 `cli_common.py` 11 (defines it), `cli_systemd_status.py` 9,
 `cli_systemd_apply.py` 5, others <10.
-Suggested next: `flow/run_dir_options.py` + `flow/run_dir_manifest.py`
-together (they cross-reference), leaving `flow/engines/xtb/terminal.py` last
-(engine layer, widest blast radius). `cli_systemd_*.py` has deps-passing
-tests (`tests/test_cli_systemd.py`) — classify before touching.
+Suggested next: `flow/engines/xtb/terminal.py` (engine layer, widest blast
+radius — read its queue_runtime_execution/execution callers first).
+`cli_systemd_*.py` has deps-passing tests (`tests/test_cli_systemd.py`) —
+classify before touching.
 
 Tests known to pass `deps=` into this pattern: `tests/test_orca_auto_cli_queue.py:39`
 (`cmd_queue_list(args, deps=deps)`), `tests/test_cli_systemd.py`,
