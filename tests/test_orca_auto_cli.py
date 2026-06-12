@@ -7,7 +7,13 @@ from typing import Any
 import pytest
 
 from orca_auto import cli as unified_cli
-from orca_auto import cli_common, cli_queue, cli_systemd, cli_worker_conflicts
+from orca_auto import (
+    cli_common,
+    cli_queue,
+    cli_systemd_apply,
+    cli_systemd_status,
+    cli_worker_conflicts,
+)
 from orca_auto import cli_handlers as cli_monitor
 from orca_auto import cli_handlers as cli_run_dir
 
@@ -206,7 +212,7 @@ def test_build_parser_parses_systemd_install_command() -> None:
     assert args.repo == "/home/daehyupsohn/orca_auto"
     assert args.worker_only is True
     assert args.dry_run is True
-    assert args.func is cli_systemd.cmd_systemd_install
+    assert args.func is cli_systemd_apply.cmd_systemd_install
 
 
 def test_build_parser_parses_service_commands() -> None:
@@ -217,11 +223,11 @@ def test_build_parser_parses_service_commands() -> None:
 
     assert status_args.command == "service"
     assert status_args.service_command == "status"
-    assert status_args.func is cli_systemd.cmd_service_status
+    assert status_args.func is cli_systemd_status.cmd_service_status
 
     assert restart_args.command == "service"
     assert restart_args.service_command == "restart"
-    assert restart_args.func is cli_systemd.cmd_service_restart
+    assert restart_args.func is cli_systemd_status.cmd_service_restart
 
 
 def test_main_dispatches_unified_queue_list(monkeypatch: pytest.MonkeyPatch) -> None:

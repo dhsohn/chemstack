@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from orca_auto import cli_systemd
+from orca_auto import cli_systemd_apply, cli_systemd_status, systemd_plan
 
 
 def _make_repo(tmp_path: Path) -> tuple[Path, Path]:
@@ -36,7 +36,7 @@ def test_build_systemd_install_plan_renders_repo_and_config_paths(tmp_path: Path
     repo, config_path = _make_repo(tmp_path)
     unit_dir = tmp_path / "units"
 
-    plan = cli_systemd.build_systemd_install_plan(
+    plan = systemd_plan.build_systemd_install_plan(
         target_user="alice",
         repo=repo,
         config=config_path,
@@ -65,7 +65,7 @@ def test_build_systemd_install_plan_renders_repo_and_config_paths(tmp_path: Path
 def test_build_systemd_install_plan_worker_only_enables_worker_service(tmp_path: Path) -> None:
     repo, config_path = _make_repo(tmp_path)
 
-    plan = cli_systemd.build_systemd_install_plan(
+    plan = systemd_plan.build_systemd_install_plan(
         target_user="alice",
         repo=repo,
         config=config_path,
@@ -107,9 +107,9 @@ def test_cmd_systemd_install_writes_units_and_runs_commands(
         no_sudo=True,
     )
 
-    result = cli_systemd.cmd_systemd_install(
+    result = cli_systemd_apply.cmd_systemd_install(
         args,
-        deps=cli_systemd.SystemdInstallCliDeps(run=_fake_run, is_root=lambda: True),
+        deps=cli_systemd_apply.SystemdInstallCliDeps(run=_fake_run, is_root=lambda: True),
     )
 
     assert result == 0
@@ -143,9 +143,9 @@ def test_cmd_systemd_install_dry_run_does_not_write_units(
         no_sudo=True,
     )
 
-    result = cli_systemd.cmd_systemd_install(
+    result = cli_systemd_apply.cmd_systemd_install(
         args,
-        deps=cli_systemd.SystemdInstallCliDeps(is_root=lambda: True),
+        deps=cli_systemd_apply.SystemdInstallCliDeps(is_root=lambda: True),
     )
 
     assert result == 0
@@ -160,7 +160,7 @@ def test_full_runtime_warns_when_telegram_is_not_configured(tmp_path: Path) -> N
     repo, config_path = _make_repo(tmp_path)
     config_path.write_text("telegram:\n  bot_token: ''\n  chat_id: ''\n", encoding="utf-8")
 
-    plan = cli_systemd.build_systemd_install_plan(
+    plan = systemd_plan.build_systemd_install_plan(
         target_user="alice",
         repo=repo,
         config=config_path,
@@ -193,9 +193,9 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
         value = states[(argv[1], argv[2])]
         return subprocess.CompletedProcess(argv, 0, stdout=f"{value}\n", stderr="")
 
-    result = cli_systemd.cmd_service_status(
+    result = cli_systemd_status.cmd_service_status(
         Namespace(target_user=None),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             default_service_user=lambda: "alice",
             run=_fake_run,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -217,19 +217,19 @@ def test_cmd_service_status_hides_runtime_managed_enabled_noise(
     capsys: Any,
 ) -> None:
     statuses = (
-        cli_systemd.ServiceUnitStatus(
+        cli_systemd_status.ServiceUnitStatus(
             label="runtime",
             unit="orca_auto-runtime@alice.target",
             active="active",
             enabled="enabled",
         ),
-        cli_systemd.ServiceUnitStatus(
+        cli_systemd_status.ServiceUnitStatus(
             label="worker",
             unit="orca_auto-queue-worker@alice.service",
             active="active",
             enabled="disabled",
         ),
-        cli_systemd.ServiceUnitStatus(
+        cli_systemd_status.ServiceUnitStatus(
             label="bot",
             unit="orca_auto-bot@alice.service",
             active="active",
@@ -237,9 +237,9 @@ def test_cmd_service_status_hides_runtime_managed_enabled_noise(
         ),
     )
 
-    result = cli_systemd.cmd_service_status(
+    result = cli_systemd_status.cmd_service_status(
         Namespace(target_user="alice"),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             collect_service_status=lambda target_user, run: statuses,
             run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -274,9 +274,9 @@ def test_cmd_service_status_emits_json(capsys: Any) -> None:
         del check, stdout, stderr, text
         return subprocess.CompletedProcess(argv, 0, stdout=f"{states[(argv[1], argv[2])]}\n", stderr="")
 
-    result = cli_systemd.cmd_service_status(
+    result = cli_systemd_status.cmd_service_status(
         Namespace(target_user=None, json=True),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             default_service_user=lambda: "alice",
             run=_fake_run,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -293,9 +293,9 @@ def test_cmd_service_status_emits_json(capsys: Any) -> None:
 
 
 def test_cmd_service_status_fails_when_systemctl_is_missing(capsys: Any) -> None:
-    result = cli_systemd.cmd_service_status(
+    result = cli_systemd_status.cmd_service_status(
         Namespace(target_user=None),
-        deps=cli_systemd.ServiceCliDeps(which=lambda name: None),
+        deps=cli_systemd_status.ServiceCliDeps(which=lambda name: None),
     )
 
     assert result == 1
@@ -320,9 +320,9 @@ def test_cmd_service_restart_prefers_runtime_when_enabled(capsys: Any) -> None:
             return subprocess.CompletedProcess(argv, 0, stdout="enabled\n", stderr="")
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
-    result = cli_systemd.cmd_service_restart(
+    result = cli_systemd_status.cmd_service_restart(
         Namespace(target_user=None),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             default_service_user=lambda: "alice",
             is_root=lambda: True,
             run=_fake_run,
@@ -353,9 +353,9 @@ def test_cmd_service_restart_falls_back_to_worker_when_runtime_is_disabled() -> 
             return subprocess.CompletedProcess(argv, 1, stdout="disabled\n", stderr="")
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
-    result = cli_systemd.cmd_service_restart(
+    result = cli_systemd_status.cmd_service_restart(
         Namespace(target_user=None),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             default_service_user=lambda: "alice",
             is_root=lambda: True,
             run=_fake_run,
@@ -375,9 +375,9 @@ def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
         commands.append(tuple(argv))
         return subprocess.CompletedProcess(argv, 0)
 
-    result = cli_systemd.cmd_service_restart(
+    result = cli_systemd_status.cmd_service_restart(
         Namespace(target_user=None),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             default_service_user=lambda: "alice",
             restart_unit_for_user=lambda target_user, run: f"orca_auto-runtime@{target_user}.target",
             is_root=lambda: False,
@@ -395,14 +395,14 @@ def _single_unit_plan(
     *,
     use_sudo: bool = False,
     commands: tuple[tuple[str, ...], ...] = (),
-) -> cli_systemd.SystemdInstallPlan:
-    return cli_systemd.SystemdInstallPlan(
+) -> systemd_plan.SystemdInstallPlan:
+    return systemd_plan.SystemdInstallPlan(
         target_user="alice",
         repo=tmp_path,
         config=tmp_path / "config" / "orca_auto.yaml",
         unit_dir=tmp_path / "units",
         units=(
-            cli_systemd.RenderedUnit(
+            systemd_plan.RenderedUnit(
                 name="orca_auto-test.service",
                 destination=tmp_path / "units" / "orca_auto-test.service",
                 content="[Unit]\nDescription=Test\n",
@@ -422,7 +422,7 @@ def test_apply_systemd_install_plan_reports_direct_write_failure(
     plan = _single_unit_plan(tmp_path)
     plan.unit_dir.write_text("not a directory", encoding="utf-8")
 
-    assert cli_systemd.apply_systemd_install_plan(plan) == 1
+    assert cli_systemd_apply.apply_systemd_install_plan(plan) == 1
     assert "failed to write systemd units" in capsys.readouterr().err
 
 
@@ -433,7 +433,7 @@ def test_apply_systemd_install_plan_requires_sudo_when_plan_uses_sudo(
 ) -> None:
     monkeypatch.setattr("orca_auto.cli_systemd_apply.shutil.which", lambda name: None)
 
-    assert cli_systemd.apply_systemd_install_plan(_single_unit_plan(tmp_path, use_sudo=True)) == 1
+    assert cli_systemd_apply.apply_systemd_install_plan(_single_unit_plan(tmp_path, use_sudo=True)) == 1
     assert "sudo is required to write system units" in capsys.readouterr().err
 
 
@@ -452,7 +452,7 @@ def test_apply_systemd_install_plan_stops_when_sudo_write_command_fails(
         commands.append(tuple(argv))
         return subprocess.CompletedProcess(argv, 7)
 
-    result = cli_systemd.apply_systemd_install_plan(
+    result = cli_systemd_apply.apply_systemd_install_plan(
         _single_unit_plan(tmp_path, use_sudo=True),
         run=fake_run,
     )
@@ -476,17 +476,17 @@ def test_run_command_uses_shared_systemd_argv_and_display(
 
     command = ("systemctl", "daemon-reload")
 
-    assert cli_systemd._run_command(command, use_sudo=True, run=fake_run) == 0
+    assert cli_systemd_apply._run_command(command, use_sudo=True, run=fake_run) == 0
 
     assert commands == [("sudo", "systemctl", "daemon-reload")]
     assert capsys.readouterr().out == (
-        f"$ {cli_systemd._format_command(command, use_sudo=True)}\n"
+        f"$ {systemd_plan._format_command(command, use_sudo=True)}\n"
     )
 
 
 def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) -> None:
     statuses = (
-        cli_systemd.ServiceUnitStatus(
+        cli_systemd_status.ServiceUnitStatus(
             label="runtime",
             unit="orca_auto-runtime@alice.target",
             active="failed",
@@ -494,9 +494,9 @@ def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) ->
         ),
     )
 
-    result = cli_systemd.cmd_service_status(
+    result = cli_systemd_status.cmd_service_status(
         Namespace(target_user="alice"),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             collect_service_status=lambda target_user, run: statuses,
             run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -508,9 +508,9 @@ def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) ->
 
 
 def test_cmd_service_restart_requires_sudo_for_non_root_user(capsys: Any) -> None:
-    result = cli_systemd.cmd_service_restart(
+    result = cli_systemd_status.cmd_service_restart(
         Namespace(target_user="alice"),
-        deps=cli_systemd.ServiceCliDeps(
+        deps=cli_systemd_status.ServiceCliDeps(
             is_root=lambda: False,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
         ),

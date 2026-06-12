@@ -42,7 +42,6 @@ _SUBMODULES: dict[str, str] = {
     "stage_runtime": ".stage_runtime",
     "stage_view_mutators": ".stage_view_mutators",
     "stage_views": ".stage_views",
-    "steps": ".steps",
     "support": ".support",
     "template_builders": ".template_builders",
     "workflow_builders": ".workflow_builders",

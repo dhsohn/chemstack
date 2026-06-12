@@ -6,7 +6,7 @@ from typing import Any, Callable
 from orca_auto.core.admission import active_slot_count
 from orca_auto.core.utils import now_utc_iso, timestamped_token
 
-from . import _runtime_common, runtime_admission, runtime_advance, runtime_events, runtime_models
+from . import _runtime_common, runtime_admission, runtime_advance, runtime_models
 from ._workflow_phases import phase_transition_event_payloads
 from .engine_options import WorkflowEngineOptions
 from .orchestration import advance_workflow
@@ -27,11 +27,23 @@ from .runtime_cycle import (
 from .runtime_cycle import (
     start_workflow_cycle_with_deps as start_workflow_cycle_with_deps,
 )
+from .runtime_results import (
+    TERMINAL_WORKFLOW_STATUSES,
+    workflow_advance_failed_result,
+    workflow_advanced_result,
+    workflow_needs_terminal_sync,
+    workflow_skipped_terminal_result,
+)
+from .stage_transition_events import (
+    append_phase_transition_events,
+    append_stage_transition_events,
+    append_workflow_advance_failed_event,
+    append_workflow_advanced_events,
+    stage_transition_event_payloads,
+)
 from .state import load_workflow_payload, workflow_has_active_downstream, workflow_summary
 
 WORKFLOW_WORKER_LOCK_NAME = "workflow_worker.lock"
-TERMINAL_WORKFLOW_STATUSES = runtime_events.TERMINAL_WORKFLOW_STATUSES
-ACTIVE_TERMINAL_SYNC_STATUSES = runtime_events.ACTIVE_TERMINAL_SYNC_STATUSES
 
 StageTransitionContext = runtime_models.StageTransitionContext
 WorkflowAdvanceResult = runtime_models.WorkflowAdvanceResult
@@ -47,23 +59,6 @@ WorkflowAdvanceOutcome = runtime_advance.WorkflowAdvanceOutcome
 submission_admission_limit_from_config = runtime_admission.submission_admission_limit_from_config
 submission_admission_has_capacity = runtime_admission.submission_admission_has_capacity
 workflow_submission_has_capacity = runtime_admission.workflow_submission_has_capacity
-
-workflow_advance_failed_result = runtime_events.workflow_advance_failed_result
-workflow_skipped_terminal_result = runtime_events.workflow_skipped_terminal_result
-workflow_advanced_result = runtime_events.workflow_advanced_result
-workflow_needs_terminal_sync = runtime_events.workflow_needs_terminal_sync
-stage_key = runtime_events.stage_key
-stage_event_metadata = runtime_events.stage_event_metadata
-stage_status_event_type = runtime_events.stage_status_event_type
-stage_handoff_event_type = runtime_events.stage_handoff_event_type
-stage_transition_context = runtime_events.stage_transition_context
-stage_transition_metadata = runtime_events.stage_transition_metadata
-status_transition_event_payload = runtime_events.status_transition_event_payload
-handoff_transition_event_payload = runtime_events.handoff_transition_event_payload
-append_stage_transition_events = runtime_events.append_stage_transition_events
-append_phase_transition_events = runtime_events.append_phase_transition_events
-append_workflow_advance_failed_event = runtime_events.append_workflow_advance_failed_event
-append_workflow_advanced_events = runtime_events.append_workflow_advanced_events
 
 _advanced_workflow_outcome = runtime_advance.advanced_workflow_outcome
 _failed_workflow_advance_outcome = runtime_advance.failed_workflow_advance_outcome
@@ -101,7 +96,7 @@ def _append_stage_transition_events(
         worker_session_id=worker_session_id,
         append_fn=append_stage_transition_events,
         payloads_kwarg="stage_transition_event_payloads_fn",
-        payloads_fn=runtime_events.stage_transition_event_payloads,
+        payloads_fn=stage_transition_event_payloads,
         append_workflow_journal_event_fn=append_workflow_journal_event_fn,
     )
 

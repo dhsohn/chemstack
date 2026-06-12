@@ -5,7 +5,8 @@ from orca_auto.core.commands import queue as _queue_commands
 from orca_auto.flow.engines.crest import queue_runtime as _queue_runtime
 from orca_auto.flow.engines.crest import submission as _submission
 
-from . import internal_engine as _internal_engine
+from .internal_engine_builder import build_internal_engine_module_submitter
+from .internal_engine_models import InternalEngineSubmitterDeps
 
 display_status = _queue_commands.display_status
 enqueue = _queue_store.enqueue
@@ -19,8 +20,8 @@ record_queued = _submission._record_queued
 resolve_job_dir = _submission.resolve_job_dir
 
 
-def _submitter_deps() -> _internal_engine.InternalEngineSubmitterDeps:
-    return _internal_engine.InternalEngineSubmitterDeps(
+def _submitter_deps() -> InternalEngineSubmitterDeps:
+    return InternalEngineSubmitterDeps(
         load_config_fn=lambda config_path: load_config(config_path),
         resolve_job_dir_fn=lambda cfg, job_dir: resolve_job_dir(cfg, job_dir),
         load_manifest_fn=lambda job_dir: load_job_manifest(job_dir),
@@ -43,7 +44,7 @@ def _submitter_deps() -> _internal_engine.InternalEngineSubmitterDeps:
     )
 
 
-submit_job_dir, cancel_target = _internal_engine.build_internal_engine_module_submitter(
+submit_job_dir, cancel_target = build_internal_engine_module_submitter(
     engine="crest",
     deps_factory=_submitter_deps,
 )

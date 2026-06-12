@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from orca_auto import cli_systemd
+from orca_auto.cli_systemd_apply import cmd_systemd_install
+from orca_auto.cli_systemd_status import cmd_service_restart, cmd_service_status
+from orca_auto.systemd_plan import DEFAULT_SYSTEMD_UNIT_DIR
 
 from .cli_parser_common import add_json_argument
 
@@ -36,7 +38,7 @@ def add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     install_parser.add_argument(
         "--unit-dir",
-        default=str(cli_systemd.DEFAULT_SYSTEMD_UNIT_DIR),
+        default=str(DEFAULT_SYSTEMD_UNIT_DIR),
         help=argparse.SUPPRESS,
     )
     install_parser.add_argument(
@@ -64,7 +66,7 @@ def add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    install_parser.set_defaults(func=cli_systemd.cmd_systemd_install)
+    install_parser.set_defaults(func=cmd_systemd_install)
 
 
 def add_service_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -79,13 +81,13 @@ def add_service_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         help="Show orca_auto service status.",
     )
     add_json_argument(status_parser, help_text="Print service status as JSON")
-    status_parser.set_defaults(func=cli_systemd.cmd_service_status)
+    status_parser.set_defaults(func=cmd_service_status)
 
     restart_parser = service_subparsers.add_parser(
         "restart",
         help="Restart the orca_auto runtime or queue worker service.",
     )
-    restart_parser.set_defaults(func=cli_systemd.cmd_service_restart)
+    restart_parser.set_defaults(func=cmd_service_restart)
 
 
 __all__ = ["add_service_parser", "add_systemd_parser"]

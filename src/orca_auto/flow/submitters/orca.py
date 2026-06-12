@@ -11,7 +11,7 @@ from orca_auto.core.utils import now_utc_iso
 
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
-from . import internal_engine as _internal_engine
+from . import internal_engine_models as _engine_models
 from . import orca_cancellation as _cancellation
 from . import orca_submission as _submission
 
@@ -36,7 +36,7 @@ class _OrcaDirectCancelRequest:
 
 
 def _trace_argv(*, api_name: str, config_path: str, kwargs: dict[str, Any]) -> list[str]:
-    return _internal_engine.internal_call_argv(
+    return _engine_models.internal_call_argv(
         api_name=api_name,
         config_path=config_path,
         kwargs=kwargs,
@@ -44,7 +44,7 @@ def _trace_argv(*, api_name: str, config_path: str, kwargs: dict[str, Any]) -> l
 
 
 def _key_value_stdout(fields: dict[str, Any]) -> str:
-    return _internal_engine._key_value_stdout(_internal_engine._text_fields(fields))
+    return _engine_models._key_value_stdout(_engine_models._text_fields(fields))
 
 
 def _failure_payload(
@@ -56,7 +56,7 @@ def _failure_payload(
 ) -> dict[str, Any]:
     if stderr and not stderr.endswith("\n"):
         stderr += "\n"
-    return _internal_engine.InternalEngineCommandResult(
+    return _engine_models.InternalEngineCommandResult(
         status="failed",
         reason=reason,
         returncode=1,
@@ -97,8 +97,8 @@ def _queued_payload(
         parsed["worker_log"] = result.worker_info.log_file
     if result.worker_info.detail:
         parsed["worker_detail"] = result.worker_info.detail
-    parsed_stdout = _internal_engine._text_fields(parsed)
-    return _internal_engine.InternalEngineCommandResult(
+    parsed_stdout = _engine_models._text_fields(parsed)
+    return _engine_models.InternalEngineCommandResult(
         status="submitted",
         reason="",
         returncode=0,
@@ -158,14 +158,14 @@ def _cancel_success_payload(
     from orca_auto.orca import queue_adapter
 
     status = display_status(updated)
-    parsed_stdout = _internal_engine._text_fields(
+    parsed_stdout = _engine_models._text_fields(
         {
             "status": status,
             "queue_id": queue_adapter.queue_entry_id(updated),
             "job_id": queue_adapter.queue_entry_task_id(updated),
         }
     )
-    return _internal_engine.InternalEngineCommandResult(
+    return _engine_models.InternalEngineCommandResult(
         status=status,
         reason="",
         returncode=0,

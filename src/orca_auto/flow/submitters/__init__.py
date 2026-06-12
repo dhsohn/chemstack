@@ -15,7 +15,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
 
 _SUBMODULES: dict[str, str] = {
     "crest": ".crest",
-    "internal_engine": ".internal_engine",
     "internal_engine_builder": ".internal_engine_builder",
     "internal_engine_cancellation": ".internal_engine_cancellation",
     "internal_engine_models": ".internal_engine_models",

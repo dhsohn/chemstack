@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ._engine_transport import telegram_line_sender
-from .engine_module import build_engine_job_notifications
+from .engine_jobs import build_engine_job_notifications
 
 
 def _telegram_transport_factory():

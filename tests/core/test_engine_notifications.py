@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from orca_auto.core.notifications import engines as engine_facade
-from orca_auto.core.notifications.engine_module import (
+from orca_auto.core.notifications.engine_jobs import (
     build_engine_job_notifications,
     build_engine_notification_module,
 )

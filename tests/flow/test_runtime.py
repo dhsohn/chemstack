@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from orca_auto.core.admission import release_slot, reserve_slot
-from orca_auto.flow import runtime, runtime_events
+from orca_auto.flow import runtime
+from orca_auto.flow.stage_transition_events import stage_transition_event_payloads
 
 
 def _registry_record(
@@ -148,7 +149,7 @@ def test_stage_transition_event_payloads_emit_start_and_xtb_handoff_events() -> 
         },
     )
 
-    events = runtime_events.stage_transition_event_payloads(
+    events = stage_transition_event_payloads(
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id="wf_stage_events",
@@ -206,7 +207,7 @@ def test_stage_transition_event_payloads_emit_completion_and_failure_without_xtb
         },
     )
 
-    events = runtime_events.stage_transition_event_payloads(
+    events = stage_transition_event_payloads(
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id="wf_stage_terminal_events",
@@ -243,7 +244,7 @@ def test_stage_transition_event_payloads_emit_running_status_change_event() -> N
         }
     )
 
-    events = runtime_events.stage_transition_event_payloads(
+    events = stage_transition_event_payloads(
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id="wf_stage_running",

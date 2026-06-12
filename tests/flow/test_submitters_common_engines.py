@@ -13,7 +13,8 @@ from orca_auto.flow.submitters import (
     crest as crest_submitter,
 )
 from orca_auto.flow.submitters import (
-    internal_engine,
+    internal_engine_builder,
+    internal_engine_submission,
 )
 from orca_auto.flow.submitters import (
     xtb as xtb_submitter,
@@ -21,7 +22,7 @@ from orca_auto.flow.submitters import (
 
 
 def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
-    status, reason = internal_engine.queue_submission_status(
+    status, reason = internal_engine_submission.queue_submission_status(
         returncode=1,
         parsed_stdout={"status": "waiting_for_slot"},
         stdout="status: waiting_for_slot\n",
@@ -52,7 +53,7 @@ def test_submitter_deps_factory_from_namespace_uses_current_symbols() -> None:
         "display_status": lambda entry: f"status:{entry}",
     }
 
-    deps_factory = internal_engine.submitter_deps_factory_from_namespace(namespace)
+    deps_factory = internal_engine_builder.submitter_deps_factory_from_namespace(namespace)
     namespace["load_config"] = lambda path: ("new_config", path)
 
     deps = deps_factory()

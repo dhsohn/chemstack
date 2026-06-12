@@ -12,63 +12,61 @@ import pytest
 
 from orca_auto.flow import orchestration
 from orca_auto.flow.contracts import WorkflowStageInput
-from orca_auto.flow.orchestration.steps import (
-    append_crest_orca_stages_impl as _append_crest_orca_stages,
-)
-from orca_auto.flow.orchestration.steps import (
-    append_reaction_orca_stages_impl as _append_reaction_orca_stages,
-)
-from orca_auto.flow.orchestration.steps import (
-    append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
-)
-from orca_auto.flow.orchestration.steps import (
-    clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
-)
-from orca_auto.flow.orchestration.steps import (
-    completed_crest_roles_impl as _completed_crest_roles,
-)
-from orca_auto.flow.orchestration.steps import (
-    completed_crest_stage_impl as _completed_crest_stage,
-)
-from orca_auto.flow.orchestration.steps import (
-    completed_orca_stage_impl as _completed_orca_stage,
-)
-from orca_auto.flow.orchestration.steps import (
-    copy_input_impl as _copy_input_impl,
-)
-from orca_auto.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.deps import orchestration_deps
+from orca_auto.flow.orchestration.lifecycle import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
     latest_child_stage_summary_impl,
-    orchestration_deps,
     recompute_workflow_status_impl,
     stage_failure_is_recoverable_impl,
     workflow_has_active_children_impl,
 )
-from orca_auto.flow.orchestration.steps import (
-    reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
+from orca_auto.flow.orchestration.materialization import (
+    append_crest_orca_stages_impl as _append_crest_orca_stages,
 )
-from orca_auto.flow.orchestration.steps import (
-    reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+from orca_auto.flow.orchestration.materialization import (
+    append_reaction_orca_stages_impl as _append_reaction_orca_stages,
 )
-from orca_auto.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.materialization import (
+    append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
+)
+from orca_auto.flow.orchestration.stage_runtime.crest import (
+    completed_crest_roles_impl as _completed_crest_roles,
+)
+from orca_auto.flow.orchestration.stage_runtime.crest import (
+    completed_crest_stage_impl as _completed_crest_stage,
+)
+from orca_auto.flow.orchestration.stage_runtime.orca import (
+    completed_orca_stage_impl as _completed_orca_stage,
+)
+from orca_auto.flow.orchestration.stage_runtime.xtb_handoff import (
     stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
 )
-from orca_auto.flow.orchestration.steps import (
-    stage_metadata_impl as _stage_metadata,
-)
-from orca_auto.flow.orchestration.steps import (
-    sync_xtb_stage_impl as _sync_xtb_stage,
-)
-from orca_auto.flow.orchestration.steps import (
-    task_payload_dict_impl as _task_payload_dict,
-)
-from orca_auto.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.stage_runtime.xtb_retry import (
     xtb_path_retry_limit_impl as _xtb_path_retry_limit,
 )
-from orca_auto.flow.orchestration.steps import (
+from orca_auto.flow.orchestration.stage_runtime.xtb_retry import (
     xtb_retry_recipe_impl as _xtb_retry_recipe,
 )
+from orca_auto.flow.orchestration.stage_runtime.xtb_sync import (
+    sync_xtb_stage_impl as _sync_xtb_stage,
+)
+from orca_auto.flow.orchestration.support import (
+    clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
+)
+from orca_auto.flow.orchestration.support import (
+    reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
+)
+from orca_auto.flow.orchestration.support import (
+    reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+)
+from orca_auto.flow.orchestration.support import (
+    stage_metadata_impl as _stage_metadata,
+)
+from orca_auto.flow.orchestration.support import (
+    task_payload_dict_impl as _task_payload_dict,
+)
+from orca_auto.flow.orchestration.workflow_builders import _copy_input_impl
 
 
 def _has_contract_lookup_log(caplog: pytest.LogCaptureFixture, engine: str) -> bool:
