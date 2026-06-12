@@ -381,8 +381,9 @@ def test_terminal_summary_helpers_cover_status_reason_and_metadata(
 
 
 def test_terminal_summary_requires_explicit_dependencies(tmp_path: Path) -> None:
+    load_terminal_summary = cast(Any, terminal_mod.load_terminal_summary)
     with pytest.raises(TypeError, match="job_dir_fn"):
-        terminal_mod.load_terminal_summary(
+        load_terminal_summary(
             tmp_path,
             SimpleNamespace(queue_id="queue-1", task_id="job-1", metadata={}),
         )
