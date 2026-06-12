@@ -49,11 +49,11 @@ from .engine_specs import (
     notify_xtb_job_started,
     notify_xtb_job_terminal,
 )
-from .telegram import (
-    build_telegram_transport,
-)
-from .telegram import (
+from .telegram_format import (
     split_telegram_message as split_telegram_message,
+)
+from .telegram_transport import (
+    build_telegram_transport,
 )
 
 __all__ = [

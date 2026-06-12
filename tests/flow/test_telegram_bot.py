@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 
 from orca_auto.core.config import TelegramConfig
-from orca_auto.core.notifications import telegram as telegram_mod
 from orca_auto.core.notifications import telegram_api as telegram_api_mod
+from orca_auto.core.notifications import telegram_format as telegram_format_mod
 from orca_auto.flow import telegram_bot as bot
 from tests.flow_factories import telegram_bot_settings
 
@@ -324,9 +324,9 @@ def test_send_preformatted_response_wraps_chunks_in_pre(monkeypatch) -> None:
 
 def test_split_telegram_message_rejects_non_positive_limit_and_splits_long_line() -> None:
     with pytest.raises(ValueError, match="positive"):
-        telegram_mod.split_telegram_message("hello", limit=0)
+        telegram_format_mod.split_telegram_message("hello", limit=0)
 
-    assert telegram_mod.split_telegram_message("abcdef", limit=2) == ["ab", "cd", "ef"]
+    assert telegram_format_mod.split_telegram_message("abcdef", limit=2) == ["ab", "cd", "ef"]
 
 
 def test_send_response_returns_false_when_all_send_attempts_fail(monkeypatch) -> None:

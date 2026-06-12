@@ -1,20 +1,24 @@
 """Shared notification transport and helper functions."""
 
-from .telegram import (
+from .telegram_api import TelegramApiClient
+from .telegram_config import (
     DEFAULT_TELEGRAM_BASE_URL,
     DEFAULT_TIMEOUT_SECONDS,
+    load_telegram_config_from_file,
+)
+from .telegram_format import (
     MAX_TELEGRAM_MESSAGE_LENGTH,
-    TelegramApiClient,
+    escape_html,
+    html_code,
+    split_telegram_message,
+)
+from .telegram_transport import (
     TelegramSendResult,
     TelegramTransport,
     build_telegram_transport,
-    escape_html,
-    html_code,
-    load_telegram_config_from_file,
     log_telegram_send_failure,
     send_preformatted_telegram_message,
     send_telegram_message,
-    split_telegram_message,
     telegram_send_result_ok,
 )
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from .telegram import build_telegram_transport, split_telegram_message
+from .telegram_format import split_telegram_message
+from .telegram_transport import build_telegram_transport
 
 
 def send_lines(

@@ -12,8 +12,9 @@ from urllib.parse import parse_qs
 import pytest
 
 from orca_auto.core.config.schema import TelegramConfig
-from orca_auto.core.notifications import telegram as telegram_mod
 from orca_auto.core.notifications import telegram_api as telegram_api_mod
+from orca_auto.core.notifications import telegram_config as telegram_config_mod
+from orca_auto.core.notifications import telegram_format as telegram_format_mod
 from orca_auto.core.notifications import telegram_transport as telegram_transport_mod
 
 
@@ -41,8 +42,8 @@ def _make_transport(
     chat_id: str = "chat-id",
     timeout: float = 2.5,
     base_url: str = "https://example.test/",
-) -> telegram_mod.TelegramTransport:
-    return telegram_mod.TelegramTransport(
+) -> telegram_transport_mod.TelegramTransport:
+    return telegram_transport_mod.TelegramTransport(
         config=TelegramConfig(bot_token=bot_token, chat_id=chat_id),
         timeout=timeout,
         base_url=base_url,
@@ -50,14 +51,14 @@ def _make_transport(
 
 
 def test_split_telegram_message_prefers_line_boundaries() -> None:
-    chunks = telegram_mod.split_telegram_message("first\nsecond\nthird", limit=12)
+    chunks = telegram_format_mod.split_telegram_message("first\nsecond\nthird", limit=12)
 
     assert chunks == ["first", "second\nthird"]
     assert all(len(chunk) <= 12 for chunk in chunks)
 
 
 def test_split_telegram_message_splits_long_segments() -> None:
-    chunks = telegram_mod.split_telegram_message("abc def ghi", limit=7)
+    chunks = telegram_format_mod.split_telegram_message("abc def ghi", limit=7)
 
     assert chunks == ["abc def", "ghi"]
     assert all(len(chunk) <= 7 for chunk in chunks)
@@ -77,7 +78,7 @@ def test_disabled_transport_skips_without_calling_urlopen(monkeypatch: pytest.Mo
 
     result = transport.send_text("hello")
 
-    assert result == telegram_mod.TelegramSendResult(
+    assert result == telegram_transport_mod.TelegramSendResult(
         sent=False,
         skipped=True,
         error="telegram_disabled",
@@ -99,7 +100,7 @@ def test_empty_message_skips_without_calling_urlopen(monkeypatch: pytest.MonkeyP
 
     result = transport.send_text("   ")
 
-    assert result == telegram_mod.TelegramSendResult(
+    assert result == telegram_transport_mod.TelegramSendResult(
         sent=False,
         skipped=True,
         error="empty_message",
@@ -123,7 +124,7 @@ def test_incomplete_config_skips_without_calling_urlopen(
 
     result = transport.send_text("hello", chat_id="   ")
 
-    assert result == telegram_mod.TelegramSendResult(
+    assert result == telegram_transport_mod.TelegramSendResult(
         sent=False,
         skipped=True,
         error="telegram_config_incomplete",
@@ -294,20 +295,20 @@ def test_network_unreachable_retries_with_ipv4_fallback(monkeypatch: pytest.Monk
 def test_build_telegram_transport_uses_defaults() -> None:
     config = TelegramConfig(bot_token="bot-token", chat_id="chat-id")
 
-    transport = telegram_mod.build_telegram_transport(config)
+    transport = telegram_transport_mod.build_telegram_transport(config)
 
     assert transport.config is config
     assert transport.timeout == config.timeout_seconds
     assert transport.max_attempts == config.max_attempts
     assert transport.retry_backoff_seconds == config.retry_backoff_seconds
-    assert transport.base_url == telegram_mod.DEFAULT_TELEGRAM_BASE_URL
+    assert transport.base_url == telegram_config_mod.DEFAULT_TELEGRAM_BASE_URL
 
 
 def test_escape_helpers_and_config_loader(tmp_path: Path) -> None:
-    assert telegram_mod.escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
-    assert telegram_mod.html_code("ready") == "<code>ready</code>"
+    assert telegram_format_mod.escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
+    assert telegram_format_mod.html_code("ready") == "<code>ready</code>"
 
-    missing = telegram_mod.load_telegram_config_from_file(tmp_path / "missing.yaml")
+    missing = telegram_config_mod.load_telegram_config_from_file(tmp_path / "missing.yaml")
     assert missing.enabled is False
 
     config_path = tmp_path / "orca_auto.yaml"
@@ -326,7 +327,7 @@ def test_escape_helpers_and_config_loader(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    config = telegram_mod.load_telegram_config_from_file(config_path)
+    config = telegram_config_mod.load_telegram_config_from_file(config_path)
     assert config.bot_token == "bot-token"
     assert config.chat_id == "chat-id"
     assert config.timeout_seconds == 7.5
@@ -387,7 +388,7 @@ def test_telegram_api_client_skips_empty_token_without_transport(
         lambda *_args, **_kwargs: pytest.fail("transport should not run without a token"),
     )
 
-    assert telegram_mod.TelegramApiClient(token="  ").api_call("getMe") is None
+    assert telegram_api_mod.TelegramApiClient(token="  ").api_call("getMe") is None
 
 
 def test_telegram_api_client_posts_json_and_returns_result(
@@ -404,7 +405,7 @@ def test_telegram_api_client_posts_json_and_returns_result(
 
     monkeypatch.setattr(telegram_api_mod, "urlopen", fake_open)
 
-    client = telegram_mod.TelegramApiClient(
+    client = telegram_api_mod.TelegramApiClient(
         token=" bot-token ",
         timeout=2.5,
         base_url="https://api.telegram.org/",
@@ -454,7 +455,7 @@ def test_telegram_api_client_logs_non_ok_and_transport_failures(
         return response
 
     monkeypatch.setattr(telegram_api_mod, "urlopen", fake_open)
-    client = telegram_mod.TelegramApiClient(token="bot-token", logger=FakeLogger())  # type: ignore[arg-type]
+    client = telegram_api_mod.TelegramApiClient(token="bot-token", logger=FakeLogger())  # type: ignore[arg-type]
 
     assert client.api_call("sendMessage", {"text": "hello"}) is None
     assert client.api_call("sendMessage", {"text": "hello"}) is None
