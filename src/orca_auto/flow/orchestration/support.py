@@ -5,10 +5,10 @@ from typing import Any
 
 from orca_auto.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS
 from orca_auto.flow.contracts.workflow import workflow_stage_metadata, workflow_task_payload_dict
-from orca_auto.flow.orchestration.dep_context import (
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import (
     orchestration_context as _orchestration_context,
 )
-from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 
 
 def _runtime_paths_for_engine(

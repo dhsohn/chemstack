@@ -16,10 +16,10 @@ from orca_auto.core.statuses import (
     SUBMISSION_DEFERRED_STATUSES,
 )
 from orca_auto.core.utils import normalize_bool as _shared_normalize_bool
-from orca_auto.flow.orchestration.dep_context import (
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import (
     orchestration_context as _orchestration_context,
 )
-from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 from orca_auto.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 from orca_auto.flow.state import (
     workflow_stage_dirnames_for_engine,

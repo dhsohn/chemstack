@@ -14,11 +14,11 @@ from orca_auto.flow.orchestration import (
 )
 from orca_auto.flow.orchestration import materialization as stage_materialization
 from orca_auto.flow.orchestration.builders import _copy_input_impl
-from orca_auto.flow.orchestration.deps import (
+from orca_auto.flow.orchestration.dep_types import (
     _ORCHESTRATION_STAGE_DEP_REGISTRY,
     OrchestrationStageDeps,
-    orchestration_deps,
 )
+from orca_auto.flow.orchestration.deps import orchestration_deps
 
 
 def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Path) -> None:

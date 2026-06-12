@@ -6,10 +6,10 @@ from typing import Any
 
 from orca_auto.core.statuses import is_queue_active_status
 from orca_auto.flow._workflow_phases import phase_finished
-from orca_auto.flow.orchestration.dep_context import (
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import (
     orchestration_context as _orchestration_context,
 )
-from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 from orca_auto.flow.orchestration.stage_views import (
     WorkflowStageView,
     _clear_workflow_error_scope,

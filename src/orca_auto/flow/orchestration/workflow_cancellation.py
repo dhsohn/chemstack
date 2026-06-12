@@ -15,10 +15,10 @@ from orca_auto.core.statuses import (
     is_stage_terminal_status,
 )
 from orca_auto.flow.engine_options import WorkflowEngineOptions
-from orca_auto.flow.orchestration.dep_context import (
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import (
     orchestration_context as _orchestration_context,
 )
-from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 from orca_auto.flow.orchestration.stage_views import WorkflowPayloadView, WorkflowStageView
 
 _CancelTargetHandler = Callable[

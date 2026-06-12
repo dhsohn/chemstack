@@ -4,8 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from orca_auto.flow.orchestration.dep_context import orchestration_context
 from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import orchestration_context
 from orca_auto.flow.orchestration.stage_view_mutators import (
     WorkflowStageCrestMutationMixin,
     WorkflowStageOrcaMutationMixin,

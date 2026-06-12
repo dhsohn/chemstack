@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from orca_auto.flow.orchestration.dep_context import (
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import (
     orchestration_context as _orchestration_context,
 )
-from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 from orca_auto.flow.orchestration.reaction_orca_materialization import (
     append_reaction_orca_stages_impl as append_reaction_orca_stages_impl,
 )

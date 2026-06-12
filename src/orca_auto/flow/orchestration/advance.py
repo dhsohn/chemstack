@@ -24,10 +24,10 @@ from orca_auto.flow.orchestration.advance_phases import (
     _sync_orca_phase,
     _sync_xtb_phase,
 )
-from orca_auto.flow.orchestration.dep_context import (
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
+from orca_auto.flow.orchestration.deps import (
     orchestration_context as _orchestration_context,
 )
-from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 from orca_auto.flow.orchestration.workflow_cancellation import (
     _cancel_active_workflow_stages,
     _cancel_engine_target,

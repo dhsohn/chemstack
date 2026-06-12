@@ -4,43 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import orca_auto.flow.orchestration.dep_builders as _dep_builders
-from orca_auto.flow.orchestration.dep_types import (
-    _ORCHESTRATION_STAGE_BUILDER_GROUP,
-    _ORCHESTRATION_STAGE_DEP_GROUPS,
-    _ORCHESTRATION_STAGE_DEP_REGISTRY,
-    _ORCHESTRATION_STAGE_DEP_TARGETS,
-    _ORCHESTRATION_STAGE_MATERIALIZATION_GROUP,
-    _ORCHESTRATION_STAGE_RUNTIME_GROUP,
-    _ORCHESTRATION_STAGE_SUPPORT_GROUP,
-    _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
-    AnyCallable,
-    MappingCoercer,
-    OrchestrationAdvanceDeps,
-    OrchestrationContractDeps,
-    OrchestrationDeps,
-    OrchestrationEngineDeps,
-    OrchestrationPersistenceDeps,
-    OrchestrationStageBuilderDeps,
-    OrchestrationStageDeps,
-    OrchestrationStageMaterializationDeps,
-    OrchestrationStageRuntimeDeps,
-    OrchestrationStageSupportDeps,
-    OrchestrationStageWorkflowDeps,
-    StageMetadataResolver,
-    StagePredicate,
-    TextNormalizer,
-    WorkflowPayload,
-    WorkflowPayloadLoader,
-    WorkflowPayloadWriter,
-    WorkflowPredicate,
-    WorkflowRegistrySyncer,
-    WorkflowStagePayload,
-    WorkflowStatusComputer,
-    WorkflowWorkspace,
-    WorkflowWorkspaceResolver,
-    _OrchestrationStageDepGroup,
-    _stage_dep_group,
-)
+from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 
 
 def orchestration_deps(overrides: Mapping[str, Any] | None = None) -> OrchestrationDeps:
@@ -56,41 +20,10 @@ def orchestration_deps(overrides: Mapping[str, Any] | None = None) -> Orchestrat
     return deps
 
 
-__all__ = [
-    "AnyCallable",
-    "MappingCoercer",
-    "OrchestrationAdvanceDeps",
-    "OrchestrationContractDeps",
-    "OrchestrationDeps",
-    "OrchestrationEngineDeps",
-    "OrchestrationPersistenceDeps",
-    "OrchestrationStageBuilderDeps",
-    "OrchestrationStageDeps",
-    "OrchestrationStageMaterializationDeps",
-    "OrchestrationStageRuntimeDeps",
-    "OrchestrationStageSupportDeps",
-    "OrchestrationStageWorkflowDeps",
-    "StageMetadataResolver",
-    "StagePredicate",
-    "TextNormalizer",
-    "WorkflowPayload",
-    "WorkflowPayloadLoader",
-    "WorkflowPayloadWriter",
-    "WorkflowPredicate",
-    "WorkflowRegistrySyncer",
-    "WorkflowStagePayload",
-    "WorkflowStatusComputer",
-    "WorkflowWorkspace",
-    "WorkflowWorkspaceResolver",
-    "_ORCHESTRATION_STAGE_BUILDER_GROUP",
-    "_ORCHESTRATION_STAGE_DEP_GROUPS",
-    "_ORCHESTRATION_STAGE_DEP_REGISTRY",
-    "_ORCHESTRATION_STAGE_DEP_TARGETS",
-    "_ORCHESTRATION_STAGE_MATERIALIZATION_GROUP",
-    "_ORCHESTRATION_STAGE_RUNTIME_GROUP",
-    "_ORCHESTRATION_STAGE_SUPPORT_GROUP",
-    "_ORCHESTRATION_STAGE_WORKFLOW_GROUP",
-    "_OrchestrationStageDepGroup",
-    "_stage_dep_group",
-    "orchestration_deps",
-]
+def orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
+    if deps is not None:
+        return deps
+    return orchestration_deps()
+
+
+__all__ = ["orchestration_context", "orchestration_deps"]
