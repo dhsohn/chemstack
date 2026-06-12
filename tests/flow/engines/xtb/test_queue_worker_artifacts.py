@@ -330,28 +330,32 @@ def test_terminal_summary_helpers_cover_status_reason_and_metadata(
     selected_xyz = job_dir / "input.xyz"
     selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
     entry = _make_entry(job_dir, selected_xyz, job_type="path_search")
-    deps = SimpleNamespace(
-        _job_dir=lambda _entry: job_dir,
-        load_state=lambda _job_dir: {
+
+    summary = terminal_mod.load_terminal_summary(
+        tmp_path,
+        entry,
+        rc=None,
+        job_dir_fn=lambda _entry: job_dir,
+        load_state_fn=lambda _job_dir: {
             "schema_version": 1,
             "engine": "xtb",
             "status": {},
             "engine_payload": {"candidate_count": "bad"},
         },
-        load_report_json=lambda _job_dir: {
+        load_report_json_fn=lambda _job_dir: {
             "schema_version": 1,
             "engine": "xtb",
             "status": {},
             "engine_payload": {"job_type": "ranking"},
         },
-        load_organized_ref=lambda _job_dir: {"organized_output_dir": str(tmp_path / "organized")},
-        _queue_entry_by_id=lambda _root, _queue_id: SimpleNamespace(
+        load_organized_ref_fn=lambda _job_dir: {
+            "organized_output_dir": str(tmp_path / "organized")
+        },
+        queue_entry_by_id_fn=lambda _root, _queue_id: SimpleNamespace(
             status=SimpleNamespace(value="cancelled"),
             error="",
         ),
     )
-
-    summary = terminal_mod.load_terminal_summary(tmp_path, entry, rc=None, deps=deps)
 
     assert summary == terminal_mod.TerminalSummary(
         queue_id="queue-1",
@@ -376,8 +380,8 @@ def test_terminal_summary_helpers_cover_status_reason_and_metadata(
     assert "status: cancelled" in output
 
 
-def test_terminal_summary_requires_explicit_or_grouped_dependencies(tmp_path: Path) -> None:
-    with pytest.raises(TypeError, match="_job_dir"):
+def test_terminal_summary_requires_explicit_dependencies(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="job_dir_fn"):
         terminal_mod.load_terminal_summary(
             tmp_path,
             SimpleNamespace(queue_id="queue-1", task_id="job-1", metadata={}),

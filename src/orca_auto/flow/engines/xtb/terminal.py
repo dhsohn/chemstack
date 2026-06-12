@@ -10,14 +10,6 @@ from orca_auto.core.queue import execution as _queue_execution
 from orca_auto.flow.engines.xtb.runner import XtbRunResult
 
 
-def _dependency(deps: Any | None, explicit: Any, name: str) -> Any:
-    if explicit is not None:
-        return explicit
-    if deps is not None:
-        return getattr(deps, name)
-    raise TypeError(f"missing required dependency: {name}")
-
-
 @dataclass(frozen=True)
 class TerminalSummary:
     queue_id: str
@@ -154,23 +146,17 @@ def load_terminal_summary(
     entry: Any,
     *,
     rc: int | None = None,
-    deps: Any | None = None,
-    job_dir_fn: Callable[[Any], Path] | None = None,
-    load_state_fn: Callable[[Path], dict[str, Any] | None] | None = None,
-    load_report_json_fn: Callable[[Path], dict[str, Any] | None] | None = None,
-    load_organized_ref_fn: Callable[[Path], dict[str, Any] | None] | None = None,
-    queue_entry_by_id_fn: Callable[[Path, str], Any | None] | None = None,
+    job_dir_fn: Callable[[Any], Path],
+    load_state_fn: Callable[[Path], dict[str, Any] | None],
+    load_report_json_fn: Callable[[Path], dict[str, Any] | None],
+    load_organized_ref_fn: Callable[[Path], dict[str, Any] | None],
+    queue_entry_by_id_fn: Callable[[Path, str], Any | None],
 ) -> TerminalSummary:
-    job_dir_resolver = _dependency(deps, job_dir_fn, "_job_dir")
-    load_state = _dependency(deps, load_state_fn, "load_state")
-    load_report_json = _dependency(deps, load_report_json_fn, "load_report_json")
-    load_organized_ref = _dependency(deps, load_organized_ref_fn, "load_organized_ref")
-    queue_entry_by_id = _dependency(deps, queue_entry_by_id_fn, "_queue_entry_by_id")
-    job_dir = job_dir_resolver(entry)
-    state = load_state(job_dir) or {}
-    report = load_report_json(job_dir) or {}
-    organized_ref = load_organized_ref(job_dir) or {}
-    refreshed = queue_entry_by_id(queue_root, entry.queue_id)
+    job_dir = job_dir_fn(entry)
+    state = load_state_fn(job_dir) or {}
+    report = load_report_json_fn(job_dir) or {}
+    organized_ref = load_organized_ref_fn(job_dir) or {}
+    refreshed = queue_entry_by_id_fn(queue_root, entry.queue_id)
 
     status = terminal_status(state, report, refreshed, rc)
     reason = terminal_reason(state, report, refreshed, status=status, rc=rc)
@@ -196,17 +182,12 @@ def ensure_terminal_queue_status(
     entry: Any,
     summary: TerminalSummary,
     *,
-    deps: Any | None = None,
-    queue_entry_by_id_fn: Callable[[Path, str], Any | None] | None = None,
-    mark_completed_fn: Callable[..., Any] | None = None,
-    mark_cancelled_fn: Callable[..., Any] | None = None,
-    mark_failed_fn: Callable[..., Any] | None = None,
+    queue_entry_by_id_fn: Callable[[Path, str], Any | None],
+    mark_completed_fn: Callable[..., Any],
+    mark_cancelled_fn: Callable[..., Any],
+    mark_failed_fn: Callable[..., Any],
 ) -> None:
-    queue_entry_by_id = _dependency(deps, queue_entry_by_id_fn, "_queue_entry_by_id")
-    mark_completed = _dependency(deps, mark_completed_fn, "mark_completed")
-    mark_cancelled = _dependency(deps, mark_cancelled_fn, "mark_cancelled")
-    mark_failed = _dependency(deps, mark_failed_fn, "mark_failed")
-    refreshed = queue_entry_by_id(queue_root, entry.queue_id)
+    refreshed = queue_entry_by_id_fn(queue_root, entry.queue_id)
     current_status = str(getattr(getattr(refreshed, "status", None), "value", "")).strip().lower()
     if current_status in {"completed", "failed", "cancelled"}:
         return
@@ -218,41 +199,9 @@ def ensure_terminal_queue_status(
         status=summary.status,
         reason=summary.reason,
         metadata_update=metadata_update,
-        mark_completed_fn=mark_completed,
-        mark_cancelled_fn=mark_cancelled,
-        mark_failed_fn=mark_failed,
-    )
-
-
-def resolve_terminal_dependencies(
-    *,
-    deps: Any | None = None,
-    write_execution_artifacts_fn: Callable[..., Any] | None = None,
-    selected_xyz_fn: Callable[[Any], Path] | None = None,
-    job_dir_fn: Callable[[Any], Path] | None = None,
-    mark_completed_fn: Callable[..., Any] | None = None,
-    mark_cancelled_fn: Callable[..., Any] | None = None,
-    mark_failed_fn: Callable[..., Any] | None = None,
-    upsert_job_record_fn: Callable[..., Any] | None = None,
-    notify_job_finished_fn: Callable[..., Any] | None = None,
-) -> XtbTerminalDependencies:
-    return XtbTerminalDependencies(
-        write_execution_artifacts=_dependency(
-            deps,
-            write_execution_artifacts_fn,
-            "_write_execution_artifacts",
-        ),
-        selected_xyz=_dependency(deps, selected_xyz_fn, "_selected_xyz"),
-        job_dir=_dependency(deps, job_dir_fn, "_job_dir"),
-        mark_completed=_dependency(deps, mark_completed_fn, "mark_completed"),
-        mark_cancelled=_dependency(deps, mark_cancelled_fn, "mark_cancelled"),
-        mark_failed=_dependency(deps, mark_failed_fn, "mark_failed"),
-        upsert_job_record=_dependency(deps, upsert_job_record_fn, "upsert_job_record"),
-        notify_job_finished=_dependency(
-            deps,
-            notify_job_finished_fn,
-            "notify_job_finished",
-        ),
+        mark_completed_fn=mark_completed_fn,
+        mark_cancelled_fn=mark_cancelled_fn,
+        mark_failed_fn=mark_failed_fn,
     )
 
 
@@ -403,15 +352,14 @@ def finalize_execution_result(
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
     outcome_cls: type,
-    deps: Any | None = None,
-    write_execution_artifacts_fn: Callable[..., Any] | None = None,
-    selected_xyz_fn: Callable[[Any], Path] | None = None,
-    job_dir_fn: Callable[[Any], Path] | None = None,
-    mark_completed_fn: Callable[..., Any] | None = None,
-    mark_cancelled_fn: Callable[..., Any] | None = None,
-    mark_failed_fn: Callable[..., Any] | None = None,
-    upsert_job_record_fn: Callable[..., Any] | None = None,
-    notify_job_finished_fn: Callable[..., Any] | None = None,
+    write_execution_artifacts_fn: Callable[..., Any],
+    selected_xyz_fn: Callable[[Any], Path],
+    job_dir_fn: Callable[[Any], Path],
+    mark_completed_fn: Callable[..., Any],
+    mark_cancelled_fn: Callable[..., Any],
+    mark_failed_fn: Callable[..., Any],
+    upsert_job_record_fn: Callable[..., Any],
+    notify_job_finished_fn: Callable[..., Any],
 ) -> Any:
     return finalize_terminal_result(
         XtbTerminalFinalizationRequest(
@@ -424,15 +372,14 @@ def finalize_execution_result(
             previous_state=previous_state,
             resumed=resumed,
         ),
-        dependencies=resolve_terminal_dependencies(
-            deps=deps,
-            write_execution_artifacts_fn=write_execution_artifacts_fn,
-            selected_xyz_fn=selected_xyz_fn,
-            job_dir_fn=job_dir_fn,
-            mark_completed_fn=mark_completed_fn,
-            mark_cancelled_fn=mark_cancelled_fn,
-            mark_failed_fn=mark_failed_fn,
-            upsert_job_record_fn=upsert_job_record_fn,
-            notify_job_finished_fn=notify_job_finished_fn,
+        dependencies=XtbTerminalDependencies(
+            write_execution_artifacts=write_execution_artifacts_fn,
+            selected_xyz=selected_xyz_fn,
+            job_dir=job_dir_fn,
+            mark_completed=mark_completed_fn,
+            mark_cancelled=mark_cancelled_fn,
+            mark_failed=mark_failed_fn,
+            upsert_job_record=upsert_job_record_fn,
+            notify_job_finished=notify_job_finished_fn,
         ),
     )
