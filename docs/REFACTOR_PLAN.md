@@ -219,12 +219,34 @@ blast radius, single deps-using test file), then `flow/cli_run_dir.py`, then
   `flow/orchestration/__init__.py`, `flow/submitters/__init__.py`
   lazy-import `__getattr__`/`__dir__` machinery — intentional API surface.
 
-## Phase 5 (stretch) — Orchestration `dep_builder_*` fragmentation
+## Phase 5 — Orchestration `dep_builder_*` fragmentation — **DONE 2026-06-13**
 
-7 modules implement "dep builders" (`dep_builder_core/_builders/_fallbacks/
-_stage_fallbacks/_factories/dep_context/dep_types`). Before merging anything,
-map call graph; this is architecture, not cleanup. Only attempt with a full
-token budget and after Phases 1–4.
+7 modules implemented "dep builders" (`dep_builder_core/_builders/_fallbacks/
+_stage_fallbacks/_factories/dep_context/dep_types`). Call-graph mapping showed
+the four inner builder modules were imported only by each other and the
+`dep_builders` re-export facade; everything external (src: `deps.py`; tests:
+`test_refactor_cleanup.py`, incl. its `_build_contract_deps` monkeypatch via
+module attribute) went through the facade. Consolidated 7 → 3 in three
+commits:
+
+- `dep_builder_core` + `dep_builder_fallbacks` + `dep_builder_stage_fallbacks`
+  + `dep_builder_factories` merged into `dep_builders.py` (facade replaced by
+  the real content; pure movement). The orchestration `__init__`
+  lazy-submodule map dropped the deleted names
+  (`dep_builder_stage_fallbacks` had never been registered).
+- The five `*_for_context` adapters folded into the stage fallback factories:
+  same uniform `(overrides, deps_provider)` registry signature with
+  `del`-unused, one naming layer less.
+- `dep_context.py` folded into `deps.py` (`orchestration_context` now sits
+  next to `orchestration_deps`; its lazy `import_module` hop is gone). The
+  nine importers repointed. `deps.py` also stopped mirroring every
+  `dep_types` name — src only ever consumed `orchestration_deps`; the one
+  test importing type names now imports `dep_types` directly.
+
+Survivors: `dep_types.py` (typed containers + stage-group registry; the
+annotation leaf ~15 modules import), `dep_builders.py` (all builder/fallback
+machinery), `deps.py` (public entry: `orchestration_deps` /
+`orchestration_context`).
 
 ## Deliberately kept (do not "clean up")
 
@@ -236,6 +258,7 @@ token budget and after Phases 1–4.
 - Protocol positional-only params named `__x` in `core/queue/dependencies.py`
   (vulture false positive).
 - `del deps` in `stage_runtime/xtb_retry.py` bound impls and
-  `del overrides` / `del deps_provider` in the
-  `dep_builder_stage_fallbacks.py` `*_for_context` adapters — uniform
-  dispatch interfaces (see Phase 2 resolution).
+  `del overrides` / `del deps_provider` in the five stage fallback factories
+  in `dep_builders.py` — uniform dispatch interfaces (see Phase 2
+  resolution; the `*_for_context` adapter layer itself was folded away in
+  Phase 5, the convention carries on in the factories).
