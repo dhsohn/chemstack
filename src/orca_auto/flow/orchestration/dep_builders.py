@@ -351,10 +351,15 @@ def _maybe_notify_workflow_phase_summary_fallback(
     )
 
 
-# Per-group stage dependency fallbacks.
+# Per-group stage dependency fallbacks. All five share the registry dispatch
+# signature (overrides, deps_provider) and del what they do not need.
 
 
-def _stage_builder_fallbacks() -> dict[str, Any]:
+def _stage_builder_fallbacks(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    del overrides, deps_provider
     from orca_auto.flow.orchestration.stage_builders import new_xtb_stage_impl
 
     return {
@@ -363,8 +368,10 @@ def _stage_builder_fallbacks() -> dict[str, Any]:
 
 
 def _stage_materialization_fallbacks(
+    overrides: Mapping[str, Any] | None,
     deps_provider: _LazyOrchestrationDeps,
 ) -> dict[str, Any]:
+    del overrides
     from orca_auto.flow.orchestration.materialization import (
         append_crest_orca_stages_impl,
         append_reaction_orca_stages_impl,
@@ -381,7 +388,11 @@ def _stage_materialization_fallbacks(
     )
 
 
-def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
+def _stage_runtime_fallbacks(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    del overrides
     from orca_auto.flow.orchestration.stage_runtime.crest import (
         completed_crest_roles_impl,
         completed_crest_stage_impl,
@@ -426,7 +437,11 @@ def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str,
     }
 
 
-def _stage_support_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
+def _stage_support_fallbacks(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    del overrides
     from orca_auto.flow.orchestration.support import (
         clear_reaction_xtb_handoff_error_if_recovering_impl,
         load_config_organized_root_impl,
@@ -462,7 +477,9 @@ def _stage_support_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str,
 
 def _stage_workflow_fallbacks(
     overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
 ) -> dict[str, Any]:
+    del deps_provider
     return {
         "_maybe_notify_workflow_phase_summary": partial(
             _maybe_notify_workflow_phase_summary_fallback,
@@ -483,46 +500,6 @@ def _stage_workflow_fallbacks(
         ),
         "_workflow_sync_only": partial(_workflow_sync_only_fallback, overrides=overrides),
     }
-
-
-def _stage_builder_fallbacks_for_context(
-    overrides: Mapping[str, Any] | None,
-    deps_provider: _LazyOrchestrationDeps,
-) -> dict[str, Any]:
-    del overrides, deps_provider
-    return _stage_builder_fallbacks()
-
-
-def _stage_materialization_fallbacks_for_context(
-    overrides: Mapping[str, Any] | None,
-    deps_provider: _LazyOrchestrationDeps,
-) -> dict[str, Any]:
-    del overrides
-    return _stage_materialization_fallbacks(deps_provider)
-
-
-def _stage_runtime_fallbacks_for_context(
-    overrides: Mapping[str, Any] | None,
-    deps_provider: _LazyOrchestrationDeps,
-) -> dict[str, Any]:
-    del overrides
-    return _stage_runtime_fallbacks(deps_provider)
-
-
-def _stage_support_fallbacks_for_context(
-    overrides: Mapping[str, Any] | None,
-    deps_provider: _LazyOrchestrationDeps,
-) -> dict[str, Any]:
-    del overrides
-    return _stage_support_fallbacks(deps_provider)
-
-
-def _stage_workflow_fallbacks_for_context(
-    overrides: Mapping[str, Any] | None,
-    deps_provider: _LazyOrchestrationDeps,
-) -> dict[str, Any]:
-    del deps_provider
-    return _stage_workflow_fallbacks(overrides)
 
 
 # Top-level OrchestrationDeps section builders.
@@ -627,26 +604,14 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
 def _stage_dep_fallback_registry() -> _StageDepFallbackRegistry:
     return _StageDepFallbackRegistry(
         (
-            _StageDepFallbackSpec(
-                _ORCHESTRATION_STAGE_BUILDER_GROUP,
-                _stage_builder_fallbacks_for_context,
-            ),
+            _StageDepFallbackSpec(_ORCHESTRATION_STAGE_BUILDER_GROUP, _stage_builder_fallbacks),
             _StageDepFallbackSpec(
                 _ORCHESTRATION_STAGE_MATERIALIZATION_GROUP,
-                _stage_materialization_fallbacks_for_context,
+                _stage_materialization_fallbacks,
             ),
-            _StageDepFallbackSpec(
-                _ORCHESTRATION_STAGE_RUNTIME_GROUP,
-                _stage_runtime_fallbacks_for_context,
-            ),
-            _StageDepFallbackSpec(
-                _ORCHESTRATION_STAGE_SUPPORT_GROUP,
-                _stage_support_fallbacks_for_context,
-            ),
-            _StageDepFallbackSpec(
-                _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
-                _stage_workflow_fallbacks_for_context,
-            ),
+            _StageDepFallbackSpec(_ORCHESTRATION_STAGE_RUNTIME_GROUP, _stage_runtime_fallbacks),
+            _StageDepFallbackSpec(_ORCHESTRATION_STAGE_SUPPORT_GROUP, _stage_support_fallbacks),
+            _StageDepFallbackSpec(_ORCHESTRATION_STAGE_WORKFLOW_GROUP, _stage_workflow_fallbacks),
         )
     )
 
@@ -731,21 +696,16 @@ __all__ = [
     "_recompute_workflow_status_fallback",
     "_safe_int_fallback",
     "_stage_builder_fallbacks",
-    "_stage_builder_fallbacks_for_context",
     "_stage_dep_fallback_groups",
     "_stage_dep_fallback_registry",
     "_stage_dep_fallbacks",
     "_stage_failure_is_recoverable_fallback",
     "_stage_failure_is_recoverable_override",
     "_stage_materialization_fallbacks",
-    "_stage_materialization_fallbacks_for_context",
     "_stage_metadata_override",
     "_stage_runtime_fallbacks",
-    "_stage_runtime_fallbacks_for_context",
     "_stage_support_fallbacks",
-    "_stage_support_fallbacks_for_context",
     "_stage_workflow_fallbacks",
-    "_stage_workflow_fallbacks_for_context",
     "_validate_dep_fallbacks",
     "_workflow_has_active_children_fallback",
     "_workflow_sync_only_fallback",
