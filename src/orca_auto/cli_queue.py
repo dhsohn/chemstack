@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from orca_auto import activity_rendering as _activity_rendering
 from orca_auto import cli_style
@@ -21,7 +21,6 @@ from orca_auto.activity_view import (
     normalize_activity_filter_values,
 )
 from orca_auto.cli_common import (
-    _dependency,
     _effective_shared_config_text,
     _workflow_root_for_args,
 )
@@ -47,6 +46,14 @@ class _QueueListRequest:
             and not self.status_values
             and not self.kind_values
         )
+
+
+@dataclass(frozen=True)
+class QueueCliDeps:
+    """Optional overrides for the `queue list --watch` loop (test seams)."""
+
+    emit_queue_list_once: Callable[[Any, _QueueListRequest], int] | None = None
+    sleep: Callable[[float], None] | None = None
 
 
 def _activity_counter_config_path(
@@ -77,15 +84,9 @@ def _queue_terminal_width() -> int | None:
     return _activity_rendering._terminal_max_width()
 
 
-def _queue_table_lines(
-    rows: Sequence[tuple[int, dict[str, Any]]],
-    *,
-    deps: Any | None = None,
-) -> list[str]:
-    queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
-    terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
+def _queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
     return _activity_rendering.queue_table_lines(
-        rows, now=queue_table_now(), max_width=terminal_width()
+        rows, now=_queue_table_now(), max_width=_queue_terminal_width()
     )
 
 
@@ -97,15 +98,12 @@ def _queue_list_text_lines(
     max_width: int | None = None,
     include_id: bool = True,
     empty_message: str = "No matching activities.",
-    deps: Any | None = None,
 ) -> list[str]:
-    queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
-    terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
     return _activity_rendering.queue_list_text_lines(
         rows,
         active_simulations=active_simulations,
-        now=now or queue_table_now(),
-        max_width=max_width if max_width is not None else terminal_width(),
+        now=now or _queue_table_now(),
+        max_width=max_width if max_width is not None else _queue_terminal_width(),
         include_id=include_id,
         empty_message=empty_message,
     )
@@ -137,12 +135,9 @@ def _queue_list_presentation_request(
     )
 
 
-def _queue_list_request(args: Any, *, deps: Any | None = None) -> _QueueListRequest:
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
+def _queue_list_request(args: Any) -> _QueueListRequest:
     return _QueueListRequest(
-        shared_config=effective_shared_config_text(args) or None,
+        shared_config=_effective_shared_config_text(args) or None,
         limit=int(getattr(args, "limit", 0) or 0),
         engine_values=normalize_activity_filter_values(getattr(args, "engine", None)),
         status_values=normalize_activity_filter_values(getattr(args, "status", None)),
@@ -151,12 +146,7 @@ def _queue_list_request(args: Any, *, deps: Any | None = None) -> _QueueListRequ
     )
 
 
-def _cmd_queue_list_clear(
-    args: Any,
-    request: _QueueListRequest,
-    *,
-    deps: Any | None = None,
-) -> int:
+def _cmd_queue_list_clear(args: Any, request: _QueueListRequest) -> int:
     if (
         any(getattr(args, field, None) for field in ("engine", "status", "kind"))
         or request.limit > 0
@@ -167,10 +157,8 @@ def _cmd_queue_list_clear(
         )
         return 1
 
-    workflow_root_for_args = _dependency(deps, "_workflow_root_for_args", _workflow_root_for_args)
-    clear = _dependency(deps, "clear_activities", clear_activities)
-    payload = clear(
-        workflow_root=workflow_root_for_args(args),
+    payload = clear_activities(
+        workflow_root=_workflow_root_for_args(args),
         crest_config=request.shared_config,
         xtb_config=request.shared_config,
         orca_config=request.shared_config,
@@ -183,16 +171,9 @@ def _cmd_queue_list_clear(
     return 0
 
 
-def _queue_list_payload(
-    args: Any,
-    request: _QueueListRequest,
-    *,
-    deps: Any | None = None,
-) -> dict[str, Any]:
-    workflow_root_for_args = _dependency(deps, "_workflow_root_for_args", _workflow_root_for_args)
-    list_activity_items = _dependency(deps, "list_activities", list_activities)
-    payload = list_activity_items(
-        workflow_root=workflow_root_for_args(args),
+def _queue_list_payload(args: Any, request: _QueueListRequest) -> dict[str, Any]:
+    return list_activities(
+        workflow_root=_workflow_root_for_args(args),
         limit=0,
         refresh=bool(getattr(args, "refresh", False)),
         crest_config=request.shared_config,
@@ -200,14 +181,11 @@ def _queue_list_payload(
         orca_config=request.shared_config,
         child_job_engines=() if request.default_combined_text_view else None,
     )
-    return payload
 
 
 def _filtered_queue_payload(
     payload: dict[str, Any],
     request: _QueueListRequest,
-    *,
-    deps: Any | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     activities = filter_activity_items(
         payload.get("activities", []),
@@ -216,10 +194,7 @@ def _filtered_queue_payload(
         kinds=request.kind_values,
     )
     limited_activities = activities[: request.limit] if request.limit > 0 else list(activities)
-    count_active = _dependency(
-        deps, "count_global_active_simulations", count_global_active_simulations
-    )
-    active_simulations = count_active(
+    active_simulations = count_global_active_simulations(
         payload.get("activities", []),
         config_path=_activity_counter_config_path(
             payload=payload, config_hint=request.shared_config
@@ -254,22 +229,18 @@ def _print_queue_list_text(
     filtered_payload: dict[str, Any],
     filtered_activities: Sequence[dict[str, Any]],
     request: _QueueListRequest,
-    deps: Any | None = None,
 ) -> int:
-    render_lines = _dependency(deps, "_queue_list_text_lines", _queue_list_text_lines)
-    queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
-    terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
     presentation = queue_list_text_presentation(
         payload,
         request=_queue_list_presentation_request(
             request,
             visible_items=filtered_activities,
             active_simulations=filtered_payload["active_simulations"],
-            now=queue_table_now(),
-            max_width=terminal_width(),
+            now=_queue_table_now(),
+            max_width=_queue_terminal_width(),
         ),
         deps=QueueListPresentationDeps(
-            queue_list_text_lines=render_lines,
+            queue_list_text_lines=_queue_list_text_lines,
         ),
     )
     display_rows = presentation.display_rows
@@ -289,16 +260,13 @@ def _print_queue_list_text(
     return 0
 
 
-def _emit_queue_list_once(args: Any, request: _QueueListRequest, *, deps: Any | None = None) -> int:
-    payload_fn = _dependency(deps, "_queue_list_payload", _queue_list_payload)
-    filtered_fn = _dependency(deps, "_filtered_queue_payload", _filtered_queue_payload)
-    payload = payload_fn(args, request)
-    filtered_payload, filtered_activities = filtered_fn(payload, request)
+def _emit_queue_list_once(args: Any, request: _QueueListRequest) -> int:
+    payload = _queue_list_payload(args, request)
+    filtered_payload, filtered_activities = _filtered_queue_payload(payload, request)
     if request.json_output:
         print(json.dumps(filtered_payload, ensure_ascii=True, indent=2))
         return 0
-    print_text = _dependency(deps, "_print_queue_list_text", _print_queue_list_text)
-    return print_text(
+    return _print_queue_list_text(
         payload=payload,
         filtered_payload=filtered_payload,
         filtered_activities=filtered_activities,
@@ -306,47 +274,44 @@ def _emit_queue_list_once(args: Any, request: _QueueListRequest, *, deps: Any | 
     )
 
 
-def _watch_queue_list(args: Any, request: _QueueListRequest, *, deps: Any | None = None) -> int:
+def _watch_queue_list(
+    args: Any,
+    request: _QueueListRequest,
+    *,
+    deps: QueueCliDeps | None = None,
+) -> int:
     interval = max(0.5, float(getattr(args, "interval", 2.0) or 2.0))
-    emit_once = _dependency(deps, "_emit_queue_list_once", _emit_queue_list_once)
-    sleep = _dependency(deps, "sleep", time.sleep)
+    emit_once = (deps.emit_queue_list_once if deps else None) or _emit_queue_list_once
+    sleep = (deps.sleep if deps else None) or time.sleep
     banner = f"orca_auto queue list — refresh every {interval:g}s · Ctrl-C to exit"
     try:
         while True:
             cli_style.clear_screen()
             print(cli_style.label(banner))
-            emit_once(args, request, deps=deps)
+            emit_once(args, request)
             sleep(interval)
     except KeyboardInterrupt:
         print()
         return 0
 
 
-def cmd_queue_list(args: Any, *, deps: Any | None = None) -> int:
-    request = _queue_list_request(args, deps=deps)
+def cmd_queue_list(args: Any, *, deps: QueueCliDeps | None = None) -> int:
+    request = _queue_list_request(args)
     if normalize_text(getattr(args, "action", None)).lower() == "clear":
-        clear_cmd = _dependency(deps, "_cmd_queue_list_clear", _cmd_queue_list_clear)
-        return clear_cmd(args, request)
+        return _cmd_queue_list_clear(args, request)
 
     if bool(getattr(args, "watch", False)) and not request.json_output:
-        watch = _dependency(deps, "_watch_queue_list", _watch_queue_list)
-        return watch(args, request, deps=deps)
+        return _watch_queue_list(args, request, deps=deps)
 
-    emit_once = _dependency(deps, "_emit_queue_list_once", _emit_queue_list_once)
-    return emit_once(args, request, deps=deps)
+    return _emit_queue_list_once(args, request)
 
 
-def cmd_queue_cancel(args: Any, *, deps: Any | None = None) -> int:
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
-    workflow_root_for_args = _dependency(deps, "_workflow_root_for_args", _workflow_root_for_args)
-    cancel = _dependency(deps, "cancel_activity", cancel_activity)
-    shared_config = effective_shared_config_text(args) or None
+def cmd_queue_cancel(args: Any) -> int:
+    shared_config = _effective_shared_config_text(args) or None
     try:
-        payload = cancel(
+        payload = cancel_activity(
             target=args.target,
-            workflow_root=workflow_root_for_args(args),
+            workflow_root=_workflow_root_for_args(args),
             crest_config=shared_config,
             xtb_config=shared_config,
             orca_config=shared_config,

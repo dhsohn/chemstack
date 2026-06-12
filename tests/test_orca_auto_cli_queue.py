@@ -15,7 +15,7 @@ from orca_auto import cli_queue as unified_cli
 def test_cmd_queue_list_watch_loops_until_interrupt() -> None:
     calls = {"emit": 0}
 
-    def _emit_once(args: Any, request: Any, *, deps: Any | None = None) -> int:
+    def _emit_once(args: Any, request: Any) -> int:
         calls["emit"] += 1
         return 0
 
@@ -34,7 +34,7 @@ def test_cmd_queue_list_watch_loops_until_interrupt() -> None:
         watch=True,
         interval=2.0,
     )
-    deps = SimpleNamespace(_emit_queue_list_once=_emit_once, sleep=_sleep)
+    deps = unified_cli.QueueCliDeps(emit_queue_list_once=_emit_once, sleep=_sleep)
 
     assert unified_cli.cmd_queue_list(args, deps=deps) == 0
     # One render happened before the (mocked) sleep raised KeyboardInterrupt.

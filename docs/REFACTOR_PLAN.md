@@ -68,10 +68,46 @@ Remaining sites — **likely NOT safe to touch blindly**:
 
 ## Phase 3 — `_dependency(...)` pattern in CLI modules
 
-Usage counts (2026-06-12): `flow/cli_run_dir.py` 25, `cli_queue.py` 24,
-`flow/engines/xtb/terminal.py` 18, `flow/run_dir_manifest.py` 16,
-`flow/cli_workflow.py` 15, `cli_worker_specs.py` 13, `cli_workers.py` 12,
+**`cli_queue.py` DONE 2026-06-12:** all 24 `_dependency` lookups removed.
+Only the watch loop had test-exercised deps (`_emit_queue_list_once`,
+`sleep`) — now a typed frozen dataclass `QueueCliDeps` threaded through
+`cmd_queue_list` → `_watch_queue_list`. Everything else became direct
+late-bound module-global calls (monkeypatch seams `list_activities`,
+`clear_activities`, `cancel_activity`, `count_global_active_simulations`,
+`_queue_table_now` still work). `cmd_queue_cancel` lost its `deps` param
+(`cli.py` calls `args.func(args)` — nothing ever passed it).
+
+**`flow/cli_run_dir.py` DONE 2026-06-12:** all 25 lookups removed; no test
+ever passed `deps=` here. Bigger win: the workflow-creation registry
+apparatus (`_RunDirWorkflowCreationBinding/Registry`,
+`_NormalizedRunDirWorkflowCreationSpec`, `_RunDirWorkflowCreationPlan`,
+`_normalize_run_dir_workflow_creation_spec`, `_invoke_run_dir_workflow_creation`,
+the `_DEFAULT_CREATE_*` sentinels and the `*_name` spec fields) existed only
+to detect monkeypatched `create_*_workflow` globals and switch call styles —
+but `orchestration.create_*_workflow(**kwargs)` IS
+`create_*_workflow_from_request(RequestType(**kwargs))` with identical
+defaults (verified against `orchestration/requests.py`), so the module now
+always calls the late-bound kwargs creators. The 7 test sites that
+monkeypatch `cli_run_dir.create_*_workflow` keep working. 432 → ~230 lines.
+
+**`flow/cli_workflow.py` DONE 2026-06-12:** all 15 lookups removed; no test
+ever passed `deps=`. The `_WorkflowWorkerRuntime` dataclass (14 all-`Any`
+fields built once per command from `_dependency` defaults) is gone — helpers
+now take only `_WorkflowWorkerOptions` and call module globals directly
+(tests monkeypatch `file_lock`, `now_utc_iso`, `timestamped_token`,
+`advance_workflow_registry_once`, `_emit_worker_payload`, etc. at module
+level — late binding preserved). One `cast("dict[str, Any]", ...)` needed in
+`_advance_workflow_worker_cycle`: the runtime's `Any` fields had been hiding
+that `advance_workflow_registry_once` returns the
+`WorkflowRegistryCyclePayload` TypedDict while emitters take `dict[str, Any]`.
+
+Usage counts (2026-06-12): `flow/engines/xtb/terminal.py` 18,
+`flow/run_dir_manifest.py` 16, `cli_worker_specs.py` 13, `cli_workers.py` 12,
 `flow/run_dir_options.py` 11, `cli_common.py` 11 (defines it), others <10.
+Suggested next: `cli_workers.py` / `cli_worker_specs.py` (top-level CLI,
+same shape as the three done above), then `flow/run_dir_options.py` +
+`flow/run_dir_manifest.py` together (they cross-reference), leaving
+`flow/engines/xtb/terminal.py` last (engine layer, widest blast radius).
 
 Tests known to pass `deps=` into this pattern: `tests/test_orca_auto_cli_queue.py:39`
 (`cmd_queue_list(args, deps=deps)`), `tests/test_cli_systemd.py`,

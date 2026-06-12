@@ -3,10 +3,9 @@ from __future__ import annotations
 import argparse
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from orca_auto.cli_common import (
-    _dependency,
     _shared_orca_auto_config,
     _workflow_root_for_args,
 )
@@ -25,33 +24,8 @@ from .registry import (
 from .runtime import advance_workflow_registry_once, workflow_worker_lock_path
 
 
-def _emit_worker_payload(
-    payload: dict[str, Any], *, json_mode: bool, single_cycle: bool, deps: Any | None = None
-) -> None:
-    emit_worker_payload = _dependency(
-        deps,
-        "emit_worker_payload",
-        _workflow_output.emit_worker_payload,
-    )
-    emit_worker_payload(payload, json_mode=json_mode, single_cycle=single_cycle)
-
-
-@dataclass(frozen=True)
-class _WorkflowWorkerRuntime:
-    normalize_text: Any
-    shared_orca_auto_config: Any
-    workflow_root_from_args: Any
-    token_factory: Any
-    lock_factory: Any
-    lock_path: Any
-    now: Any
-    write_state: Any
-    append_event: Any
-    advance_registry_once: Any
-    emit_error: Any
-    emit_worker_lock_error: Any
-    emit_worker_payload: Any
-    time_module: Any
+def _emit_worker_payload(payload: dict[str, Any], *, json_mode: bool, single_cycle: bool) -> None:
+    _workflow_output.emit_worker_payload(payload, json_mode=json_mode, single_cycle=single_cycle)
 
 
 @dataclass(frozen=True)
@@ -71,52 +45,7 @@ class _WorkflowWorkerOptions:
     engines: WorkflowEngineOptions
 
 
-def _workflow_worker_runtime(deps: Any | None) -> _WorkflowWorkerRuntime:
-    return _WorkflowWorkerRuntime(
-        normalize_text=_dependency(deps, "_normalize_text", normalize_text),
-        shared_orca_auto_config=_dependency(
-            deps,
-            "_shared_orca_auto_config",
-            _shared_orca_auto_config,
-        ),
-        workflow_root_from_args=_dependency(
-            deps,
-            "_workflow_root_for_args",
-            _workflow_root_for_args,
-        ),
-        token_factory=_dependency(deps, "timestamped_token", timestamped_token),
-        lock_factory=_dependency(deps, "file_lock", file_lock),
-        lock_path=_dependency(deps, "workflow_worker_lock_path", workflow_worker_lock_path),
-        now=_dependency(deps, "now_utc_iso", now_utc_iso),
-        write_state=_dependency(
-            deps,
-            "write_workflow_worker_state",
-            write_workflow_worker_state,
-        ),
-        append_event=_dependency(
-            deps,
-            "append_workflow_journal_event",
-            append_workflow_journal_event,
-        ),
-        advance_registry_once=_dependency(
-            deps,
-            "advance_workflow_registry_once",
-            advance_workflow_registry_once,
-        ),
-        emit_error=_dependency(deps, "emit_error", _workflow_output.emit_error),
-        emit_worker_lock_error=_dependency(
-            deps,
-            "emit_worker_lock_error",
-            _workflow_output.emit_worker_lock_error,
-        ),
-        emit_worker_payload=_dependency(deps, "_emit_worker_payload", _emit_worker_payload),
-        time_module=_dependency(deps, "time", time),
-    )
-
-
-def _workflow_worker_options(
-    args: Any, *, runtime: _WorkflowWorkerRuntime
-) -> _WorkflowWorkerOptions:
+def _workflow_worker_options(args: Any) -> _WorkflowWorkerOptions:
     once = bool(getattr(args, "once", False))
     max_cycles = int(getattr(args, "max_cycles", 0) or 0)
     if once:
@@ -125,17 +54,17 @@ def _workflow_worker_options(
         raise ValueError("--max-cycles must be >= 0")
 
     interval_seconds = float(getattr(args, "interval_seconds", 30.0) or 30.0)
-    shared_config = runtime.shared_orca_auto_config(args)
-    workflow_root = runtime.workflow_root_from_args(args, config_path=shared_config)
+    shared_config = _shared_orca_auto_config(args)
+    workflow_root = _workflow_root_for_args(args, config_path=shared_config)
     if not workflow_root:
         raise ValueError(
             "workflow_root is not configured. Pass --workflow-root or set workflow.root in "
             "orca_auto.yaml."
         )
 
-    worker_session_id = runtime.normalize_text(
+    worker_session_id = normalize_text(
         getattr(args, "worker_session_id", "")
-    ) or runtime.token_factory("wf_worker")
+    ) or timestamped_token("wf_worker")
     return _WorkflowWorkerOptions(
         max_cycles=max_cycles,
         interval_seconds=interval_seconds,
@@ -160,13 +89,12 @@ def _workflow_worker_options(
 
 
 def _write_workflow_worker_status(
-    runtime: _WorkflowWorkerRuntime,
     options: _WorkflowWorkerOptions,
     *,
     status: str,
     **kwargs: Any,
 ) -> None:
-    runtime.write_state(
+    write_workflow_worker_state(
         options.workflow_root_text,
         worker_session_id=options.worker_session_id,
         status=status,
@@ -178,13 +106,12 @@ def _write_workflow_worker_status(
 
 
 def _append_workflow_worker_event(
-    runtime: _WorkflowWorkerRuntime,
     options: _WorkflowWorkerOptions,
     *,
     event_type: str,
     **kwargs: Any,
 ) -> None:
-    runtime.append_event(
+    append_workflow_journal_event(
         options.workflow_root_text,
         event_type=event_type,
         worker_session_id=options.worker_session_id,
@@ -193,37 +120,36 @@ def _append_workflow_worker_event(
 
 
 def _advance_workflow_worker_cycle(
-    runtime: _WorkflowWorkerRuntime,
     options: _WorkflowWorkerOptions,
     *,
     cycle_count: int,
 ) -> dict[str, Any]:
     engines = options.engines
-    return runtime.advance_registry_once(
-        workflow_root=options.workflow_root_text,
-        shared_config=engines.shared_config,
-        orca_repo_root=engines.orca.repo_root,
-        submit_ready=options.submit_ready,
-        refresh_registry=options.refresh_each_cycle
-        or (options.refresh_registry and cycle_count == 1),
-        worker_session_id=options.worker_session_id,
-        interval_seconds=options.interval_seconds,
-        lease_seconds=options.lease_seconds,
+    # WorkflowRegistryCyclePayload is a TypedDict; downstream emitters take dict[str, Any].
+    return cast(
+        "dict[str, Any]",
+        advance_workflow_registry_once(
+            workflow_root=options.workflow_root_text,
+            shared_config=engines.shared_config,
+            orca_repo_root=engines.orca.repo_root,
+            submit_ready=options.submit_ready,
+            refresh_registry=options.refresh_each_cycle
+            or (options.refresh_registry and cycle_count == 1),
+            worker_session_id=options.worker_session_id,
+            interval_seconds=options.interval_seconds,
+            lease_seconds=options.lease_seconds,
+        ),
     )
 
 
-def _record_workflow_worker_started(
-    runtime: _WorkflowWorkerRuntime, options: _WorkflowWorkerOptions
-) -> None:
-    started_at = runtime.now()
+def _record_workflow_worker_started(options: _WorkflowWorkerOptions) -> None:
+    started_at = now_utc_iso()
     _write_workflow_worker_status(
-        runtime,
         options,
         status="starting",
         last_heartbeat_at=started_at,
     )
     _append_workflow_worker_event(
-        runtime,
         options,
         event_type="worker_started",
         metadata={"started_at": started_at, "service_mode": options.service_mode},
@@ -231,14 +157,12 @@ def _record_workflow_worker_started(
 
 
 def _record_workflow_worker_stopped(
-    runtime: _WorkflowWorkerRuntime,
     options: _WorkflowWorkerOptions,
     *,
     cycle_count: int,
 ) -> None:
-    stopped_at = runtime.now()
+    stopped_at = now_utc_iso()
     _write_workflow_worker_status(
-        runtime,
         options,
         status="stopped",
         last_cycle_finished_at=stopped_at,
@@ -250,7 +174,6 @@ def _record_workflow_worker_stopped(
         },
     )
     _append_workflow_worker_event(
-        runtime,
         options,
         event_type="worker_stopped",
         metadata={
@@ -262,14 +185,12 @@ def _record_workflow_worker_stopped(
 
 
 def _record_workflow_worker_interrupted(
-    runtime: _WorkflowWorkerRuntime,
     options: _WorkflowWorkerOptions,
     *,
     cycle_count: int,
 ) -> None:
-    stopped_at = runtime.now()
+    stopped_at = now_utc_iso()
     _write_workflow_worker_status(
-        runtime,
         options,
         status="interrupted",
         last_heartbeat_at=stopped_at,
@@ -280,7 +201,6 @@ def _record_workflow_worker_interrupted(
         },
     )
     _append_workflow_worker_event(
-        runtime,
         options,
         event_type="worker_interrupted",
         metadata={"stopped_at": stopped_at, "cycle_count": cycle_count},
@@ -288,14 +208,12 @@ def _record_workflow_worker_interrupted(
 
 
 def _record_workflow_worker_lock_error(
-    runtime: _WorkflowWorkerRuntime,
     options: _WorkflowWorkerOptions,
     *,
     error: TimeoutError,
 ) -> None:
-    stopped_at = runtime.now()
+    stopped_at = now_utc_iso()
     _write_workflow_worker_status(
-        runtime,
         options,
         status="lock_error",
         last_heartbeat_at=stopped_at,
@@ -306,7 +224,6 @@ def _record_workflow_worker_lock_error(
         },
     )
     _append_workflow_worker_event(
-        runtime,
         options,
         event_type="worker_lock_error",
         reason=str(error),
@@ -314,53 +231,48 @@ def _record_workflow_worker_lock_error(
     )
 
 
-def _run_workflow_worker_loop(
-    runtime: _WorkflowWorkerRuntime, options: _WorkflowWorkerOptions
-) -> int:
+def _run_workflow_worker_loop(options: _WorkflowWorkerOptions) -> int:
     cycle_count = 0
     try:
-        with runtime.lock_factory(
-            runtime.lock_path(options.workflow_root),
+        with file_lock(
+            workflow_worker_lock_path(options.workflow_root),
             timeout_seconds=options.lock_timeout_seconds,
         ):
-            _record_workflow_worker_started(runtime, options)
+            _record_workflow_worker_started(options)
             while True:
                 cycle_count += 1
                 payload = _advance_workflow_worker_cycle(
-                    runtime,
                     options,
                     cycle_count=cycle_count,
                 )
-                runtime.emit_worker_payload(
+                _emit_worker_payload(
                     payload,
                     json_mode=options.json_mode,
                     single_cycle=options.max_cycles == 1,
                 )
                 if options.max_cycles > 0 and cycle_count >= options.max_cycles:
                     _record_workflow_worker_stopped(
-                        runtime,
                         options,
                         cycle_count=cycle_count,
                     )
                     return 0
-                runtime.time_module.sleep(max(0.0, options.interval_seconds))
+                time.sleep(max(0.0, options.interval_seconds))
     except KeyboardInterrupt:
-        _record_workflow_worker_interrupted(runtime, options, cycle_count=cycle_count)
+        _record_workflow_worker_interrupted(options, cycle_count=cycle_count)
         return 130
     except TimeoutError as exc:
-        _record_workflow_worker_lock_error(runtime, options, error=exc)
-        runtime.emit_worker_lock_error(exc)
+        _record_workflow_worker_lock_error(options, error=exc)
+        _workflow_output.emit_worker_lock_error(exc)
         return 1
 
 
-def cmd_workflow_worker(args: Any, *, deps: Any | None = None) -> int:
-    runtime = _workflow_worker_runtime(deps)
+def cmd_workflow_worker(args: Any) -> int:
     try:
-        options = _workflow_worker_options(args, runtime=runtime)
+        options = _workflow_worker_options(args)
     except ValueError as exc:
-        runtime.emit_error(exc)
+        _workflow_output.emit_error(exc)
         return 1
-    return _run_workflow_worker_loop(runtime, options)
+    return _run_workflow_worker_loop(options)
 
 
 def build_parser() -> argparse.ArgumentParser:
