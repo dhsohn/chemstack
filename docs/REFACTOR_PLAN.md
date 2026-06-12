@@ -20,39 +20,33 @@ wsl.exe -d Ubuntu-20.04 -- bash -c "cd ~/orca_auto && .venv/bin/ruff check src/ 
    stringly-typed, per-function override lookup used across CLI modules.
    Mostly noise; only some lookups are exercised by tests. **In scope.**
 
-## Phase 1 — Collapse `orca/commands/organize.py` (pure delegation file)
+## Phase 1 — Collapse `orca/commands/organize.py` — **DONE 2026-06-12**
 
-Verified import graph (2026-06-12):
+What was done (deviations from the original plan noted):
 
-- Public surface actually used elsewhere:
-  - `cmd_organize` — lazy import in `src/orca_auto/cli_handlers.py:33`;
-    patched by `tests/test_cli.py:248` (`orca_auto.orca.commands.organize.cmd_organize`).
-  - `organize_reaction_dir` — lazy import in
-    `src/orca_auto/orca/queue_worker_runtime.py:65`; used directly by
-    `tests/test_organize_helpers.py`.
-- Everything else in the file is a private `_x` wrapper that forwards to
-  `organize_service` / `organize_apply` / `organize_output` /
-  `organize_notifications` / `organize_tracking`, plus `_apply_dependencies()`
-  which wires `OrganizeApplyDependencies`.
-
-Plan:
-
-1. Move the `_apply_dependencies()` wiring (and the small `_plan_conflict_result`
-   / `_bookkeep_*` / `_rollback_after_apply_failure` / `_apply_one_organize_plan`
-   closures it references) into `organize_service.py` as a module-level
-   `default_apply_dependencies()` factory. They are already thin calls into
-   `organize_apply` with `deps=_apply_dependencies()` — the recursion between
-   them and `_apply_dependencies` must be preserved (extensions group
-   references the same five functions).
-2. Give `organize_service.cmd_organize` / `organize_service.organize_reaction_dir`
-   defaults so they can be called without the `*_fn=` forest (keep the kwargs
-   for tests, but default them).
-3. Shrink `organize.py` to a ~10-line facade: `cmd_organize` and
-   `organize_reaction_dir` re-exported (keeps `cli_handlers`, `queue_worker_runtime`,
-   and the `tests/test_cli.py` patch target working). Optionally repoint those
-   two importers and delete the file entirely.
-4. Tests to watch: `tests/test_organize_command.py`, `tests/test_organize_helpers.py`,
-   `tests/test_cli.py` (patch target string).
+- `organize.py` (374 lines) is now a ~12-line facade re-exporting
+  `cmd_organize` / `organize_reaction_dir` from `organize_service`. The lazy
+  importers (`cli_handlers.py`, `queue_worker_runtime.py`) and the
+  `tests/test_cli.py` / `tests/test_queue_worker.py` patch targets work
+  unchanged through the facade.
+- `organize_service.default_apply_dependencies()` constructs
+  `OrganizeApplyDependencies` directly. The old extensions wiring was a
+  **no-op cycle** (each extension wrapper called the same `organize_apply`
+  default with an identically rebuilt deps object), so extensions are now
+  left at their all-`None` defaults — behavior identical, recursion gone.
+  `OrganizeApplyDependencyGroups` and `build_apply_dependencies_from_groups`
+  were deleted (organize.py was their only consumer).
+- All `*_fn=` params on `cmd_organize` / `organize_reaction_dir` /
+  `cmd_organize_apply` / `resolve_organize_scope` are now optional with
+  late-bound defaults (`x_fn or module_global`), so
+  `patch("...organize_service.<name>")` works.
+- organize.py's notification/output wrappers were dropped without
+  replacement — `organize_notifications` / `organize_output` already default
+  `escape_html_fn` / `send_message_fn` themselves.
+- Tests repointed to real modules: `test_organize_helpers.py`,
+  `test_organize_command.py`, `test_organize_command_helpers.py`,
+  `test_organize_message.py`, `test_organize_cli.py` (patch
+  `organize_service.append_record` now).
 
 ## Phase 2 — Remove `del deps` no-op parameters
 

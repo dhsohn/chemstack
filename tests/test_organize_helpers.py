@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orca_auto.orca.commands.organize import (
-    _build_index_record,
-    _build_organize_message,
-    _cmd_organize_apply,
+from orca_auto.orca.commands.organize_notifications import _build_organize_message
+from orca_auto.orca.commands.organize_service import (
+    cmd_organize_apply,
     organize_reaction_dir,
 )
+from orca_auto.orca.commands.organize_tracking import build_index_record
 from orca_auto.orca.config import AppConfig, PathsConfig, RuntimeConfig
 from orca_auto.orca.result_organizer import OrganizePlan, SkipReason
 
@@ -53,7 +53,7 @@ class TestOrganizeHelpers(unittest.TestCase):
                 },
             }
 
-            record = _build_index_record(plan, state)
+            record = build_index_record(plan, state)
 
         self.assertEqual(record["reaction_dir"], str(plan.target_abs_path))
         self.assertEqual(record["selected_inp"], "rxn.inp")
@@ -101,22 +101,22 @@ class TestOrganizeHelpers(unittest.TestCase):
                 emit_fn(summary)
                 return 1 if failures else 0
 
-            with patch("orca_auto.orca.commands.organize.acquire_index_lock", return_value=contextlib.nullcontext()), patch(
-                "orca_auto.orca.commands.organize.load_index",
+            with patch("orca_auto.orca.commands.organize_service.acquire_index_lock", return_value=contextlib.nullcontext()), patch(
+                "orca_auto.orca.commands.organize_service.load_index",
                 return_value=[],
             ), patch(
-                "orca_auto.orca.commands.organize.check_conflict",
+                "orca_auto.orca.commands.organize_service.check_conflict",
                 return_value="already_organized",
             ), patch(
-                "orca_auto.orca.commands.organize.finalize_batch_apply",
+                "orca_auto.orca.commands.organize_service.finalize_batch_apply",
                 side_effect=_finalize,
             ), patch(
-                "orca_auto.orca.commands.organize._emit_organize",
+                "orca_auto.orca.commands.organize_output.emit_organize",
                 return_value=None,
             ) as emit_mock, patch(
-                "orca_auto.orca.commands.organize.execute_move",
+                "orca_auto.orca.commands.organize_service.execute_move",
             ) as move_mock:
-                rc = _cmd_organize_apply([plan], [], root / "organized", cfg)
+                rc = cmd_organize_apply([plan], [], root / "organized", cfg)
 
         self.assertEqual(rc, 0)
         self.assertEqual(captured["summary"]["organized"], 0)
@@ -126,8 +126,8 @@ class TestOrganizeHelpers(unittest.TestCase):
         move_mock.assert_not_called()
         emit_mock.assert_called_once()
 
-    @patch("orca_auto.orca.commands.organize._apply_organize_plans")
-    @patch("orca_auto.orca.commands.organize._resolve_organize_scope")
+    @patch("orca_auto.orca.commands.organize_service.apply_organize_plans")
+    @patch("orca_auto.orca.commands.organize_service.resolve_organize_scope")
     def test_organize_reaction_dir_returns_organized_payload(
         self,
         mock_scope: unittest.mock.MagicMock,
@@ -157,7 +157,7 @@ class TestOrganizeHelpers(unittest.TestCase):
         self.assertEqual(result["run_id"], plan.run_id)
         self.assertEqual(result["target_dir"], str(plan.target_abs_path))
 
-    @patch("orca_auto.orca.commands.organize._resolve_organize_scope")
+    @patch("orca_auto.orca.commands.organize_service.resolve_organize_scope")
     def test_organize_reaction_dir_returns_skip_reason_for_empty_scope(
         self,
         mock_scope: unittest.mock.MagicMock,
@@ -175,7 +175,7 @@ class TestOrganizeHelpers(unittest.TestCase):
         self.assertEqual(result["action"], "skipped")
         self.assertEqual(result["reason"], "already_organized")
 
-    @patch("orca_auto.orca.commands.organize._resolve_organize_scope")
+    @patch("orca_auto.orca.commands.organize_service.resolve_organize_scope")
     def test_organize_reaction_dir_uses_workflow_local_organized_root(
         self,
         mock_scope: unittest.mock.MagicMock,

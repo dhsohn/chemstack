@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from orca_auto.orca.commands.organize import _build_dry_run_summary, _build_organize_message
+from orca_auto.orca.commands.organize_notifications import _build_organize_message
+from orca_auto.orca.commands.organize_output import build_dry_run_summary
 from orca_auto.orca.result_organizer import OrganizePlan, SkipReason
 
 
@@ -31,7 +32,7 @@ class TestOrganizeMessage(unittest.TestCase):
         plan = _sample_plan()
         skip = SkipReason(reaction_dir="runs/rxn_skip", reason="status_not_completed")
 
-        summary = _build_dry_run_summary([plan], [skip])
+        summary = build_dry_run_summary([plan], [skip])
 
         self.assertEqual(summary["action"], "dry_run")
         self.assertEqual(summary["to_organize"], 1)

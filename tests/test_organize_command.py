@@ -4,11 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orca_auto.orca.commands.organize import (
-    _build_dry_run_summary,
-    _build_organize_message,
-    _resolve_organize_scope,
-)
+from orca_auto.orca.commands.organize_notifications import _build_organize_message
+from orca_auto.orca.commands.organize_output import build_dry_run_summary
+from orca_auto.orca.commands.organize_service import resolve_organize_scope
 from orca_auto.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 from orca_auto.orca.result_organizer import OrganizePlan, SkipReason
 
@@ -49,7 +47,7 @@ class TestOrganizeCommandHelpers(unittest.TestCase):
     def test_build_dry_run_summary_serializes_plans_and_skips(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            summary = _build_dry_run_summary(
+            summary = build_dry_run_summary(
                 [_plan(root)],
                 [SkipReason("rxn_skip", "not_completed")],
             )
@@ -83,7 +81,7 @@ class TestOrganizeCommandHelpers(unittest.TestCase):
     def test_resolve_organize_scope_rejects_invalid_root(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cfg = _make_cfg(td)
-            result = _resolve_organize_scope(
+            result = resolve_organize_scope(
                 cfg,
                 organized_root=Path(cfg.runtime.organized_root),
                 reaction_dir_raw=None,

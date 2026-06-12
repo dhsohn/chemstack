@@ -3,11 +3,11 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from orca_auto.orca.commands.organize import (
-    _build_index_record,
+from orca_auto.orca.commands.organize_notifications import (
+    _ORGANIZE_RESULT_LIMIT,
     _build_organize_message,
 )
-from orca_auto.orca.commands.organize_notifications import _ORGANIZE_RESULT_LIMIT
+from orca_auto.orca.commands.organize_tracking import build_index_record
 from orca_auto.orca.result_organizer import OrganizePlan, SkipReason
 
 
@@ -47,7 +47,7 @@ class TestOrganizeCommandHelpers(unittest.TestCase):
             },
         }
 
-        record = _build_index_record(plan, state)
+        record = build_index_record(plan, state)
 
         self.assertEqual(record["run_id"], plan.run_id)
         self.assertEqual(record["reaction_dir"], str(plan.target_abs_path))

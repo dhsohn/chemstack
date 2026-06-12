@@ -222,7 +222,7 @@ class TestOrganizeApply(unittest.TestCase):
 
             config = _write_config(root, allowed, organized)
             with patch(
-                "orca_auto.orca.commands.organize.append_record",
+                "orca_auto.orca.commands.organize_service.append_record",
                 side_effect=RuntimeError("index write failed"),
             ):
                 rc = main(
