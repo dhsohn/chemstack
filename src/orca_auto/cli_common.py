@@ -13,12 +13,6 @@ from orca_auto.core.utils.coercion import normalize_text
 from orca_auto.flow.templates import normalize_workflow_template_id
 
 
-def _dependency(deps: Any | None, name: str, fallback: Any) -> Any:
-    if deps is not None and hasattr(deps, name):
-        return getattr(deps, name)
-    return fallback
-
-
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -47,59 +41,32 @@ def _effective_shared_config_text(args: argparse.Namespace) -> str:
     )
 
 
-def _workflow_root_for_args(
-    args: Any, *, config_path: str | None = None, deps: Any | None = None
-) -> str | None:
-    discover_workflow_root = _dependency(deps, "_discover_workflow_root", _discover_workflow_root)
-    discover_shared_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
-    workflow_root_from_config = _dependency(
-        deps, "shared_workflow_root_from_config", shared_workflow_root_from_config
-    )
-
-    explicit_root = discover_workflow_root(getattr(args, "workflow_root", None))
+def _workflow_root_for_args(args: Any, *, config_path: str | None = None) -> str | None:
+    explicit_root = _discover_workflow_root(getattr(args, "workflow_root", None))
     if explicit_root:
         return explicit_root
-    config_text = normalize_text(config_path)
-    if not config_text:
-        config_text = discover_shared_config_path(effective_shared_config_text(args))
-    return workflow_root_from_config(config_text)
-
-
-def _engine_config_for_command(args: argparse.Namespace, *, deps: Any | None = None) -> str | None:
-    discover_shared_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
+    config_text = normalize_text(config_path) or _discover_shared_config_path(
+        _effective_shared_config_text(args)
     )
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
+    return shared_workflow_root_from_config(config_text)
 
-    config_path = discover_shared_config_path(effective_shared_config_text(args))
+
+def _engine_config_for_command(args: argparse.Namespace) -> str | None:
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
     if not config_path:
         return None
     return str(Path(config_path).expanduser().resolve())
 
 
-def _shared_orca_auto_config(args: Any, *, deps: Any | None = None) -> str | None:
-    normalize = _dependency(deps, "_normalize_text", normalize_text)
-    path_cls = _dependency(deps, "Path", Path)
-    discover_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-
-    explicit = normalize(getattr(args, "orca_auto_config", None))
+def _shared_orca_auto_config(args: Any) -> str | None:
+    explicit = normalize_text(getattr(args, "orca_auto_config", None))
     if explicit:
-        return str(path_cls(explicit).expanduser().resolve())
-    return discover_config_path(None)
+        return str(Path(explicit).expanduser().resolve())
+    return _discover_shared_config_path(None)
 
 
-def _normalize_workflow_type(value: Any, *, deps: Any | None = None) -> str:
-    normalize = _dependency(deps, "_normalize_text", normalize_text)
-    return normalize_workflow_template_id(normalize(value))
+def _normalize_workflow_type(value: Any) -> str:
+    return normalize_workflow_template_id(normalize_text(value))
 
 
 def _configure_orca_logging(args: argparse.Namespace) -> None:

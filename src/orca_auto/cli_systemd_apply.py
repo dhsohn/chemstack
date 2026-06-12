@@ -4,10 +4,10 @@ import argparse
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from orca_auto.cli_common import _dependency
 from orca_auto.cli_errors import emit_error
 from orca_auto.systemd_plan import (
     DEFAULT_SYSTEMD_UNIT_DIR,
@@ -99,14 +99,23 @@ def apply_systemd_install_plan(
     return 0
 
 
-def cmd_systemd_install(args: argparse.Namespace, *, deps: Any | None = None) -> int:
-    build_plan = _dependency(deps, "build_systemd_install_plan", build_systemd_install_plan)
-    apply_plan = _dependency(deps, "apply_systemd_install_plan", apply_systemd_install_plan)
-    run = _dependency(deps, "run", subprocess.run)
-    is_root = _dependency(deps, "is_root", _is_root)
+@dataclass(frozen=True)
+class SystemdInstallCliDeps:
+    """Optional overrides for system-effect seams (test injection)."""
+
+    run: Callable[..., subprocess.CompletedProcess[Any]] | None = None
+    is_root: Callable[[], bool] | None = None
+
+
+def cmd_systemd_install(
+    args: argparse.Namespace, *, deps: SystemdInstallCliDeps | None = None
+) -> int:
+    deps = deps or SystemdInstallCliDeps()
+    run = deps.run or subprocess.run
+    is_root = deps.is_root or _is_root
 
     try:
-        plan = build_plan(
+        plan = build_systemd_install_plan(
             target_user=getattr(args, "target_user", None),
             repo=getattr(args, "repo", None),
             config=getattr(args, "config", None),
@@ -125,10 +134,11 @@ def cmd_systemd_install(args: argparse.Namespace, *, deps: Any | None = None) ->
     if bool(getattr(args, "dry_run", False)):
         _print_plan(plan)
         return 0
-    return int(apply_plan(plan, run=run))
+    return int(apply_systemd_install_plan(plan, run=run))
 
 
 __all__ = [
+    "SystemdInstallCliDeps",
     "apply_systemd_install_plan",
     "cmd_systemd_install",
 ]

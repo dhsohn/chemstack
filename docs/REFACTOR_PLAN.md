@@ -66,7 +66,15 @@ Remaining sites — **likely NOT safe to touch blindly**:
 - `src/orca_auto/flow/orchestration/dep_builder_stage_fallbacks.py:190` —
   `del deps_provider`, same caveat.
 
-## Phase 3 — `_dependency(...)` pattern in CLI modules
+## Phase 3 — `_dependency(...)` pattern in CLI modules — **COMPLETE 2026-06-13**
+
+The stringly-typed `_dependency` lookup is extinct: `cli_common._dependency`
+has been deleted along with every call site. (The remaining grep hits for
+"dependency" in src are different, deliberate patterns: the
+`core/queue/dependencies.py` typed-DI container machinery, and
+`flow/engines/xtb/artifacts.py`'s `_required_dependency(explicit, name)`
+explicit-or-raise guard — neither is the stringly-typed deps-namespace
+lookup.)
 
 **`cli_queue.py` DONE 2026-06-12:** all 24 `_dependency` lookups removed.
 Only the watch loop had test-exercised deps (`_emit_queue_list_once`,
@@ -134,13 +142,38 @@ effect with a function-local import), and `_cli_workflow_root_for_args` /
 (`test_cli_plans_and_create_more.py` / `test_cli_helper_edges_more.py` patch
 them).
 
-Usage counts (2026-06-12): `flow/engines/xtb/terminal.py` 18,
-`cli_common.py` 11 (defines it), `cli_systemd_status.py` 9,
-`cli_systemd_apply.py` 5, others <10.
-Suggested next: `flow/engines/xtb/terminal.py` (engine layer, widest blast
-radius — read its queue_runtime_execution/execution callers first).
-`cli_systemd_*.py` has deps-passing tests (`tests/test_cli_systemd.py`) —
-classify before touching.
+**`flow/engines/xtb/terminal.py` DONE 2026-06-13:** this module had its OWN
+`_dependency(deps, explicit, name)` (explicit-or-deps-attr-or-raise; no
+module-global fallback). Both production callers (`worker_terminal.py`,
+`queue_runtime_terminal.py`) always passed every `*_fn` kwarg explicitly and
+nothing in src used `deps=`, so the `*_fn` params are now required
+keyword-only args; the deps channel, the local `_dependency`, and
+`resolve_terminal_dependencies` (a trivial constructor once deps was gone)
+were deleted. One test converted from deps-namespace to explicit kwargs;
+the missing-dependency guard test now asserts Python's required-kwarg
+TypeError.
+
+**`cli_systemd_apply.py` + `cli_systemd_status.py` DONE 2026-06-13:** the
+heaviest deps-USING modules — 11 test call sites in `tests/test_cli_systemd.py`
+inject system-effect seams (`run`, `which`, `is_root`, default user,
+collectors). Converted to typed frozen dataclasses following the
+`QueueCliDeps` precedent: `SystemdInstallCliDeps(run, is_root)` and
+`ServiceCliDeps(run, which, is_root, default_service_user,
+collect_service_status, restart_unit_for_user)`, both exported through the
+`cli_systemd` facade. All 11 test sites now construct the typed deps
+(underscore field names dropped). Removing the `Any`-typed lookups exposed
+that `build_systemd_install_plan` annotated `target_user: str` /
+`repo: str | Path` while `cmd_systemd_install` passes
+`getattr(args, ..., None)`; the plan builder now accepts `| None` and
+validates repo the same way it already validated user (`--repo is required`
+ValueError instead of a `Path(None)` TypeError in the impossible path).
+
+**`cli_common.py` DONE 2026-06-13:** with all importers gone, the 10
+internal lookups in `_workflow_root_for_args`, `_engine_config_for_command`,
+`_shared_orca_auto_config`, `_normalize_workflow_type` became direct calls
+and `_dependency` itself was deleted. Exposed one hidden type issue:
+`_discover_shared_config_path` returns `str | None`, now flowing naturally
+into `shared_workflow_root_from_config(str | Path | None)`.
 
 Tests known to pass `deps=` into this pattern: `tests/test_orca_auto_cli_queue.py:39`
 (`cmd_queue_list(args, deps=deps)`), `tests/test_cli_systemd.py`,

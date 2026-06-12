@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 from orca_auto import cli_style
-from orca_auto.cli_common import _dependency
 from orca_auto.cli_errors import emit_error
 from orca_auto.cli_systemd_apply import _run_command
 from orca_auto.core.utils.coercion import normalize_text
@@ -157,21 +156,34 @@ def _restart_unit_for_user(
     return _worker_unit_for_user(target_user)
 
 
-def _service_target_user(args: argparse.Namespace, *, deps: Any | None = None) -> str:
-    default_user = _dependency(deps, "_default_service_user", _default_service_user)
+@dataclass(frozen=True)
+class ServiceCliDeps:
+    """Optional overrides for system-effect seams (test injection)."""
+
+    run: Callable[..., subprocess.CompletedProcess[Any]] | None = None
+    which: Callable[[str], str | None] | None = None
+    is_root: Callable[[], bool] | None = None
+    default_service_user: Callable[[], str] | None = None
+    collect_service_status: Callable[..., tuple[ServiceUnitStatus, ...]] | None = None
+    restart_unit_for_user: Callable[..., str] | None = None
+
+
+def _service_target_user(args: argparse.Namespace, deps: ServiceCliDeps) -> str:
+    default_user = deps.default_service_user or _default_service_user
     return normalize_text(getattr(args, "target_user", None)) or normalize_text(default_user())
 
 
-def cmd_service_status(args: argparse.Namespace, *, deps: Any | None = None) -> int:
-    which = _dependency(deps, "which", shutil.which)
-    collect_status = _dependency(deps, "collect_service_status", collect_service_status)
+def cmd_service_status(args: argparse.Namespace, *, deps: ServiceCliDeps | None = None) -> int:
+    deps = deps or ServiceCliDeps()
+    which = deps.which or shutil.which
+    collect_status = deps.collect_service_status or collect_service_status
     if not _systemctl_available(which=which):
         emit_error("systemctl is not available in this environment")
         return 1
 
-    target_user = _service_target_user(args, deps=deps)
+    target_user = _service_target_user(args, deps)
     try:
-        statuses = collect_status(target_user, run=_dependency(deps, "run", subprocess.run))
+        statuses = collect_status(target_user, run=deps.run or subprocess.run)
     except ValueError as exc:
         emit_error(exc)
         return 1
@@ -182,11 +194,12 @@ def cmd_service_status(args: argparse.Namespace, *, deps: Any | None = None) -> 
     return 1 if any(status.active == "failed" for status in statuses) else 0
 
 
-def cmd_service_restart(args: argparse.Namespace, *, deps: Any | None = None) -> int:
-    which = _dependency(deps, "which", shutil.which)
-    run = _dependency(deps, "run", subprocess.run)
-    is_root = _dependency(deps, "is_root", _is_root)
-    restart_unit_for_user = _dependency(deps, "_restart_unit_for_user", _restart_unit_for_user)
+def cmd_service_restart(args: argparse.Namespace, *, deps: ServiceCliDeps | None = None) -> int:
+    deps = deps or ServiceCliDeps()
+    which = deps.which or shutil.which
+    run = deps.run or subprocess.run
+    is_root = deps.is_root or _is_root
+    restart_unit_for_user = deps.restart_unit_for_user or _restart_unit_for_user
 
     if not _systemctl_available(which=which):
         emit_error("systemctl is not available in this environment")
@@ -196,7 +209,7 @@ def cmd_service_restart(args: argparse.Namespace, *, deps: Any | None = None) ->
         emit_error("sudo is required to restart system services; rerun as root")
         return 1
 
-    target_user = _service_target_user(args, deps=deps)
+    target_user = _service_target_user(args, deps)
     try:
         unit = restart_unit_for_user(target_user, run=run)
     except ValueError as exc:
@@ -213,6 +226,7 @@ def cmd_service_restart(args: argparse.Namespace, *, deps: Any | None = None) ->
 
 __all__ = [
     "SERVICE_UNIT_ORDER",
+    "ServiceCliDeps",
     "ServiceUnitStatus",
     "cmd_service_restart",
     "cmd_service_status",

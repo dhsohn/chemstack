@@ -109,7 +109,7 @@ def test_cmd_systemd_install_writes_units_and_runs_commands(
 
     result = cli_systemd.cmd_systemd_install(
         args,
-        deps=Namespace(run=_fake_run, is_root=lambda: True),
+        deps=cli_systemd.SystemdInstallCliDeps(run=_fake_run, is_root=lambda: True),
     )
 
     assert result == 0
@@ -145,7 +145,7 @@ def test_cmd_systemd_install_dry_run_does_not_write_units(
 
     result = cli_systemd.cmd_systemd_install(
         args,
-        deps=Namespace(is_root=lambda: True),
+        deps=cli_systemd.SystemdInstallCliDeps(is_root=lambda: True),
     )
 
     assert result == 0
@@ -195,8 +195,8 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
 
     result = cli_systemd.cmd_service_status(
         Namespace(target_user=None),
-        deps=Namespace(
-            _default_service_user=lambda: "alice",
+        deps=cli_systemd.ServiceCliDeps(
+            default_service_user=lambda: "alice",
             run=_fake_run,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
         ),
@@ -239,7 +239,7 @@ def test_cmd_service_status_hides_runtime_managed_enabled_noise(
 
     result = cli_systemd.cmd_service_status(
         Namespace(target_user="alice"),
-        deps=Namespace(
+        deps=cli_systemd.ServiceCliDeps(
             collect_service_status=lambda target_user, run: statuses,
             run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -276,8 +276,8 @@ def test_cmd_service_status_emits_json(capsys: Any) -> None:
 
     result = cli_systemd.cmd_service_status(
         Namespace(target_user=None, json=True),
-        deps=Namespace(
-            _default_service_user=lambda: "alice",
+        deps=cli_systemd.ServiceCliDeps(
+            default_service_user=lambda: "alice",
             run=_fake_run,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
         ),
@@ -295,7 +295,7 @@ def test_cmd_service_status_emits_json(capsys: Any) -> None:
 def test_cmd_service_status_fails_when_systemctl_is_missing(capsys: Any) -> None:
     result = cli_systemd.cmd_service_status(
         Namespace(target_user=None),
-        deps=Namespace(which=lambda name: None),
+        deps=cli_systemd.ServiceCliDeps(which=lambda name: None),
     )
 
     assert result == 1
@@ -322,8 +322,8 @@ def test_cmd_service_restart_prefers_runtime_when_enabled(capsys: Any) -> None:
 
     result = cli_systemd.cmd_service_restart(
         Namespace(target_user=None),
-        deps=Namespace(
-            _default_service_user=lambda: "alice",
+        deps=cli_systemd.ServiceCliDeps(
+            default_service_user=lambda: "alice",
             is_root=lambda: True,
             run=_fake_run,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -355,8 +355,8 @@ def test_cmd_service_restart_falls_back_to_worker_when_runtime_is_disabled() -> 
 
     result = cli_systemd.cmd_service_restart(
         Namespace(target_user=None),
-        deps=Namespace(
-            _default_service_user=lambda: "alice",
+        deps=cli_systemd.ServiceCliDeps(
+            default_service_user=lambda: "alice",
             is_root=lambda: True,
             run=_fake_run,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -377,9 +377,9 @@ def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
 
     result = cli_systemd.cmd_service_restart(
         Namespace(target_user=None),
-        deps=Namespace(
-            _default_service_user=lambda: "alice",
-            _restart_unit_for_user=lambda target_user, run: f"orca_auto-runtime@{target_user}.target",
+        deps=cli_systemd.ServiceCliDeps(
+            default_service_user=lambda: "alice",
+            restart_unit_for_user=lambda target_user, run: f"orca_auto-runtime@{target_user}.target",
             is_root=lambda: False,
             run=_fake_run,
             which=lambda name: f"/usr/bin/{name}" if name in {"systemctl", "sudo"} else None,
@@ -496,7 +496,7 @@ def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) ->
 
     result = cli_systemd.cmd_service_status(
         Namespace(target_user="alice"),
-        deps=Namespace(
+        deps=cli_systemd.ServiceCliDeps(
             collect_service_status=lambda target_user, run: statuses,
             run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
@@ -510,7 +510,7 @@ def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) ->
 def test_cmd_service_restart_requires_sudo_for_non_root_user(capsys: Any) -> None:
     result = cli_systemd.cmd_service_restart(
         Namespace(target_user="alice"),
-        deps=Namespace(
+        deps=cli_systemd.ServiceCliDeps(
             is_root=lambda: False,
             which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
         ),

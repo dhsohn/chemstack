@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from orca_auto.cli_systemd_apply import (
+    SystemdInstallCliDeps,
+    apply_systemd_install_plan,
+    cmd_systemd_install,
+)
+from orca_auto.cli_systemd_apply import (
     _run_command as _run_command,
 )
 from orca_auto.cli_systemd_apply import (
@@ -9,12 +14,9 @@ from orca_auto.cli_systemd_apply import (
 from orca_auto.cli_systemd_apply import (
     _write_units_with_sudo as _write_units_with_sudo,
 )
-from orca_auto.cli_systemd_apply import (
-    apply_systemd_install_plan,
-    cmd_systemd_install,
-)
 from orca_auto.cli_systemd_status import (
     SERVICE_UNIT_ORDER,
+    ServiceCliDeps,
     ServiceUnitStatus,
     cmd_service_restart,
     cmd_service_status,
@@ -130,7 +132,9 @@ __all__ = [
     "SERVICE_UNIT_ORDER",
     "SYSTEMD_UNIT_NAMES",
     "RenderedUnit",
+    "ServiceCliDeps",
     "ServiceUnitStatus",
+    "SystemdInstallCliDeps",
     "SystemdInstallOptions",
     "SystemdInstallPlan",
     "apply_systemd_install_plan",

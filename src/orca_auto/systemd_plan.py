@@ -251,8 +251,8 @@ def _build_systemd_install_plan(options: SystemdInstallOptions) -> SystemdInstal
 
 def build_systemd_install_plan(
     *,
-    target_user: str,
-    repo: str | Path,
+    target_user: str | None,
+    repo: str | Path | None,
     config: str | Path | None = None,
     unit_dir: str | Path = DEFAULT_SYSTEMD_UNIT_DIR,
     worker_only: bool = False,
@@ -266,7 +266,11 @@ def build_systemd_install_plan(
     if not user_text:
         raise ValueError("--user is required")
 
-    repo_path = _normalize_path(repo)
+    repo_text = normalize_text(repo)
+    if not repo_text:
+        raise ValueError("--repo is required")
+
+    repo_path = _normalize_path(repo_text)
     options = SystemdInstallOptions(
         target_user=user_text,
         repo=repo_path,
