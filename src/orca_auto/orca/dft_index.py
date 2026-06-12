@@ -15,33 +15,11 @@ from .dft_index_queries import (
     lowest_energy_filters,
     recent_filters,
 )
-from .dft_index_scanner import (
-    DFTIndexScanner,
-    normalize_status_override,
-    short_file_hash,
-)
+from .dft_index_scanner import DFTIndexScanner, normalize_status_override
 from .dft_index_store import DFTIndexStore
 from .orca_parser import parse_orca_output
 
 logger = logging.getLogger(__name__)
-
-_normalize_status_override = normalize_status_override
-_short_file_hash = short_file_hash
-
-
-def _discover_index_targets(
-    kb_dirs: list[str],
-    *,
-    max_bytes: int,
-) -> dict[str, tuple[str, str | None]]:
-    return DFTIndexScanner().discover_targets(kb_dirs, max_bytes=max_bytes)
-
-
-def _changed_index_targets(
-    existing: dict[str, tuple[str, str]],
-    discovered: dict[str, tuple[str, str | None]],
-) -> tuple[dict[str, tuple[str, str | None]], set[str]]:
-    return DFTIndexScanner().changed_targets(existing, discovered)
 
 
 class DFTIndex:
@@ -59,9 +37,6 @@ class DFTIndex:
     def close(self) -> None:
         """Close the database connection."""
         self._store.close()
-
-    def _require_db(self) -> Any:
-        return self._store._require_db()
 
     # ------------------------------------------------------------------
     # Indexing
@@ -117,7 +92,7 @@ class DFTIndex:
         """Parse and upsert a single file. Returns True on success."""
         try:
             result = parse_orca_output(file_path)
-            normalized_override = _normalize_status_override(status_override)
+            normalized_override = normalize_status_override(status_override)
             if normalized_override is not None:
                 result.status = normalized_override
             self._store.upsert_result(result)
@@ -125,11 +100,6 @@ class DFTIndex:
         except Exception as exc:  # noqa: BLE001
             logger.warning("dft_upsert_failed: path=%s error=%s", file_path, exc)
             return False
-
-    def _upsert(self, db: Any, r: Any) -> None:
-        """Upsert an OrcaResult into dft_calculations."""
-        del db
-        self._store.upsert_result(r)
 
     def _count(self) -> int:
         return self._store.count()

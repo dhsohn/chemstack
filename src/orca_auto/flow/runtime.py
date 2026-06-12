@@ -255,21 +255,6 @@ def _workflow_advance_deps() -> WorkflowAdvanceDeps:
     )
 
 
-def _advance_workflow_record(
-    *,
-    cycle: _WorkflowCycle,
-    record: Any,
-    options: WorkflowEngineOptions,
-) -> tuple[str, WorkflowAdvanceResult]:
-    outcome = _advance_workflow_record_outcome(
-        cycle=cycle,
-        record=record,
-        options=options,
-        deps=_workflow_advance_deps(),
-    )
-    return outcome.outcome, outcome.result
-
-
 def _advance_workflow_records(
     *,
     cycle: _WorkflowCycle,

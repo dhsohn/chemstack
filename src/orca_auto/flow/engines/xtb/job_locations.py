@@ -28,15 +28,6 @@ def reaction_key_from_job_dir(job_dir: Path) -> str:
     return normalize_key(job_dir.name)
 
 
-def reaction_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> str:
-    raw = _engine_locations.normalize_text(selected_input_xyz)
-    if raw:
-        stem = Path(raw).stem.strip()
-        if stem and stem.lower() not in {"r1", "reactant", "input"}:
-            return normalize_key(stem)
-    return reaction_key_from_job_dir(job_dir)
-
-
 _LOCATION_EXPORTS = build_store_backed_engine_job_location_exports(
     engine="xtb",
     spec=_engine_locations.EngineLocationSpec(

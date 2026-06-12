@@ -4,7 +4,6 @@ from typing import Any
 
 from orca_auto.flow.orchestration.dep_types import OrchestrationDeps
 from orca_auto.flow.orchestration.stage_runtime.shared import _orchestration_context
-from orca_auto.flow.orchestration.stage_views import WorkflowStageView
 
 
 def xtb_handoff_status_impl(
@@ -61,10 +60,6 @@ def _empty_xtb_handoff() -> dict[str, str]:
         "message": "",
         "artifact_path": "",
     }
-
-
-def _update_xtb_handoff_metadata(stage_metadata: dict[str, Any], handoff: dict[str, str]) -> None:
-    WorkflowStageView({"metadata": stage_metadata}).set_reaction_handoff(handoff)
 
 
 __all__ = [

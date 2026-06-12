@@ -235,10 +235,6 @@ def _admission_root_for_cfg(cfg: AppConfig) -> str:
     return _queue_module.admission_root(cfg)
 
 
-def _dequeue_next_entry(cfg: AppConfig) -> tuple[Path, QueueEntry] | None:
-    return _queue_module.dequeue_next_entry(cfg)
-
-
 def _reserve_orca_worker_slot(root: str | Path, limit: int, **kwargs: Any) -> str | None:
     slot_kwargs = dict(kwargs)
     slot_kwargs["source"] = "queue_worker"
@@ -318,20 +314,6 @@ def _upsert_running_job_record(cfg: AppConfig, entry: QueueEntry) -> None:
     _tracking_helpers.upsert_running_job_record(
         cfg,
         entry,
-        callbacks=_tracking_callbacks(),
-    )
-
-
-def _tracking_metadata_from_queue_entry(
-    cfg: AppConfig,
-    entry: QueueEntry,
-    *,
-    reaction_dir: Path,
-) -> tuple[str, str, str, dict[str, int], dict[str, int]]:
-    return _tracking_helpers.tracking_metadata_from_queue_entry(
-        cfg,
-        entry,
-        reaction_dir=reaction_dir,
         callbacks=_tracking_callbacks(),
     )
 

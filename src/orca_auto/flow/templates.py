@@ -22,7 +22,6 @@ class WorkflowTemplateSpec:
     cli_shortcut: str
     display_label: str
     scaffold_help: str
-    scaffold_filenames: tuple[str, ...]
 
 
 WORKFLOW_TEMPLATES: tuple[WorkflowTemplateSpec, ...] = (
@@ -31,23 +30,12 @@ WORKFLOW_TEMPLATES: tuple[WorkflowTemplateSpec, ...] = (
         cli_shortcut=REACTION_TS_SEARCH_SHORTCUT,
         display_label=REACTION_TS_SEARCH_SHORTCUT,
         scaffold_help="Create a reaction TS-search scaffold.",
-        scaffold_filenames=(
-            STANDARD_REACTION_REACTANT_FILENAME,
-            STANDARD_REACTION_PRODUCT_FILENAME,
-            "flow.yaml",
-            "README.md",
-        ),
     ),
     WorkflowTemplateSpec(
         template_id=CONFORMER_SCREENING_TEMPLATE_ID,
         cli_shortcut=CONFORMER_SCREENING_SHORTCUT,
         display_label=CONFORMER_SCREENING_SHORTCUT,
         scaffold_help="Create a conformer-screening scaffold.",
-        scaffold_filenames=(
-            STANDARD_CONFORMER_INPUT_FILENAME,
-            "flow.yaml",
-            "README.md",
-        ),
     ),
 )
 

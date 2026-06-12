@@ -130,11 +130,6 @@ class WorkflowTaskView(
     def update_enqueue_payload(self, fields: dict[str, Any]) -> None:
         self.enqueue_payload().update(fields)
 
-    def clear_enqueue_payload_keys(self, *keys: str) -> None:
-        payload = self.enqueue_payload()
-        for key in keys:
-            payload.pop(key, None)
-
     def set_existing_enqueue_payload_field(self, key: str, value: Any) -> None:
         payload = self.enqueue_payload()
         if key in payload:

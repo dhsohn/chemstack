@@ -49,26 +49,6 @@ class ResolvedActivitySources:
                 return text
         return None
 
-    def as_tuple(self) -> tuple[str | None, str | None, str | None, str | None]:
-        return (
-            self.workflow_root,
-            self.crest_config,
-            self.xtb_config,
-            self.orca_config,
-        )
-
-    @classmethod
-    def from_tuple(
-        cls,
-        values: tuple[str | None, str | None, str | None, str | None],
-    ) -> ResolvedActivitySources:
-        return cls(
-            workflow_root=values[0],
-            crest_config=values[1],
-            xtb_config=values[2],
-            orca_config=values[3],
-        )
-
 
 @dataclass(frozen=True)
 class ActivityRecord:

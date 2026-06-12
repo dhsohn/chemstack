@@ -63,10 +63,6 @@ class RunDirWorkflowConfig:
     workflow_type: str
 
     @property
-    def resources_manifest(self) -> dict[str, Any]:
-        return self.sections.resources
-
-    @property
     def crest_manifest(self) -> dict[str, Any]:
         return self.sections.crest
 

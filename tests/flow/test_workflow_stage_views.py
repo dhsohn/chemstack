@@ -32,7 +32,7 @@ def test_task_view_mapping_fields_create_mutable_dicts() -> None:
 def test_task_view_field_helpers_update_and_clear_nested_fields() -> None:
     task: dict[str, Any] = {
         "payload": {"stale": "x"},
-        "enqueue_payload": {"job_dir": "/old", "priority": 1},
+        "enqueue_payload": {"priority": 1},
         "metadata": {"keep": True, "stale": "x"},
     }
     view = WorkflowTaskView(task)
@@ -40,7 +40,6 @@ def test_task_view_field_helpers_update_and_clear_nested_fields() -> None:
     view.set_payload_field("selected_input_xyz", "/tmp/a.xyz")
     view.clear_payload_keys("stale", "missing")
     view.update_enqueue_payload({"priority": 9})
-    view.clear_enqueue_payload_keys("job_dir")
     view.set_metadata_field("attempt", 2)
     view.clear_metadata_keys("stale")
 

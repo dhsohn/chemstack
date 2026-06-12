@@ -11,7 +11,7 @@ from orca_auto.orca.molecule_key import (
     _parse_formula_from_inp,
     _parse_xyz_file,
     _sanitize_key,
-    extract_molecule_key,
+    resolve_molecule_key,
 )
 
 
@@ -136,19 +136,19 @@ class TestDirectoryNameFallback(unittest.TestCase):
             self.assertEqual(_directory_name_fallback(inp), "Int1_DMSO")
 
 
-class TestExtractMoleculeKey(unittest.TestCase):
+class TestResolveMoleculeKey(unittest.TestCase):
 
     def test_tag_takes_priority(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "rxn.inp"
             inp.write_text("# TAG: custom_name\n! Opt\n* xyz 0 1\nC 0 0 0\n*\n")
-            self.assertEqual(extract_molecule_key(inp), "custom_name")
+            self.assertEqual(resolve_molecule_key(inp).key, "custom_name")
 
     def test_formula_when_no_tag(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nC 0 0 0\nH 1 0 0\n*\n")
-            self.assertEqual(extract_molecule_key(inp), "CH")
+            self.assertEqual(resolve_molecule_key(inp).key, "CH")
 
     def test_dirname_when_no_geometry(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -156,4 +156,4 @@ class TestExtractMoleculeKey(unittest.TestCase):
             d.mkdir()
             inp = d / "rxn.inp"
             inp.write_text("! Opt\n")
-            self.assertEqual(extract_molecule_key(inp), "TS1_acetone")
+            self.assertEqual(resolve_molecule_key(inp).key, "TS1_acetone")

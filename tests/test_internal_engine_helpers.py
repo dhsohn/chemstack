@@ -378,50 +378,6 @@ def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
     assert recovery == [(cfg, orphan_entry, "crashed_recovery")]
 
 
-def test_internal_engine_worker_entrypoint_passes_extra_process_kwargs(
-    tmp_path: Path,
-) -> None:
-    cfg = SimpleNamespace(name="cfg")
-    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
-    dependencies = object()
-    processed: list[dict[str, Any]] = []
-    released: list[tuple[str, str]] = []
-    child = InternalEngineSpec(
-        engine="demo",
-        worker_job_module="orca_auto.demo.worker_execution",
-    ).worker_child(RuntimeError)
-
-    entrypoint = child.entrypoint(
-        load_config_fn=lambda _path: cfg,
-        find_queue_entry_fn=lambda _root, _queue_id: entry,
-        admission_root_fn=lambda _cfg: "/tmp/admission",
-        release_slot_fn=lambda root, token: released.append((str(root), token)),
-        install_signal_handlers_fn=lambda _controller: None,
-        process_dequeued_entry_fn=lambda *args, **kwargs: processed.append(
-            {"args": args, "kwargs": kwargs}
-        ),
-        dependencies_fn=lambda: dependencies,
-        requeue_running_entry_fn=lambda *_args: None,
-        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
-        process_dequeued_entry_kwargs_fn=lambda: {"engine_extra": "value"},
-    )
-
-    rc = entrypoint.run_worker_job(
-        config_path="/tmp/demo.yaml",
-        queue_root=tmp_path / "queue",
-        queue_id="queue-1",
-        admission_token="slot-1",
-    )
-
-    assert rc == 0
-    assert released == [("/tmp/admission", "slot-1")]
-    assert processed[0]["args"] == (cfg, entry)
-    kwargs = processed[0]["kwargs"]
-    assert kwargs["queue_root"] == (tmp_path / "queue").resolve()
-    assert kwargs["dependencies"] is dependencies
-    assert kwargs["engine_extra"] == "value"
-
-
 def test_internal_engine_worker_child_merges_default_and_explicit_process_kwargs(
     tmp_path: Path,
 ) -> None:

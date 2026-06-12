@@ -174,25 +174,6 @@ def finalize_state(
     write_state(reaction_dir, state)
 
 
-def _build_report_payload(state: Mapping[str, Any]) -> Dict[str, Any]:
-    attempts = state.get("attempts")
-    if not isinstance(attempts, list):
-        attempts = []
-    return {
-        "job_id": state.get("job_id"),
-        "run_id": state.get("run_id"),
-        "reaction_dir": state.get("reaction_dir"),
-        "selected_inp": state.get("selected_inp"),
-        "status": state.get("status"),
-        "started_at": state.get("started_at"),
-        "updated_at": state.get("updated_at"),
-        "attempt_count": len(attempts),
-        "max_retries": state.get("max_retries"),
-        "attempts": attempts,
-        "final_result": state.get("final_result"),
-    }
-
-
 def _normalized_payload_from_state(reaction_dir: Path, state: Mapping[str, Any]) -> Dict[str, Any]:
     attempts = state.get("attempts")
     if not isinstance(attempts, list):
@@ -250,57 +231,6 @@ def _normalized_payload_from_state(reaction_dir: Path, state: Mapping[str, Any])
             "final_result": final_result,
         },
     )
-
-
-def _render_report_markdown(report_payload: Dict[str, Any]) -> str:
-    lines = [
-        "# ORCA Run Report",
-        "",
-        f"- run_id: `{report_payload['run_id']}`",
-        f"- reaction_dir: `{report_payload['reaction_dir']}`",
-        f"- selected_inp: `{report_payload['selected_inp']}`",
-        f"- status: `{report_payload['status']}`",
-        f"- started_at_utc: `{report_payload['started_at']}`",
-        f"- updated_at_utc: `{report_payload['updated_at']}`",
-        f"- attempt_count: `{report_payload['attempt_count']}`",
-        f"- max_retries: `{report_payload['max_retries']}`",
-        "",
-        "## Attempts",
-        "",
-        "| # | inp | out | return_code | analyzer_status |",
-        "|---:|---|---|---|---|",
-    ]
-    attempts = report_payload["attempts"] or []
-    if attempts:
-        for item in attempts:
-            lines.append(
-                "| {index} | `{inp}` | `{out}` | `{rc}` | `{status}` |".format(
-                    index=item.get("index"),
-                    inp=item.get("inp_path"),
-                    out=item.get("out_path"),
-                    rc=item.get("return_code"),
-                    status=item.get("analyzer_status"),
-                )
-            )
-    else:
-        lines.append("| - | - | - | - | - |")
-
-    lines.extend(["", "## Final Result", ""])
-    final_result = report_payload.get("final_result")
-    if isinstance(final_result, dict):
-        for key in [
-            "status",
-            "analyzer_status",
-            "reason",
-            "completed_at",
-            "last_out_path",
-        ]:
-            if key in final_result:
-                lines.append(f"- {key}: `{final_result[key]}`")
-    else:
-        lines.append("- none")
-    lines.append("")
-    return "\n".join(lines)
 
 
 def write_report_json(reaction_dir: Path, report_payload: Dict[str, Any]) -> Path:

@@ -127,49 +127,6 @@ def build_engine_queued_record(
     )
 
 
-def engine_queued_record_callbacks_from_namespace(
-    namespace: Mapping[str, Any],
-    *,
-    build_record_name: str = "_queued_record",
-    write_state_name: str = "write_state",
-    upsert_job_record_name: str = "upsert_job_record",
-    notify_job_queued_name: str = "notify_job_queued",
-) -> EngineQueuedRecordCallbacks:
-    """Compatibility adapter; prefer constructing EngineQueuedRecordCallbacks."""
-
-    return EngineQueuedRecordCallbacks(
-        build_record=namespace[build_record_name],
-        write_state=namespace[write_state_name],
-        upsert_job_record=namespace[upsert_job_record_name],
-        notify_job_queued=namespace[notify_job_queued_name],
-    )
-
-
-def record_engine_run_dir_queued(
-    cfg: Any,
-    submission: EngineRunDirSubmission,
-    entry: Any,
-    *,
-    namespace: Mapping[str, Any],
-    build_record_name: str = "_queued_record",
-    write_state_name: str = "write_state",
-    upsert_job_record_name: str = "upsert_job_record",
-    notify_job_queued_name: str = "notify_job_queued",
-) -> None:
-    record_engine_run_dir_queued_with_callbacks(
-        cfg,
-        submission,
-        entry,
-        callbacks=engine_queued_record_callbacks_from_namespace(
-            namespace,
-            build_record_name=build_record_name,
-            write_state_name=write_state_name,
-            upsert_job_record_name=upsert_job_record_name,
-            notify_job_queued_name=notify_job_queued_name,
-        ),
-    )
-
-
 def record_engine_run_dir_queued_with_callbacks(
     cfg: Any,
     submission: EngineRunDirSubmission,
@@ -186,33 +143,6 @@ def record_engine_run_dir_queued_with_callbacks(
         upsert_job_record_fn=callbacks.upsert_job_record,
         notify_job_queued_fn=callbacks.notify_job_queued,
     )
-
-
-def engine_run_dir_queued_recorder(
-    namespace: Mapping[str, Any],
-    *,
-    build_record_name: str = "_queued_record",
-    write_state_name: str = "write_state",
-    upsert_job_record_name: str = "upsert_job_record",
-    notify_job_queued_name: str = "notify_job_queued",
-    recorder_name: str = "_record_queued",
-) -> Callable[[Any, EngineRunDirSubmission, Any], None]:
-    def record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
-        record_engine_run_dir_queued(
-            cfg,
-            submission,
-            entry,
-            namespace=namespace,
-            build_record_name=build_record_name,
-            write_state_name=write_state_name,
-            upsert_job_record_name=upsert_job_record_name,
-            notify_job_queued_name=notify_job_queued_name,
-        )
-
-    record_queued.__name__ = recorder_name
-    record_queued.__qualname__ = recorder_name
-    record_queued.__module__ = str(namespace.get("__name__", __name__))
-    return record_queued
 
 
 def engine_run_dir_queued_recorder_from_callbacks(
@@ -235,28 +165,6 @@ def engine_run_dir_queued_recorder_from_callbacks(
     return record_queued
 
 
-def record_queued_common_from_namespace(
-    cfg: Any,
-    submission: EngineRunDirSubmission,
-    entry: Any,
-    *,
-    namespace: Mapping[str, Any],
-    build_record_name: str = "_queued_record",
-    write_state_name: str = "write_state",
-    upsert_job_record_name: str = "upsert_job_record",
-    notify_job_queued_name: str = "notify_job_queued",
-) -> None:
-    """Compatibility adapter for older callers."""
-    record_engine_run_dir_queued(
-        cfg,
-        submission,
-        entry,
-        namespace=namespace,
-        build_record_name=build_record_name,
-        write_state_name=write_state_name,
-        upsert_job_record_name=upsert_job_record_name,
-        notify_job_queued_name=notify_job_queued_name,
-    )
 
 
 def load_yaml_job_manifest(

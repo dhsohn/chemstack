@@ -21,10 +21,6 @@ class MoleculeKeyResolution:
     source: str
 
 
-def extract_molecule_key(inp_path: Path) -> str:
-    return resolve_molecule_key(inp_path).key
-
-
 def resolve_molecule_key(inp_path: Path) -> MoleculeKeyResolution:
     tag = _find_user_tag(inp_path)
     if tag is not None:

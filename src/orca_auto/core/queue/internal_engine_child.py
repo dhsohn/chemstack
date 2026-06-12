@@ -134,37 +134,6 @@ class InternalEngineWorkerChild:
             process_dequeued_entry_kwargs=active_process_kwargs,
         )
 
-    def entrypoint(
-        self,
-        *,
-        load_config_fn: Callable[[str], Any],
-        find_queue_entry_fn: Callable[[Path, str], Any | None],
-        admission_root_fn: Callable[[Any], str | Path],
-        release_slot_fn: Callable[[str | Path, str], Any],
-        install_signal_handlers_fn: Callable[
-            [_child_execution.ChildWorkerShutdownController],
-            Any,
-        ],
-        process_dequeued_entry_fn: Callable[..., Any],
-        dependencies_fn: Callable[[], Any],
-        requeue_running_entry_fn: Callable[[Path, str], Any],
-        mark_recovery_pending_context_fn: Callable[..., Any],
-        process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None,
-    ) -> InternalEngineWorkerEntrypoint:
-        return InternalEngineWorkerEntrypoint(
-            worker_child=self,
-            load_config_fn=load_config_fn,
-            find_queue_entry_fn=find_queue_entry_fn,
-            admission_root_fn=admission_root_fn,
-            release_slot_fn=release_slot_fn,
-            install_signal_handlers_fn=install_signal_handlers_fn,
-            process_dequeued_entry_fn=process_dequeued_entry_fn,
-            dependencies_fn=dependencies_fn,
-            requeue_running_entry_fn=requeue_running_entry_fn,
-            mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
-            process_dequeued_entry_kwargs_fn=process_dequeued_entry_kwargs_fn,
-        )
-
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(prog=f"python -m {self.worker_job_module}")
         parser.add_argument("--config", required=True)
@@ -188,56 +157,7 @@ class InternalEngineWorkerChild:
         return merged or None
 
 
-@dataclass(frozen=True)
-class InternalEngineWorkerEntrypoint:
-    worker_child: InternalEngineWorkerChild
-    load_config_fn: Callable[[str], Any]
-    find_queue_entry_fn: Callable[[Path, str], Any | None]
-    admission_root_fn: Callable[[Any], str | Path]
-    release_slot_fn: Callable[[str | Path, str], Any]
-    install_signal_handlers_fn: Callable[
-        [_child_execution.ChildWorkerShutdownController],
-        Any,
-    ]
-    process_dequeued_entry_fn: Callable[..., Any]
-    dependencies_fn: Callable[[], Any]
-    requeue_running_entry_fn: Callable[[Path, str], Any]
-    mark_recovery_pending_context_fn: Callable[..., Any]
-    process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None
-
-    def run_worker_job(
-        self,
-        *,
-        config_path: str,
-        queue_root: str | Path,
-        queue_id: str,
-        admission_token: str | None = None,
-    ) -> int:
-        process_dequeued_entry_kwargs = (
-            None
-            if self.process_dequeued_entry_kwargs_fn is None
-            else self.process_dequeued_entry_kwargs_fn()
-        )
-        return self.worker_child.run_worker_child_job(
-            config_path=config_path,
-            queue_root=queue_root,
-            queue_id=queue_id,
-            admission_token=admission_token,
-            load_config_fn=self.load_config_fn,
-            find_queue_entry_fn=self.find_queue_entry_fn,
-            admission_root_fn=self.admission_root_fn,
-            release_slot_fn=self.release_slot_fn,
-            install_signal_handlers_fn=self.install_signal_handlers_fn,
-            process_dequeued_entry_fn=self.process_dequeued_entry_fn,
-            dependencies_fn=self.dependencies_fn,
-            requeue_running_entry_fn=self.requeue_running_entry_fn,
-            mark_recovery_pending_context_fn=self.mark_recovery_pending_context_fn,
-            process_dequeued_entry_kwargs=process_dequeued_entry_kwargs,
-        )
-
-
 __all__ = [
     "InternalEngineWorkerChild",
-    "InternalEngineWorkerEntrypoint",
     "create_worker_shutdown_exception_type",
 ]

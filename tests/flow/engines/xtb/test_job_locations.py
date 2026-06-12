@@ -14,7 +14,6 @@ from orca_auto.flow.engines.xtb.job_locations import (
     build_job_location_record,
     normalize_key,
     reaction_key_from_job_dir,
-    reaction_key_from_selected_xyz,
     record_from_artifacts,
     resolve_latest_job_dir,
     upsert_job_record,
@@ -58,13 +57,10 @@ def test_normalize_key_sanitizes_and_defaults(raw: str, expected: str) -> None:
     assert normalize_key(raw) == expected
 
 
-def test_reaction_key_helpers_prefer_selected_name_and_fallbacks(tmp_path: Path) -> None:
+def test_reaction_key_from_job_dir_normalizes_name(tmp_path: Path) -> None:
     job_dir = tmp_path / "Screening Batch"
 
     assert reaction_key_from_job_dir(job_dir) == "screening_batch"
-    assert reaction_key_from_selected_xyz("/tmp/Fancy Product.xyz", job_dir) == "fancy_product"
-    assert reaction_key_from_selected_xyz("/tmp/input.xyz", job_dir) == "screening_batch"
-    assert reaction_key_from_selected_xyz("   ", job_dir) == "screening_batch"
 
 
 def test_resource_dict_and_terminal_status_helpers() -> None:

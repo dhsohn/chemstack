@@ -7,9 +7,8 @@ from typing import Any
 from orca_auto.core.queue import lifecycle as _queue_lifecycle
 from orca_auto.core.queue.internal_engine import InternalEngineSpec
 
-_ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="xtb").lifecycle_module_exports()
 queue_lifecycle = SimpleNamespace(
-    finalize_child_exit=_ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit,
+    finalize_child_exit=InternalEngineSpec(engine="xtb").lifecycle().finalize_child_exit,
     live_worker_pid_slots=_queue_lifecycle.live_worker_pid_slots,
 )
 

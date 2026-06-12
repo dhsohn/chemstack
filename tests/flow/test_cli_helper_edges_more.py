@@ -86,10 +86,6 @@ def test_cli_run_dir_manifest_and_path_resolution_edges(
     with pytest.raises(ValueError, match="Run directory manifest must contain a mapping"):
         run_dir_manifest._load_run_dir_manifest(workflow_dir)
 
-    assert run_dir_manifest._resolve_manifest_file_value(workflow_dir, None) == ""
-    assert run_dir_manifest._resolve_manifest_file_value(workflow_dir, "inputs/input.xyz") == str(
-        (workflow_dir / "inputs" / "input.xyz").resolve()
-    )
     assert run_dir_manifest._resolve_run_dir_path(
         workflow_dir,
         explicit=None,

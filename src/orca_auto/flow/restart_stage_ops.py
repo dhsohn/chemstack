@@ -85,14 +85,6 @@ def _task_payload(task: dict[str, Any]) -> dict[str, Any]:
     return WorkflowTaskView(task).payload(None)
 
 
-def _enqueue_payload(task: dict[str, Any]) -> dict[str, Any]:
-    return WorkflowTaskView(task).enqueue_payload()
-
-
-def _task_is_orca(task: dict[str, Any]) -> bool:
-    return _RESTART_STAGE_CONTEXT.task_is_orca(WorkflowTaskView(task))
-
-
 def _task_engine(task: dict[str, Any]) -> str:
     return _RESTART_STAGE_CONTEXT.task_engine(WorkflowTaskView(task))
 

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from ..config import AppConfig
 from ..job_locations import resource_dict, upsert_job_record
-from ..organize_index import append_record, to_reaction_relative_path
+from ..organize_index import to_reaction_relative_path
 from ..result_organizer import OrganizePlan
 from ..state import ORGANIZED_REF_NAME, now_utc_iso, write_organized_ref
 from ..types import RunState
@@ -123,12 +122,3 @@ def restore_tracking_after_rollback(
     )
 
 
-def record_successful_move(
-    cfg: AppConfig,
-    *,
-    organized_root: Path,
-    plan: OrganizePlan,
-    state_after_move: RunState,
-) -> None:
-    write_tracking_after_move(cfg, plan=plan, state_after_move=state_after_move)
-    append_record(organized_root, build_index_record(plan, state_after_move))

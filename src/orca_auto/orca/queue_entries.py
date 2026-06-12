@@ -206,22 +206,3 @@ def find_active_entry(
     )
 
 
-def find_terminal_entry(
-    entries: Sequence[_QueueEntryT], reaction_dir: str
-) -> _QueueEntryT | None:
-    return _core_queue.find_entry_by_key(
-        entries,
-        reaction_dir,
-        key_fn=queue_entry_reaction_dir,
-        statuses=TERMINAL_STATUSES,
-        reverse=True,
-    )
-
-
-def find_entry_by_queue_id(
-    entries: Sequence[_QueueEntryT], queue_id: str
-) -> _QueueEntryT | None:
-    for entry in entries:
-        if queue_entry_id(entry) == queue_id:
-            return entry
-    return None

@@ -90,18 +90,6 @@ def _load_entries(allowed_root: Path) -> list[QueueEntry]:
     )
 
 
-def _mutate_entries(
-    allowed_root: Path,
-    mutator: Any,
-) -> Any:
-    return _queue_store.mutate_entries(
-        allowed_root,
-        mutator,
-        load_entries_fn=_load_entries,
-        save_entries_fn=_queue_store.save_entries,
-    )
-
-
 class DuplicateEntryError(ValueError):
     """Raised when enqueueing a reaction_dir that already has an active entry."""
 

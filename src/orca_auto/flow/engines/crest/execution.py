@@ -61,9 +61,6 @@ from orca_auto.flow.engines.crest.terminal import (
     mark_queue_terminal as _terminal_mark_queue_terminal,
 )
 from orca_auto.flow.engines.crest.terminal import (
-    sync_job_tracking as _terminal_sync_job_tracking,
-)
-from orca_auto.flow.engines.crest.terminal import (
     write_execution_artifacts as _terminal_write_execution_artifacts,
 )
 from orca_auto.flow.engines.crest.terminal import (
@@ -399,21 +396,6 @@ def _mark_queue_terminal(
         context,
         result,
         queue_deps=dependencies.queue,
-    )
-
-
-def _sync_job_tracking(
-    cfg: Any,
-    context: ExecutionContext,
-    result: CrestRunResult,
-    *,
-    dependencies: WorkerExecutionDependencies,
-) -> Path | None:
-    return _terminal_sync_job_tracking(
-        cfg,
-        context,
-        result,
-        tracking_deps=dependencies.tracking,
     )
 
 

@@ -10,7 +10,7 @@ from .result_organizer_filesystem import (
     execute_move,
     rollback_move,
 )
-from .result_organizer_models import REQUIRED_FILES, OrganizePlan, SkipReason
+from .result_organizer_models import OrganizePlan, SkipReason
 from .result_organizer_planning import (
     FREQ_RE,
     OPT_RE,

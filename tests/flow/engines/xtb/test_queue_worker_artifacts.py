@@ -8,7 +8,6 @@ from typing import Any, cast
 import pytest
 
 from orca_auto.core.queue import processes as queue_processes_mod
-from orca_auto.flow.engines.xtb import artifacts as artifacts_mod
 from orca_auto.flow.engines.xtb import execution as worker_exec
 from orca_auto.flow.engines.xtb import queue_runtime as queue_cmd
 from orca_auto.flow.engines.xtb import state as state_mod
@@ -430,84 +429,5 @@ def test_ensure_terminal_queue_status_skips_terminal_and_marks_nonterminal(
             "queue-1",
             "worker_exit_code_1",
             {"job_type": "ranking"},
-        )
-    ]
-
-
-def test_mark_recovery_pending_state_requires_dependencies(tmp_path: Path) -> None:
-    cfg = _make_cfg(tmp_path)
-    entry = SimpleNamespace(task_id="job-1")
-
-    with pytest.raises(TypeError, match="job_dir_fn"):
-        artifacts_mod.mark_recovery_pending_state(cfg, entry, reason="worker_lost")
-
-
-def test_mark_recovery_pending_state_records_recovery_payload(tmp_path: Path) -> None:
-    cfg = _make_cfg(tmp_path)
-    job_dir = Path(cfg.runtime.allowed_root) / "job-1"
-    job_dir.mkdir()
-    selected_xyz = job_dir / "input.xyz"
-    selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
-    entry = _make_entry(
-        job_dir,
-        selected_xyz,
-        job_type="ranking",
-        reaction_key="rxn-1",
-        input_summary={"candidate_count": 1, "candidate_paths": [str(selected_xyz)]},
-    )
-    recovery_calls: list[tuple[Path, dict[str, object]]] = []
-    upsert_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    resource_request = {"max_cores": 4, "max_memory_gb": 8}
-
-    artifacts_mod.mark_recovery_pending_state(
-        cfg,
-        entry,
-        reason="worker_lost",
-        job_dir_fn=lambda _entry: job_dir,
-        selected_xyz_fn=lambda _entry: selected_xyz,
-        job_type_fn=lambda _entry: "ranking",
-        reaction_key_fn=lambda _entry, _job_dir: "rxn-1",
-        input_summary_fn=lambda _entry: {
-            "candidate_count": 1,
-            "candidate_paths": [str(selected_xyz)],
-        },
-        entry_resource_request_fn=lambda _cfg, _entry: resource_request,
-        mark_recovery_pending_fn=lambda job_dir_arg, **kwargs: recovery_calls.append(
-            (job_dir_arg, kwargs)
-        ),
-        upsert_job_record_fn=lambda *args, **kwargs: upsert_calls.append((args, kwargs)),
-    )
-
-    assert recovery_calls == [
-        (
-            job_dir,
-            {
-                "job_id": "job-1",
-                "selected_input_xyz": str(selected_xyz),
-                "job_type": "ranking",
-                "reaction_key": "rxn-1",
-                "input_summary": {
-                    "candidate_count": 1,
-                    "candidate_paths": [str(selected_xyz)],
-                },
-                "resource_request": resource_request,
-                "resource_actual": resource_request,
-                "reason": "worker_lost",
-            },
-        )
-    ]
-    assert upsert_calls == [
-        (
-            (cfg,),
-            {
-                "job_id": "job-1",
-                "status": "pending",
-                "job_dir": job_dir,
-                "selected_input_xyz": str(selected_xyz),
-                "job_type": "ranking",
-                "reaction_key": "rxn-1",
-                "resource_request": resource_request,
-                "resource_actual": resource_request,
-            },
         )
     ]

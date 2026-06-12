@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -10,9 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from orca_auto.core.engines import orca_execution as worker_job
-from orca_auto.core.engines.orca_execution import cmd_run_job, execute_run_job
+from orca_auto.core.engines.orca_execution import execute_run_job
 from orca_auto.core.queue.types import QueueEntry, QueueStatus
-from orca_auto.orca.orca_runner import OrcaRunner
 from orca_auto.orca.queue_adapter import dequeue_next, enqueue
 
 
@@ -35,35 +33,6 @@ def test_execute_run_job_builds_run_inp_execution_request(mock_execute: MagicMoc
     assert mock_execute.call_args.kwargs["reservation_token"] == "slot_123"
     assert mock_execute.call_args.kwargs["admission_app_name"] == "orca_auto_orca"
     assert mock_execute.call_args.kwargs["admission_task_id"] == "task_123"
-
-
-def test_cmd_run_job_rejects_legacy_reaction_dir_mode() -> None:
-    with pytest.raises(ValueError, match="legacy ORCA --reaction-dir worker mode"):
-        cmd_run_job(Namespace(config="/tmp/config.yaml", reaction_dir="/tmp/rxn", force=True))
-
-
-def test_start_background_run_job_rejects_legacy_reaction_dir_mode() -> None:
-    with pytest.raises(ValueError, match="legacy ORCA --reaction-dir worker mode"):
-        worker_job.start_background_run_job(
-            config_path="/tmp/config.yaml",
-            reaction_dir="/tmp/rxn",
-            force=True,
-            admission_token="slot_123",
-            admission_app_name="orca_auto_orca",
-            admission_task_id="task_123",
-        )
-
-
-def test_start_background_run_job_rejects_custom_runner_cls() -> None:
-    class CustomRunner(OrcaRunner):
-        pass
-
-    with pytest.raises(ValueError, match="legacy ORCA --reaction-dir worker mode"):
-        worker_job.start_background_run_job(
-            config_path="/tmp/config.yaml",
-            reaction_dir="/tmp/rxn",
-            runner_cls=CustomRunner,
-        )
 
 
 def test_build_worker_child_command_uses_queue_identity(tmp_path: Path) -> None:

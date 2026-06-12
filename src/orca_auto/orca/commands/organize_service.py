@@ -82,66 +82,6 @@ def resolve_organize_scope(
     return plan_root_scan_fn(root, organized_root)
 
 
-def build_apply_dependencies(
-    *,
-    acquire_index_lock_fn: Any,
-    append_failed_rollback_fn: Any,
-    append_record_fn: Any,
-    build_index_record_fn: Any,
-    check_conflict_fn: Any,
-    cleanup_organized_ref_stub_fn: Any,
-    execute_move_fn: Any,
-    load_index_fn: Any,
-    now_utc_iso_fn: Any,
-    rollback_move_fn: Any,
-    send_organize_notification_fn: Any,
-    sync_state_after_move_fn: Any,
-    sync_state_after_rollback_fn: Any,
-    write_tracking_after_move_fn: Any,
-    restore_tracking_after_rollback_fn: Any,
-    log: logging.Logger = logger,
-    plan_conflict_result_fn: Any = None,
-    bookkeep_successful_move_fn: Any = None,
-    bookkeep_rollback_failure_fn: Any = None,
-    rollback_after_apply_failure_fn: Any = None,
-    apply_one_organize_plan_fn: Any = None,
-) -> _organize_apply.OrganizeApplyDependencies:
-    groups = OrganizeApplyDependencyGroups(
-        index=_organize_apply.OrganizeApplyIndexDeps(
-            acquire_index_lock=acquire_index_lock_fn,
-            append_failed_rollback=append_failed_rollback_fn,
-            append_record=append_record_fn,
-            build_index_record=build_index_record_fn,
-            check_conflict=check_conflict_fn,
-            load_index=load_index_fn,
-            now_utc_iso=now_utc_iso_fn,
-        ),
-        move=_organize_apply.OrganizeApplyMoveDeps(
-            cleanup_organized_ref_stub=cleanup_organized_ref_stub_fn,
-            execute_move=execute_move_fn,
-            rollback_move=rollback_move_fn,
-        ),
-        tracking=_organize_apply.OrganizeApplyTrackingDeps(
-            sync_state_after_move=sync_state_after_move_fn,
-            sync_state_after_rollback=sync_state_after_rollback_fn,
-            write_tracking_after_move=write_tracking_after_move_fn,
-            restore_tracking_after_rollback=restore_tracking_after_rollback_fn,
-        ),
-        notifications=_organize_apply.OrganizeApplyNotificationDeps(
-            send_organize_notification=send_organize_notification_fn,
-            log=log,
-        ),
-        extensions=_organize_apply.OrganizeApplyExtensionDeps(
-            plan_conflict_result=plan_conflict_result_fn,
-            bookkeep_successful_move=bookkeep_successful_move_fn,
-            bookkeep_rollback_failure=bookkeep_rollback_failure_fn,
-            rollback_after_apply_failure=rollback_after_apply_failure_fn,
-            apply_one_organize_plan=apply_one_organize_plan_fn,
-        ),
-    )
-    return groups.to_dependencies()
-
-
 def build_apply_dependencies_from_groups(
     *,
     index: _organize_apply.OrganizeApplyIndexDeps,

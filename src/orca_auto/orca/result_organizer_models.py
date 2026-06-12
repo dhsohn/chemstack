@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-REQUIRED_FILES = ["job_state.json", "job_report.json", "job_report.md"]
-
 
 @dataclass
 class SkipReason:

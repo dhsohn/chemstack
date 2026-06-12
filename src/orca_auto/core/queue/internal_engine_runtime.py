@@ -41,15 +41,6 @@ class InternalEngineQueueRuntime:
             ),
         )
 
-    @classmethod
-    def from_runtime(
-        cls,
-        *,
-        spec: InternalEngineSpec,
-        runtime: EngineQueueRuntime,
-    ) -> InternalEngineQueueRuntime:
-        return cls(spec=spec, runtime=runtime)
-
     def queue_roots(self, cfg: Any) -> tuple[Path, ...]:
         return self.runtime.queue_roots(cfg)
 

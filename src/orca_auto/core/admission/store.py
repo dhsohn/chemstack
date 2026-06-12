@@ -98,10 +98,6 @@ def _slot_owner_alive(slot: AdmissionSlot) -> bool:
     return observed == expected
 
 
-def _live_slots(root: Path) -> list[AdmissionSlot]:
-    return [slot for slot in _load_slots(root) if _slot_owner_alive(slot)]
-
-
 def _normalize_work_dir_set(work_dirs: set[str] | None) -> set[str]:
     normalized: set[str] = set()
     for work_dir in work_dirs or set():

@@ -77,13 +77,6 @@ class OutAnalysis:
     reason: str
     markers: OutMarkers
 
-    @property
-    def recoverable(self) -> bool:
-        return self.status not in {
-            AnalyzerStatus.COMPLETED,
-            AnalyzerStatus.ERROR_MULTIPLICITY_IMPOSSIBLE,
-        }
-
 
 def _default_markers(out_path: Path) -> OutMarkers:
     return {

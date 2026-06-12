@@ -269,39 +269,6 @@ class EngineArtifactSnapshot:
             resource_actual=resource_actual,
         )
 
-    @classmethod
-    def from_artifacts(
-        cls,
-        *,
-        spec: Any,
-        job_dir: Path,
-        state: dict[str, Any],
-        report: dict[str, Any],
-        organized_ref: dict[str, Any],
-        existing: JobLocationRecord | None = None,
-        fallback_payload_kind: str | None = None,
-        job_status_sources: tuple[dict[str, Any], ...],
-        detail_sources: tuple[dict[str, Any], ...],
-        use_existing_fallback: bool,
-        organized_output_sources: tuple[dict[str, Any], ...],
-    ) -> EngineArtifactSnapshot:
-        return cls.from_request(
-            EngineArtifactSnapshotRequest(
-                spec=spec,
-                job_dir=job_dir,
-                state=state,
-                report=report,
-                organized_ref=organized_ref,
-                existing=existing,
-                fallback_payload_kind=fallback_payload_kind,
-                job_status_sources=job_status_sources,
-                detail_sources=detail_sources,
-                use_existing_fallback=use_existing_fallback,
-                organized_output_sources=organized_output_sources,
-            )
-        )
-
-
 def _first_value(sources: tuple[dict[str, Any], ...], key: str) -> Any:
     return first_artifact_value(sources, key)
 

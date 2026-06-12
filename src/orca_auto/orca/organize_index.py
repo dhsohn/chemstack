@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional
 
-from orca_auto.core.paths import resolve_artifact_path
 from orca_auto.core.utils import process_lock
 
 from .state import atomic_write_text, load_state, now_utc_iso
@@ -75,12 +74,6 @@ def to_reaction_relative_path(path_value: Any, reaction_dir: Path) -> str:
     if normalized.parts and normalized.parts[0] == ".":
         normalized = Path(*normalized.parts[1:])
     return str(normalized)
-
-
-def resolve_state_path(path_value: Any, reaction_dir: Path) -> Optional[Path]:
-    if not isinstance(path_value, str) or not path_value.strip():
-        return None
-    return resolve_artifact_path(path_value, reaction_dir)
 
 
 def _build_index_record(

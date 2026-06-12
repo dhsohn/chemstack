@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar, cast
+from typing import Any, ClassVar, TypeVar
 
 from orca_auto.core.utils.coercion import normalize_bool, normalize_text, safe_float, safe_int
 
@@ -95,9 +95,6 @@ class RuntimeAdmissionMixin:
     @property
     def resolved_admission_limit(self) -> int:
         return resolved_admission_limit(self.admission_limit, self.max_concurrent)
-
-    def to_common_runtime_config(self: _RuntimeAdmissionConfigT) -> _RuntimeAdmissionConfigT:
-        return cast(_RuntimeAdmissionConfigT, replace(cast(Any, self)))
 
 
 def default_sibling_organized_root(allowed_root: str, dirname: str) -> str:

@@ -17,6 +17,7 @@ from orca_auto.core.config.engines import (
 )
 from orca_auto.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 from orca_auto.flow.engines.crest import execution as worker_execution
+from orca_auto.flow.engines.crest import terminal as crest_terminal
 from orca_auto.flow.engines.crest.runner import CrestRunResult, _build_command
 
 
@@ -166,11 +167,11 @@ def test_sync_job_tracking_omits_organized_output_for_crest(
         upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
     )
 
-    organized_output_dir = worker_execution._sync_job_tracking(
+    organized_output_dir = crest_terminal.sync_job_tracking(
         SimpleNamespace(),
         context,
         result,
-        dependencies=deps,
+        tracking_deps=deps.tracking,
     )
 
     assert organized_output_dir is None

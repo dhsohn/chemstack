@@ -243,11 +243,10 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.resources.max_cores_per_task, 12)
             self.assertEqual(cfg.resources.max_memory_gb_per_task, 48)
 
-            common_runtime = cfg.runtime.to_common_runtime_config()
-            self.assertEqual(common_runtime.allowed_root, str(allowed))
-            self.assertEqual(common_runtime.max_concurrent, 6)
-            self.assertEqual(common_runtime.resolved_admission_limit, 6)
-            self.assertEqual(common_runtime.resolved_admission_root, str(root / "admission"))
+            self.assertEqual(cfg.runtime.allowed_root, str(allowed))
+            self.assertEqual(cfg.runtime.max_concurrent, 6)
+            self.assertEqual(cfg.runtime.resolved_admission_limit, 6)
+            self.assertEqual(cfg.runtime.resolved_admission_root, str(root / "admission"))
 
     def test_behavior_auto_organize_is_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as td:

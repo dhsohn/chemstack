@@ -50,66 +50,12 @@ class EngineNotificationModule:
     ) -> bool:
         return self.delivery.deliver_lifecycle(cfg, request)
 
-    def notify_lifecycle(
-        self,
-        cfg: Any,
-        *,
-        headline: str,
-        job_id: str,
-        queue_id: str,
-        job_dir: Path,
-        selected_xyz: Path,
-        detail_values: Mapping[str, object],
-    ) -> bool:
-        return self.notify_lifecycle_request(
-            cfg,
-            EngineJobLifecycleRequest(
-                headline=headline,
-                job_id=job_id,
-                queue_id=queue_id,
-                job_dir=job_dir,
-                selected_xyz=selected_xyz,
-                detail_values=detail_values,
-            ),
-        )
-
     def notify_terminal_request(
         self,
         cfg: Any,
         request: EngineJobTerminalRequest,
     ) -> bool:
         return self.delivery.deliver_terminal(cfg, request)
-
-    def notify_terminal(
-        self,
-        cfg: Any,
-        *,
-        headline: str,
-        job_id: str,
-        queue_id: str,
-        status: str,
-        reason: str,
-        job_dir: Path,
-        selected_xyz: Path,
-        count_value: int,
-        detail_values: Mapping[str, object],
-        extra_lines: list[str] | None = None,
-    ) -> bool:
-        return self.notify_terminal_request(
-            cfg,
-            EngineJobTerminalRequest(
-                headline=headline,
-                job_id=job_id,
-                queue_id=queue_id,
-                status=status,
-                reason=reason,
-                job_dir=job_dir,
-                selected_xyz=selected_xyz,
-                count_value=count_value,
-                detail_values=detail_values,
-                extra_lines=extra_lines,
-            ),
-        )
 
     def notify_finished_request(
         self,
@@ -242,9 +188,6 @@ class EngineJobNotifications:
             terminal_count_field=self.notifications.terminal_count_field,
             terminal_count_param_name=self.terminal_count_param_name,
         )
-
-    def _detail_values(self, values: Mapping[str, object]) -> dict[str, object]:
-        return self.request_factory.detail_values(values)
 
     def _lifecycle_request(
         self,

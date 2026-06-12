@@ -6,9 +6,8 @@ from types import SimpleNamespace
 from orca_auto.core.queue.internal_engine import InternalEngineSpec
 from orca_auto.core.queue.types import QueueStatus
 
-_ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="crest").lifecycle_module_exports()
 queue_lifecycle = SimpleNamespace(
-    finalize_child_exit=_ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit,
+    finalize_child_exit=InternalEngineSpec(engine="crest").lifecycle().finalize_child_exit,
 )
 
 

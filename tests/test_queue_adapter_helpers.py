@@ -194,7 +194,7 @@ def test_apply_terminal_reconciliation_updates_fields_and_clears_completed_error
     assert failed_entry.error == "boom"
 
 
-def test_find_helpers_cover_active_terminal_and_queue_id_lookup() -> None:
+def test_find_active_entry_matches_first_active_for_reaction_dir() -> None:
     entries = [
         _entry("q_pending", "/tmp/a", QueueStatus.PENDING.value),
         _entry("q_running", "/tmp/a", QueueStatus.RUNNING.value),
@@ -204,11 +204,6 @@ def test_find_helpers_cover_active_terminal_and_queue_id_lookup() -> None:
 
     assert queue_entries.find_active_entry(entries, "/tmp/a") == entries[0]
     assert queue_entries.find_active_entry(entries, "/tmp/missing") is None
-    assert queue_entries.find_terminal_entry(entries, "/tmp/a") == entries[2]
-    assert queue_entries.find_terminal_entry(entries, "/tmp/b") == entries[3]
-    assert queue_entries.find_terminal_entry(entries, "/tmp/missing") is None
-    assert queue_entries.find_entry_by_queue_id(entries, "q_running") == entries[1]
-    assert queue_entries.find_entry_by_queue_id(entries, "q_missing") is None
 
 
 def test_find_entry_by_target_matches_orca_cancel_aliases(tmp_path: Path) -> None:

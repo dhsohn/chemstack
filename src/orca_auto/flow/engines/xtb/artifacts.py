@@ -204,61 +204,6 @@ def write_running_state(
     )
 
 
-def mark_recovery_pending_state(
-    cfg: Any,
-    entry: Any,
-    *,
-    reason: str,
-    job_dir_fn: Callable[[Any], Path] | None = None,
-    selected_xyz_fn: Callable[[Any], Path] | None = None,
-    job_type_fn: Callable[[Any], str] | None = None,
-    reaction_key_fn: Callable[[Any, Path], str] | None = None,
-    input_summary_fn: Callable[[Any], dict[str, Any]] | None = None,
-    entry_resource_request_fn: Callable[[Any, Any], dict[str, int]] | None = None,
-    mark_recovery_pending_fn: Callable[..., Any] | None = None,
-    upsert_job_record_fn: Callable[..., Any] | None = None,
-) -> None:
-    job_dir_resolver = _required_dependency(job_dir_fn, "job_dir_fn")
-    selected_xyz_resolver = _required_dependency(selected_xyz_fn, "selected_xyz_fn")
-    job_type_resolver = _required_dependency(job_type_fn, "job_type_fn")
-    reaction_key_resolver = _required_dependency(reaction_key_fn, "reaction_key_fn")
-    input_summary_resolver = _required_dependency(input_summary_fn, "input_summary_fn")
-    entry_resource_request = _required_dependency(
-        entry_resource_request_fn,
-        "entry_resource_request_fn",
-    )
-    mark_recovery_pending = _required_dependency(
-        mark_recovery_pending_fn,
-        "mark_recovery_pending_fn",
-    )
-    upsert_job_record = _required_dependency(upsert_job_record_fn, "upsert_job_record_fn")
-    job_dir = job_dir_resolver(entry)
-    selected_xyz = selected_xyz_resolver(entry)
-    job_type = job_type_resolver(entry)
-    reaction_key = reaction_key_resolver(entry, job_dir)
-    input_summary = input_summary_resolver(entry)
-    resource_request = entry_resource_request(cfg, entry)
-    _engine_execution.mark_recovery_pending_and_record(
-        cfg,
-        job_dir=job_dir,
-        selected_input_xyz=selected_xyz,
-        entry=entry,
-        reason=reason,
-        resource_request=resource_request,
-        mark_recovery_pending_fn=mark_recovery_pending,
-        upsert_job_record_fn=upsert_job_record,
-        state_identity_fields={
-            "job_type": job_type,
-            "reaction_key": reaction_key,
-            "input_summary": input_summary,
-        },
-        record_identity_fields={
-            "job_type": job_type,
-            "reaction_key": reaction_key,
-        },
-    )
-
-
 def resource_caps(cfg: Any) -> dict[str, int]:
     return _engine_execution.default_engine_resource_caps(cfg)
 

@@ -10,6 +10,7 @@ from typing import Any, Callable, cast
 import pytest
 
 from orca_auto.flow.engines.crest import execution as worker_execution
+from orca_auto.flow.engines.crest import terminal as crest_terminal
 from orca_auto.flow.engines.crest.runner import CrestRunResult
 from orca_auto.flow.engines.crest.state import REPORT_MD_FILE_NAME, load_report_json, load_state
 from tests.engine_artifact_helpers import (
@@ -601,11 +602,11 @@ def test_sync_job_tracking_never_organizes_for_crest(tmp_path: Path) -> None:
         upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
     )
 
-    organized_output_dir = worker_execution._sync_job_tracking(
+    organized_output_dir = crest_terminal.sync_job_tracking(
         cfg,
         context,
         result,
-        dependencies=deps,
+        tracking_deps=deps.tracking,
     )
 
     assert organized_output_dir is None

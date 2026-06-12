@@ -71,21 +71,6 @@ def test_common_runtime_config_resolved_admission_limit_lower_bounds(
     assert config.resolved_admission_limit == expected_limit
 
 
-def test_common_runtime_config_can_copy_common_fields() -> None:
-    config = CommonRuntimeConfig(
-        allowed_root="/allowed",
-        organized_root="/organized",
-        max_concurrent=2,
-        admission_root="/admission",
-        admission_limit=1,
-    )
-
-    copied = config.to_common_runtime_config()
-
-    assert copied == config
-    assert copied is not config
-
-
 def test_retry_runtime_config_normalizes_shared_runtime_fields() -> None:
     config = SiblingRetryRuntimeConfig(
         allowed_root="/runs/engine",

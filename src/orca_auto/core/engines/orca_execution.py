@@ -90,31 +90,6 @@ def _canonical_admission_app_name(value: str | None) -> str | None:
     return text
 
 
-def _build_background_run_job_command(
-    *,
-    config_path: str,
-    reaction_dir: str,
-    force: bool = False,
-    admission_token: str | None = None,
-    admission_app_name: str | None = None,
-    admission_task_id: str | None = None,
-) -> list[str]:
-    raise ValueError("legacy ORCA --reaction-dir worker mode has been removed")
-
-
-def start_background_run_job(
-    *,
-    config_path: str,
-    reaction_dir: str,
-    force: bool = False,
-    admission_token: str | None = None,
-    admission_app_name: str | None = None,
-    admission_task_id: str | None = None,
-    runner_cls: Type[OrcaRunner] = OrcaRunner,
-) -> BackgroundRunJobProcess[str]:
-    raise ValueError("legacy ORCA --reaction-dir worker mode has been removed")
-
-
 def _queue_entry_by_id(queue_root: Path, queue_id: str) -> Any | None:
     return find_queue_entry_by_id(
         queue_root,
@@ -260,11 +235,6 @@ def execute_run_job(
     )
 
 
-def cmd_run_job(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
-    del args, runner_cls
-    raise ValueError("legacy ORCA --reaction-dir worker mode has been removed")
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=f"python -m {WORKER_JOB_MODULE}")
     parser.add_argument("--config", required=True)
@@ -296,7 +266,6 @@ __all__ = [
     "WorkerShutdownRequested",
     "build_parser",
     "build_worker_child_command",
-    "cmd_run_job",
     "execute_run_job",
     "main",
     "process_dequeued_entry",

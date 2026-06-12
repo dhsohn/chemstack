@@ -8,22 +8,9 @@ from orca_auto import activity_labels as _activity_labels
 from orca_auto import terminal_table as _terminal_table
 from orca_auto.core.utils import normalize_text
 
-_QUEUE_COLUMN_GAP = _terminal_table.QUEUE_COLUMN_GAP
-_QUEUE_MIN_WIDTHS = _terminal_table.QUEUE_MIN_WIDTHS
-_QUEUE_SHRINK_ORDER = _terminal_table.QUEUE_SHRINK_ORDER
-_QUEUE_HEADERS = _terminal_table.QUEUE_HEADERS
-
 
 def _queue_table_now() -> datetime:
     return _activity_labels.queue_table_now()
-
-
-def _parse_activity_timestamp(value: Any) -> datetime | None:
-    return _activity_labels.parse_activity_timestamp(value)
-
-
-def _queue_elapsed_started_at(item: dict[str, Any]) -> datetime | None:
-    return _activity_labels.queue_elapsed_started_at(item)
 
 
 def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) -> str:
@@ -34,76 +21,20 @@ def _queue_status_icon(item: dict[str, Any]) -> str:
     return _activity_labels.queue_status_icon(item)
 
 
-def _queue_task_label(task_kind: Any) -> str:
-    return _activity_labels.queue_task_label(task_kind)
-
-
-def _infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:
-    return _activity_labels.infer_orca_detail_from_metadata(metadata)
-
-
-def _workflow_detail_text(metadata: dict[str, Any]) -> str:
-    return _activity_labels.workflow_detail_text(metadata)
-
-
-def _crest_detail_text(metadata: dict[str, Any]) -> str:
-    return _activity_labels.crest_detail_text(metadata)
-
-
-def _xtb_detail_text(metadata: dict[str, Any]) -> str:
-    return _activity_labels.xtb_detail_text(metadata)
-
-
 def _queue_detail_text(item: dict[str, Any]) -> str:
     return _activity_labels.queue_detail_text(item)
-
-
-def _queue_looks_like_path(value: str) -> bool:
-    return _activity_labels.queue_looks_like_path(value)
-
-
-def _queue_path_name(value: Any) -> str:
-    return _activity_labels.queue_path_name(value)
-
-
-def _queue_metadata_path_name(metadata: dict[str, Any], keys: Sequence[str]) -> str:
-    return _activity_labels.queue_metadata_path_name(metadata, keys)
 
 
 def _queue_name_text(item: dict[str, Any]) -> str:
     return _activity_labels.queue_name_text(item)
 
 
-def _queue_truncate(value: str, *, max_width: int) -> str:
-    return _terminal_table.truncate(value, max_width=max_width)
-
-
-def _queue_char_width(char: str) -> int:
-    return _terminal_table.char_width(char)
-
-
-def _queue_text(value: Any) -> str:
-    return _terminal_table.table_text(value)
-
-
 def _queue_display_width(value: str) -> int:
     return _terminal_table.display_width(value)
 
 
-def _queue_trim_to_width(value: str, max_width: int) -> str:
-    return _terminal_table.trim_to_width(value, max_width)
-
-
-def _queue_pad_right(value: str, width: int) -> str:
-    return _terminal_table.pad_right(value, width)
-
-
 def _terminal_max_width() -> int | None:
     return _terminal_table.terminal_max_width(get_terminal_size=shutil.get_terminal_size)
-
-
-def _fit_queue_widths(widths: dict[str, int], *, max_total: int | None) -> dict[str, int]:
-    return _terminal_table.fit_queue_widths(widths, max_total=max_total)
 
 
 def _prepare_queue_table_rows(
@@ -128,32 +59,6 @@ def _prepare_queue_table_rows(
             }
         )
     return prepared
-
-
-def _queue_table_columns(*, include_id: bool) -> list[str]:
-    return _terminal_table.queue_table_columns(include_id=include_id)
-
-
-def _queue_table_header_width(key: str, prepared: Sequence[dict[str, str]]) -> int:
-    return _terminal_table.queue_table_header_width(key, prepared)
-
-
-def _queue_table_widths(
-    prepared: Sequence[dict[str, str]],
-    columns: Sequence[str],
-    *,
-    max_width: int | None = None,
-) -> dict[str, int]:
-    return _terminal_table.queue_table_widths(prepared, columns, max_width=max_width)
-
-
-def _render_queue_table_row(
-    values: dict[str, str],
-    *,
-    columns: Sequence[str],
-    widths: dict[str, int],
-) -> str:
-    return _terminal_table.render_queue_table_row(values, columns=columns, widths=widths)
 
 
 def queue_table_lines(

@@ -53,20 +53,8 @@ def _emit_organize(payload: Dict[str, Any]) -> None:
     _organize_output.emit_organize(payload)
 
 
-def _plan_to_dict(plan: OrganizePlan) -> Dict[str, Any]:
-    return _organize_output.plan_to_dict(plan)
-
-
 def _build_index_record(plan: OrganizePlan, state: Mapping[str, Any]) -> Dict[str, Any]:
     return _organize_tracking.build_index_record(plan, state)
-
-
-def _tracking_resources(cfg: AppConfig) -> dict[str, int]:
-    return _organize_tracking.tracking_resources(cfg)
-
-
-def _tracking_job_id(plan: OrganizePlan, state: RunState) -> str:
-    return _organize_tracking.tracking_job_id(plan, state)
 
 
 def _write_tracking_after_move(
@@ -351,31 +339,6 @@ def _apply_organize_plans(
         cfg,
         notify_summary=notify_summary,
         deps=_apply_dependencies(),
-    )
-
-
-def _organize_no_plan_result(reaction_dir: Path, skips: list[SkipReason]) -> Dict[str, Any]:
-    return _organize_service.organize_no_plan_result(reaction_dir, skips)
-
-
-def _organize_failure_result(reaction_dir: Path, summary: Dict[str, Any]) -> Dict[str, Any]:
-    return _organize_service.organize_failure_result(reaction_dir, summary)
-
-
-def _organize_success_result(organized: list[Any]) -> Dict[str, Any] | None:
-    return _organize_service.organize_success_result(organized)
-
-
-def _organize_skipped_result(
-    reaction_dir: Path,
-    *,
-    skipped_results: list[Any],
-    skips: list[SkipReason],
-) -> Dict[str, Any]:
-    return _organize_service.organize_skipped_result(
-        reaction_dir,
-        skipped_results=skipped_results,
-        skips=skips,
     )
 
 

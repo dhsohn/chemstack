@@ -21,9 +21,6 @@ from .manifest import (
 from .manifest import (
     resolve_engine_manifest as _shared_resolve_engine_manifest,
 )
-from .manifest import (
-    resolve_manifest_file_value as _shared_resolve_manifest_file_value,
-)
 from .run_dir_layout import (
     STANDARD_CONFORMER_INPUT_FILENAME,
     STANDARD_REACTION_PRODUCT_FILENAME,
@@ -42,42 +39,6 @@ def _load_run_dir_manifest(workflow_dir: Path, *, deps: Any | None = None) -> di
         filenames=tuple(manifest_filenames),
         description="Run directory manifest",
     )
-
-
-def _manifest_mapping(value: Any, *, deps: Any | None = None) -> dict[str, Any]:
-    del deps
-    return _shared_manifest_mapping(value)
-
-
-def _resolve_manifest_file_value(
-    workflow_dir: Path,
-    value: Any,
-    *,
-    deps: Any | None = None,
-) -> str:
-    del deps
-    return _shared_resolve_manifest_file_value(workflow_dir, value)
-
-
-def _resolve_engine_manifest(
-    workflow_dir: Path,
-    manifest: dict[str, Any],
-    key: str,
-    *,
-    deps: Any | None = None,
-) -> dict[str, Any]:
-    del deps
-    return _shared_resolve_engine_manifest(workflow_dir, manifest, key)
-
-
-def _resolve_endpoint_pairing_manifest(
-    manifest: dict[str, Any],
-    xtb_manifest: dict[str, Any],
-    *,
-    deps: Any | None = None,
-) -> dict[str, Any]:
-    del deps
-    return _shared_resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
 
 
 def _resolve_run_dir_path(
@@ -138,21 +99,14 @@ def _resolve_run_dir_workflow_type(
 def _resolve_run_dir_manifest_sections(
     workflow_dir: Path, manifest: dict[str, Any], *, deps: Any | None = None
 ) -> RunDirManifestSections:
-    manifest_mapping = _dependency(deps, "_manifest_mapping", _manifest_mapping)
-    resolve_engine_manifest = _dependency(
-        deps, "_resolve_engine_manifest", _resolve_engine_manifest
-    )
-    resolve_endpoint_pairing_manifest = _dependency(
-        deps, "_resolve_endpoint_pairing_manifest", _resolve_endpoint_pairing_manifest
-    )
-
-    xtb_manifest = resolve_engine_manifest(workflow_dir, manifest, "xtb")
+    del deps
+    xtb_manifest = _shared_resolve_engine_manifest(workflow_dir, manifest, "xtb")
     return RunDirManifestSections(
-        resources=manifest_mapping(manifest.get("resources")),
-        crest=resolve_engine_manifest(workflow_dir, manifest, "crest"),
+        resources=_shared_manifest_mapping(manifest.get("resources")),
+        crest=_shared_resolve_engine_manifest(workflow_dir, manifest, "crest"),
         xtb=xtb_manifest,
-        endpoint_pairing=resolve_endpoint_pairing_manifest(manifest, xtb_manifest),
-        orca=resolve_engine_manifest(workflow_dir, manifest, "orca"),
+        endpoint_pairing=_shared_resolve_endpoint_pairing_manifest(manifest, xtb_manifest),
+        orca=_shared_resolve_engine_manifest(workflow_dir, manifest, "orca"),
     )
 
 
