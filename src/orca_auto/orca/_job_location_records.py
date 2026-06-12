@@ -25,7 +25,7 @@ from ._job_location_utils import (
 )
 from .config import AppConfig
 from .molecule_key import resolve_molecule_key
-from .result_organizer import detect_job_type
+from .result_organizer_planning import detect_job_type
 from .state import load_organized_ref, load_report_json, state_path
 
 _MOLECULE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")

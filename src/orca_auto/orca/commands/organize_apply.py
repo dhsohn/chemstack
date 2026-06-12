@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict
 
 from ..config import AppConfig
-from ..result_organizer import OrganizePlan, SkipReason
+from ..result_organizer_models import OrganizePlan, SkipReason
 
 logger = logging.getLogger(__name__)
 

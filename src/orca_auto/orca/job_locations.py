@@ -44,7 +44,7 @@ from ._job_location_records import (
 from ._job_location_utils import INDEX_DIR_NAME, QUEUE_FILE_NAME
 from .config import AppConfig
 from .molecule_key import resolve_molecule_key
-from .result_organizer import detect_job_type
+from .result_organizer_planning import detect_job_type
 from .state import (
     REPORT_JSON_NAME,
     REPORT_MD_NAME,

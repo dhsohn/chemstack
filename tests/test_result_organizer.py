@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from typing import Mapping
 
-from orca_auto.orca.result_organizer import (
-    check_conflict,
+from orca_auto.orca.result_organizer_filesystem import check_conflict
+from orca_auto.orca.result_organizer_planning import (
     check_eligibility,
     compute_organize_plan,
     detect_job_type,

@@ -6,8 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-from orca_auto.orca import result_organizer
-from orca_auto.orca.result_organizer import OrganizePlan
+from orca_auto.orca import result_organizer_filesystem as organizer_fs
+from orca_auto.orca import result_organizer_planning as organizer_planning
+from orca_auto.orca import result_organizer_state as organizer_state
+from orca_auto.orca.result_organizer_models import OrganizePlan
 from orca_auto.orca.state import save_state
 
 
@@ -48,9 +50,9 @@ def test_attempt_and_metadata_helpers_cover_edge_cases(tmp_path: Path) -> None:
     retry_out = reaction_dir / "retry.out"
     retry_out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
-    assert result_organizer._attempt_is_successful({"analyzer_status": "completed"}) is True
-    assert result_organizer._attempt_is_successful({"return_code": 0}) is True
-    assert result_organizer._attempt_is_successful({"return_code": 3}) is False
+    assert organizer_planning._attempt_is_successful({"analyzer_status": "completed"}) is True
+    assert organizer_planning._attempt_is_successful({"return_code": 0}) is True
+    assert organizer_planning._attempt_is_successful({"return_code": 3}) is False
 
     state = {
         "selected_inp": str(selected_inp),
@@ -66,10 +68,10 @@ def test_attempt_and_metadata_helpers_cover_edge_cases(tmp_path: Path) -> None:
             type("Resolution", (), {"source": "directory_fallback", "key": "unknown"})(),
             type("Resolution", (), {"source": "input_file", "key": "H2"})(),
         ]
-        assert result_organizer._last_successful_attempt_inp_path(state, reaction_dir) == retry_inp.resolve()
-        assert result_organizer.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
+        assert organizer_planning._last_successful_attempt_inp_path(state, reaction_dir) == retry_inp.resolve()
+        assert organizer_planning.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
 
-    assert result_organizer.resolve_organize_metadata({"selected_inp": ""}, reaction_dir) == (
+    assert organizer_planning.resolve_organize_metadata({"selected_inp": ""}, reaction_dir) == (
         None,
         "other",
         "unknown",
@@ -86,7 +88,7 @@ def test_plan_root_scan_handles_rglob_failure(tmp_path: Path) -> None:
         raise OSError("scan failed")
 
     with patch.object(Path, "rglob", autospec=True, side_effect=_bad_rglob):
-        plans, skips = result_organizer.plan_root_scan(root, organized_root)
+        plans, skips = organizer_planning.plan_root_scan(root, organized_root)
 
     assert plans == []
     assert skips == []
@@ -101,12 +103,12 @@ def test_verify_copytree_raises_for_missing_and_size_mismatch(tmp_path: Path) ->
     src_file.write_text("12345", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="missing"):
-        result_organizer._verify_copytree(source, target)
+        organizer_fs._verify_copytree(source, target)
 
     dst_file = target / "calc.out"
     dst_file.write_text("12", encoding="utf-8")
     with pytest.raises(RuntimeError, match="size mismatch"):
-        result_organizer._verify_copytree(source, target)
+        organizer_fs._verify_copytree(source, target)
 
 
 def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_path: Path) -> None:
@@ -118,7 +120,7 @@ def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_pa
     ), patch(
         "orca_auto.orca.result_organizer_filesystem._cross_device_move"
     ) as cross_device_move:
-        result_organizer.execute_move(plan)
+        organizer_fs.execute_move(plan)
 
     cross_device_move.assert_called_once_with(plan.source_dir, plan.target_abs_path)
 
@@ -132,14 +134,14 @@ def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_pa
     ), patch(
         "orca_auto.orca.result_organizer_filesystem._cross_device_move"
     ) as cross_device_move:
-        result_organizer.rollback_move(plan)
+        organizer_fs.rollback_move(plan)
 
     cross_device_move.assert_called_once_with(plan.target_abs_path, plan.source_dir)
 
     plan.target_abs_path.mkdir(parents=True, exist_ok=True)
     plan.source_dir.mkdir(parents=True, exist_ok=True)
     with pytest.raises(RuntimeError, match="Rollback blocked"):
-        result_organizer.rollback_move(plan)
+        organizer_fs.rollback_move(plan)
 
 
 def test_sync_state_after_relocation_updates_paths_and_raises_for_invalid_state(tmp_path: Path) -> None:
@@ -183,7 +185,7 @@ def test_sync_state_after_relocation_updates_paths_and_raises_for_invalid_state(
     }
     _write_state(target_dir, state_payload)
 
-    synced = result_organizer._sync_state_after_relocation(
+    synced = organizer_state._sync_state_after_relocation(
         state_dir=target_dir,
         source_dir=source_dir,
         target_dir=target_dir,
@@ -199,7 +201,7 @@ def test_sync_state_after_relocation_updates_paths_and_raises_for_invalid_state(
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     with pytest.raises(RuntimeError, match="invalid state"):
-        result_organizer._sync_state_after_relocation(
+        organizer_state._sync_state_after_relocation(
             state_dir=empty_dir,
             source_dir=source_dir,
             target_dir=target_dir,
@@ -214,16 +216,16 @@ def test_moved_path_helpers_and_fsync_directory_cover_noop_and_success(tmp_path:
     target_inp = target_dir / "calc.inp"
     target_inp.write_text("! Opt\n", encoding="utf-8")
 
-    assert result_organizer._remap_moved_path("relative.out", source_dir, target_dir) == "relative.out"
-    assert result_organizer._remap_moved_path(str(tmp_path / "other" / "calc.out"), source_dir, target_dir) == str(
+    assert organizer_state._remap_moved_path("relative.out", source_dir, target_dir) == "relative.out"
+    assert organizer_state._remap_moved_path(str(tmp_path / "other" / "calc.out"), source_dir, target_dir) == str(
         tmp_path / "other" / "calc.out"
     )
-    assert result_organizer._normalize_moved_artifact_path(
+    assert organizer_state._normalize_moved_artifact_path(
         str(source_dir / "calc.inp"),
         source_dir,
         target_dir,
     ) == str(target_inp.resolve())
-    assert result_organizer._normalize_moved_artifact_path(
+    assert organizer_state._normalize_moved_artifact_path(
         str(source_dir / "missing.inp"),
         source_dir,
         target_dir,
@@ -232,7 +234,7 @@ def test_moved_path_helpers_and_fsync_directory_cover_noop_and_success(tmp_path:
     with patch("orca_auto.orca.result_organizer_filesystem.os.open", return_value=11) as os_open, patch(
         "orca_auto.orca.result_organizer_filesystem.os.fsync"
     ) as fsync, patch("orca_auto.orca.result_organizer_filesystem.os.close") as close:
-        result_organizer._fsync_directory(target_dir)
+        organizer_fs._fsync_directory(target_dir)
 
     os_open.assert_called_once()
     fsync.assert_called_once_with(11)

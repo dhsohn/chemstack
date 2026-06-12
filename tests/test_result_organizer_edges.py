@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-import orca_auto.orca.result_organizer as organizer
-from orca_auto.orca.result_organizer import OrganizePlan
+from orca_auto.orca import result_organizer_filesystem as organizer_fs
+from orca_auto.orca import result_organizer_planning as organizer_planning
+from orca_auto.orca import result_organizer_state as organizer_state
+from orca_auto.orca.result_organizer_models import OrganizePlan
 from orca_auto.orca.state import save_state
 
 
@@ -54,7 +56,7 @@ def test_check_eligibility_rejects_blank_or_invalid_status_as_schema_invalid(
         },
     )
 
-    state, skip = organizer.check_eligibility(reaction_dir)
+    state, skip = organizer_planning.check_eligibility(reaction_dir)
 
     assert state is None
     assert skip is not None
@@ -77,7 +79,7 @@ def test_last_successful_attempt_inp_path_returns_none_when_no_attempt_is_usable
         "final_result": {},
     }
 
-    assert organizer._last_successful_attempt_inp_path(state, reaction_dir) is None
+    assert organizer_planning._last_successful_attempt_inp_path(state, reaction_dir) is None
 
 
 def test_select_organize_metadata_uses_successful_retry_when_selected_input_is_missing(
@@ -106,7 +108,7 @@ def test_select_organize_metadata_uses_successful_retry_when_selected_input_is_m
         "orca_auto.orca.result_organizer_planning.resolve_molecule_key",
         return_value=SimpleNamespace(source="input_file", key="H2"),
     ):
-        assert organizer.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
+        assert organizer_planning.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
 
 
 def test_last_successful_attempt_returns_successful_retry_without_final_output_match(
@@ -127,7 +129,7 @@ def test_last_successful_attempt_returns_successful_retry_without_final_output_m
         "final_result": {},
     }
 
-    assert organizer._last_successful_attempt_inp_path(state, reaction_dir) == retry_inp.resolve()
+    assert organizer_planning._last_successful_attempt_inp_path(state, reaction_dir) == retry_inp.resolve()
 
 
 def test_compute_organize_plan_requires_non_empty_string_run_id(tmp_path: Path) -> None:
@@ -135,10 +137,10 @@ def test_compute_organize_plan_requires_non_empty_string_run_id(tmp_path: Path) 
     reaction_dir.mkdir()
 
     with pytest.raises(RuntimeError, match="missing run_id"):
-        organizer.compute_organize_plan(reaction_dir, {"run_id": ""}, tmp_path / "organized")
+        organizer_planning.compute_organize_plan(reaction_dir, {"run_id": ""}, tmp_path / "organized")
 
     with pytest.raises(RuntimeError, match="missing run_id"):
-        organizer.compute_organize_plan(reaction_dir, {"run_id": 123}, tmp_path / "organized")
+        organizer_planning.compute_organize_plan(reaction_dir, {"run_id": 123}, tmp_path / "organized")
 
 
 def test_rollback_move_reraises_non_exdev_oserror(tmp_path: Path) -> None:
@@ -150,7 +152,7 @@ def test_rollback_move_reraises_non_exdev_oserror(tmp_path: Path) -> None:
         side_effect=OSError(errno.EPERM, "permission denied"),
     ):
         with pytest.raises(OSError) as exc_info:
-            organizer.rollback_move(plan)
+            organizer_fs.rollback_move(plan)
 
     assert exc_info.value.errno == errno.EPERM
 
@@ -164,7 +166,7 @@ def test_sync_state_after_move_and_rollback_use_expected_relocation_paths(tmp_pa
         "orca_auto.orca.result_organizer_state._sync_state_after_relocation",
         return_value=moved_state,
     ) as sync_state:
-        assert organizer.sync_state_after_move(plan) == moved_state
+        assert organizer_state.sync_state_after_move(plan) == moved_state
         sync_state.assert_called_once_with(
             state_dir=plan.target_abs_path,
             source_dir=plan.source_dir,
@@ -175,7 +177,7 @@ def test_sync_state_after_move_and_rollback_use_expected_relocation_paths(tmp_pa
         "orca_auto.orca.result_organizer_state._sync_state_after_relocation",
         return_value=rolled_back_state,
     ) as sync_state:
-        assert organizer.sync_state_after_rollback(plan) == rolled_back_state
+        assert organizer_state.sync_state_after_rollback(plan) == rolled_back_state
         sync_state.assert_called_once_with(
             state_dir=plan.source_dir,
             source_dir=plan.target_abs_path,
