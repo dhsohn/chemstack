@@ -248,6 +248,52 @@ annotation leaf ~15 modules import), `dep_builders.py` (all builder/fallback
 machinery), `deps.py` (public entry: `orchestration_deps` /
 `orchestration_context`).
 
+## Phase 6 — Re-export facade modules, round 2 — **DONE 2026-06-13**
+
+A reverse-import sweep over the remaining import-only modules (imports +
+`__all__`, zero defs) found five facades whose consumers could all point at
+the real modules directly. No test monkeypatched any of them (every reference
+was a plain import), so each was deleted and its importers repointed:
+
+- `flow/orchestration/steps.py` — test-only facade (21 `*_impl` re-exports).
+  `test_orchestration_final_push.py` now imports from `lifecycle` /
+  `materialization` / `stage_runtime.*` / `support` / `workflow_builders` /
+  `deps`. Dropped from the orchestration `__init__` lazy-submodule map.
+- `core/notifications/engine_module.py` — `engines.py` / `engine_specs.py` /
+  `test_engine_notifications.py` now import from the real `engine_delivery` /
+  `engine_jobs` / `engine_notifier` modules.
+- `flow/runtime_events.py` — `runtime.py` now imports straight from
+  `runtime_results` / `stage_transition_events`. Its 8 event-name mirrors
+  (`stage_key` … `handoff_transition_event_payload`) and the
+  `ACTIVE_TERMINAL_SYNC_STATUSES` re-export had no consumer anywhere and were
+  dropped (same precedent as Phase 5's deps.py mirror removal). The
+  advance-helper mirrors pinned by
+  `test_refactor_cleanup.py::test_runtime_facade_keeps_advance_helpers_available`
+  are untouched. `test_runtime.py` imports `stage_transition_event_payloads`
+  from the real module.
+- `cli_systemd.py` — 146 lines re-exporting `cli_systemd_apply` /
+  `cli_systemd_status` / `systemd_plan`, including ~25 consumer-less
+  `_private as _private` lines. `cli_parser_systemd.py` and the two CLI test
+  files import the three real modules now; the `args.func is cmd_*` identity
+  asserts still hold because the facade re-exported the same objects.
+- `flow/submitters/internal_engine.py` — namespace facade over
+  `internal_engine_builder/_cancellation/_models/_submission`. `xtb.py` /
+  `crest.py` / `orca.py` / `test_submitters_common_engines.py` repointed,
+  lazy-map entry dropped. Caution for next time: a multi-line
+  `from ...submitters import (internal_engine,)` in that test was invisible
+  to a single-line reverse-import grep — the full src+tests mypy run is what
+  caught it.
+
+Kept as intended: `orca/job_locations.py` (public face of the
+underscore-private `_job_location_*` cluster) and the wide-fan-in aggregators
+(`core/queue/engine_execution.py` / `worker.py` / `internal_engine.py`,
+`core/notifications/engines.py`, `core/indexing/engines.py`, `flow/state.py`,
+`flow/registry.py`) — each consumed as API by 4–10 src modules. Also surveyed
+and declined: merging the `flow/engines/xtb` ↔ `crest` parallel packages —
+after engine-name normalization the module pairs are only 0.4–0.8 similar
+(`terminal.py` 0.16, `execution.py` 0.51), so a shared parameterized core
+would add DI indirection, the exact pattern this plan removes.
+
 ## Deliberately kept (do not "clean up")
 
 - `DFTIndex` query API (`get_stats`, `get_recent`, `get_lowest_energy`,
