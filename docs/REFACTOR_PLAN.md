@@ -48,7 +48,7 @@ What was done (deviations from the original plan noted):
   `test_organize_message.py`, `test_organize_cli.py` (patch
   `organize_service.append_record` now).
 
-## Phase 2 — Remove `del deps` no-op parameters
+## Phase 2 — Remove `del deps` no-op parameters — **CLOSED 2026-06-13**
 
 **DONE 2026-06-12 (partial):** the 3 `run_dir_manifest.py` wrappers
 (`_manifest_mapping`, `_resolve_engine_manifest`,
@@ -56,15 +56,25 @@ What was done (deviations from the original plan noted):
 `_resolve_run_dir_manifest_sections` now calls the `.manifest` shared
 functions directly (no test overrode those `_dependency` names — verified).
 
-Remaining sites — **likely NOT safe to touch blindly**:
+**Resolution of the flagged sites (2026-06-13)** — the dispatch-table caution
+was warranted; mapping confirmed the remaining `del deps` are load-bearing:
 
-- `src/orca_auto/flow/orchestration/stage_runtime/xtb_retry.py` — 3 `*_impl`
-  functions with `deps: OrchestrationDeps | None` + `del deps`. The `_impl`
-  suffix suggests uniform-signature dispatch (callers may pass `deps=` to all
-  impls); map the dispatch table in `flow/orchestration/__init__.py` /
-  `stage_runtime/` before changing signatures.
-- `src/orca_auto/flow/orchestration/dep_builder_stage_fallbacks.py:190` —
-  `del deps_provider`, same caveat.
+- `stage_runtime/xtb_retry.py` impls: everything registered through
+  `_bind_many_with_deps` is wrapped by `_bind_with_deps`, whose wrapper
+  ALWAYS injects `kwargs["deps"] = deps_provider.get()` at call time — so
+  bound impls must accept a `deps` keyword even when unused. The `del deps`
+  in `xtb_attempt_record_impl` / `xtb_current_attempt_number_impl` stays
+  (now listed under "Deliberately kept"). One genuinely dead chain WAS
+  removed: `xtb_attempt_rows_impl` + the `_xtb_attempt_rows` container field
+  (`dep_types.OrchestrationStageRuntimeDeps`) + its registry entry and
+  re-exports had no caller anywhere — `o.stages._xtb_attempt_rows` was never
+  read (the underlying `WorkflowStageView.xtb_attempt_rows()` method stays;
+  stage_view_mutators uses it).
+- `dep_builder_stage_fallbacks.py` `*_for_context` adapters (incl. the
+  line-190 `del deps_provider`): all five are consumed uniformly as
+  `factory(overrides, deps_provider)` by the `_StageDepFallbackSpec`
+  registry in `dep_builder_factories.py`; each `del`s the argument it does
+  not need. Uniform-dispatch adapters — deliberately kept.
 
 ## Phase 3 — `_dependency(...)` pattern in CLI modules — **COMPLETE 2026-06-13**
 
@@ -189,18 +199,25 @@ Do one module per PR-sized change. Suggested order: `cli_queue.py` (smallest
 blast radius, single deps-using test file), then `flow/cli_run_dir.py`, then
 `flow/cli_workflow.py`.
 
-## Phase 4 — Re-export facade modules
+## Phase 4 — Re-export facade modules — **DONE 2026-06-13**
 
-- `src/orca_auto/orca/result_organizer.py` — pure re-export with
-  `# ruff: noqa: F401`, including private names (`_cross_device_move`, ...).
-  Repoint importers to the real modules (`result_organizer_planning`,
-  `result_organizer_filesystem`, `result_organizer_state`,
-  `result_organizer_models`), then delete or minimize the facade.
-- `src/orca_auto/core/notifications/telegram.py` — same shape (96-line
-  `__all__` re-export). Same treatment.
-- Keep `flow/adapters/__init__.py`, `flow/orchestration/__init__.py`,
-  `flow/submitters/__init__.py` lazy-import `__getattr__`/`__dir__` machinery —
-  intentional API surface.
+- `orca/result_organizer.py` — DELETED. 8 src importers and 8 test files
+  repointed to the real modules (`result_organizer_planning` /
+  `_filesystem` / `_state` / `_models`); the organizer.*-style test files
+  now import the real modules under `organizer_planning` / `organizer_fs` /
+  `organizer_state` aliases. The one facade mock target
+  (`test_organize_index_helpers.py` patching `resolve_organize_metadata`)
+  now patches `result_organizer_planning`, matching the repointed lazy
+  import in `organize_index.py`.
+- `core/notifications/telegram.py` — DELETED. Its only non-re-export
+  content (a module-level `urlopen_with_ipv4_fallback` wrapper + LOGGER)
+  had no callers; `telegram_transport.py` / `telegram_api.py` bind their
+  own wrappers. The notifications package `__init__` keeps the same public
+  API, now importing from the real modules. No test monkeypatched facade
+  attributes.
+- Kept as intended: `flow/adapters/__init__.py`,
+  `flow/orchestration/__init__.py`, `flow/submitters/__init__.py`
+  lazy-import `__getattr__`/`__dir__` machinery — intentional API surface.
 
 ## Phase 5 (stretch) — Orchestration `dep_builder_*` fragmentation
 
@@ -218,3 +235,7 @@ token budget and after Phases 1–4.
   `_terminal_max_width`, `cli_queue._queue_table_lines`, `worker_process._pid_file_path`.
 - Protocol positional-only params named `__x` in `core/queue/dependencies.py`
   (vulture false positive).
+- `del deps` in `stage_runtime/xtb_retry.py` bound impls and
+  `del overrides` / `del deps_provider` in the
+  `dep_builder_stage_fallbacks.py` `*_for_context` adapters — uniform
+  dispatch interfaces (see Phase 2 resolution).

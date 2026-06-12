@@ -83,7 +83,6 @@ class OrchestrationStageRuntimeDeps:
     _sync_xtb_stage: AnyCallable
     _write_xtb_path_job: AnyCallable
     _xtb_attempt_record: AnyCallable
-    _xtb_attempt_rows: AnyCallable
     _xtb_current_attempt_number: AnyCallable
     _xtb_handoff_status: AnyCallable
     _xtb_path_retry_limit: AnyCallable

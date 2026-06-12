@@ -8,13 +8,6 @@ from orca_auto.flow.orchestration.stage_runtime.shared import _orchestration_con
 from orca_auto.flow.orchestration.stage_views import WorkflowStageView
 
 
-def xtb_attempt_rows_impl(
-    stage: dict[str, Any], *, deps: OrchestrationDeps | None = None
-) -> list[dict[str, Any]]:
-    del deps
-    return WorkflowStageView(stage).xtb_attempt_rows()
-
-
 def xtb_attempt_record_impl(
     stage: dict[str, Any],
     *,
@@ -109,7 +102,6 @@ def _xtb_path_job_dir(xtb_allowed_root: Path, stage_id: str, attempt_number: int
 
 __all__ = [
     "xtb_attempt_record_impl",
-    "xtb_attempt_rows_impl",
     "xtb_current_attempt_number_impl",
     "xtb_path_retry_limit_impl",
     "xtb_retry_recipe_impl",
