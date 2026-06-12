@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from orca_auto.cli_common import _dependency
 from orca_auto.cli_errors import emit_error
 from orca_auto.cli_worker_conflicts import (
     _detect_existing_orca_worker_conflict,
@@ -39,8 +38,7 @@ class _SupervisorShutdown:
     requested: bool = False
 
 
-def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) -> None:
-    timer = _dependency(deps, "time", time)
+def _terminate_process(proc: subprocess.Popen[Any]) -> None:
     if proc.poll() is not None:
         return
     try:
@@ -49,9 +47,9 @@ def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) 
         LOGGER.debug("failed to terminate supervised worker process", exc_info=True)
         return
 
-    deadline = timer.monotonic() + 10.0
-    while proc.poll() is None and timer.monotonic() < deadline:
-        timer.sleep(0.1)
+    deadline = time.monotonic() + 10.0
+    while proc.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.1)
     if proc.poll() is not None:
         return
 
@@ -61,60 +59,42 @@ def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) 
         LOGGER.debug("failed to kill supervised worker process", exc_info=True)
         return
 
-    deadline = timer.monotonic() + 5.0
-    while proc.poll() is None and timer.monotonic() < deadline:
-        timer.sleep(0.1)
+    deadline = time.monotonic() + 5.0
+    while proc.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.1)
 
 
-def _spawn_supervised_worker(
-    spec: WorkerSpec,
-    *,
-    restart: bool = False,
-    deps: Any | None = None,
-) -> _SupervisedWorker:
-    process_module = _dependency(deps, "subprocess", subprocess)
-    timer = _dependency(deps, "time", time)
+def _spawn_supervised_worker(spec: WorkerSpec, *, restart: bool = False) -> _SupervisedWorker:
     command_text = _quoted_command(spec.argv)
     action = "restarting" if restart else "starting"
     print(f"{action} worker[{spec.app}]: {command_text}")
     return _SupervisedWorker(
         spec=spec,
-        process=process_module.Popen(spec.argv, cwd=spec.cwd, env=spec.env),
-        started_at_monotonic=timer.monotonic(),
+        process=subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env),
+        started_at_monotonic=time.monotonic(),
     )
 
 
-def _install_supervisor_signal_handlers(
-    shutdown: _SupervisorShutdown,
-    *,
-    deps: Any | None = None,
-) -> dict[Any, Any]:
-    signal_module = _dependency(deps, "signal", signal)
-
+def _install_supervisor_signal_handlers(shutdown: _SupervisorShutdown) -> dict[Any, Any]:
     def _request_shutdown(signum: int, frame: Any) -> None:
         del signum, frame
         shutdown.requested = True
 
     previous_handlers: dict[Any, Any] = {}
-    for sig in (signal_module.SIGINT, signal_module.SIGTERM):
+    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            previous_handlers[sig] = signal_module.getsignal(sig)
-            signal_module.signal(sig, _request_shutdown)
+            previous_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, _request_shutdown)
         except Exception:
             LOGGER.debug("failed to install worker supervisor signal handler", exc_info=True)
             continue
     return previous_handlers
 
 
-def _restore_signal_handlers(
-    previous_handlers: dict[Any, Any],
-    *,
-    deps: Any | None = None,
-) -> None:
-    signal_module = _dependency(deps, "signal", signal)
+def _restore_signal_handlers(previous_handlers: dict[Any, Any]) -> None:
     for sig, handler in previous_handlers.items():
         try:
-            signal_module.signal(sig, handler)
+            signal.signal(sig, handler)
         except Exception:
             LOGGER.debug("failed to restore worker supervisor signal handler", exc_info=True)
             continue
@@ -138,7 +118,6 @@ def _restart_or_stop_worker(
     managed: _SupervisedWorker,
     returncode: int,
     current_time: float,
-    deps: Any | None = None,
 ) -> int | None:
     spec = managed.spec
     quick_startup_failure = (
@@ -156,7 +135,7 @@ def _restart_or_stop_worker(
     else:
         managed.startup_failure_count = 0
 
-    restarted = _spawn_supervised_worker(spec, restart=True, deps=deps)
+    restarted = _spawn_supervised_worker(spec, restart=True)
     restarted.startup_failure_count = managed.startup_failure_count
     processes[index] = restarted
     return None
@@ -165,11 +144,8 @@ def _restart_or_stop_worker(
 def _poll_supervised_workers(
     processes: list[_SupervisedWorker],
     shutdown: _SupervisorShutdown,
-    *,
-    deps: Any | None = None,
 ) -> int | None:
-    timer = _dependency(deps, "time", time)
-    current_time = timer.monotonic()
+    current_time = time.monotonic()
     for index, managed in enumerate(processes):
         returncode = managed.process.poll()
         if returncode is None:
@@ -186,7 +162,6 @@ def _poll_supervised_workers(
             managed=managed,
             returncode=returncode,
             current_time=current_time,
-            deps=deps,
         )
         if exit_code is not None:
             shutdown.requested = True
@@ -197,48 +172,37 @@ def _poll_supervised_workers(
 def _supervise_worker_processes(
     processes: list[_SupervisedWorker],
     shutdown: _SupervisorShutdown,
-    *,
-    deps: Any | None = None,
 ) -> int:
-    timer = _dependency(deps, "time", time)
     exit_code = 0
     while True:
-        failure_exit_code = _poll_supervised_workers(processes, shutdown, deps=deps)
+        failure_exit_code = _poll_supervised_workers(processes, shutdown)
         if failure_exit_code is not None:
             exit_code = failure_exit_code
         if shutdown.requested:
             return exit_code
-        timer.sleep(_WORKER_POLL_INTERVAL_SECONDS)
+        time.sleep(_WORKER_POLL_INTERVAL_SECONDS)
 
 
-def _terminate_supervised_workers(
-    processes: Sequence[_SupervisedWorker],
-    *,
-    deps: Any | None = None,
-) -> None:
+def _terminate_supervised_workers(processes: Sequence[_SupervisedWorker]) -> None:
     for managed in processes:
-        _terminate_process(managed.process, deps=deps)
+        _terminate_process(managed.process)
 
 
-def _run_worker_supervisor(
-    specs: Sequence[WorkerSpec],
-    *,
-    deps: Any | None = None,
-) -> int:
+def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
     if not specs:
         emit_error("no workers selected")
         return 1
 
     processes: list[_SupervisedWorker] = []
     shutdown = _SupervisorShutdown()
-    previous_handlers = _install_supervisor_signal_handlers(shutdown, deps=deps)
+    previous_handlers = _install_supervisor_signal_handlers(shutdown)
     try:
         for spec in specs:
-            processes.append(_spawn_supervised_worker(spec, deps=deps))
-        return _supervise_worker_processes(processes, shutdown, deps=deps)
+            processes.append(_spawn_supervised_worker(spec))
+        return _supervise_worker_processes(processes, shutdown)
     finally:
-        _terminate_supervised_workers(processes, deps=deps)
-        _restore_signal_handlers(previous_handlers, deps=deps)
+        _terminate_supervised_workers(processes)
+        _restore_signal_handlers(previous_handlers)
 
 
 def _emit_supervisor_specs_json(*, key: str, specs: Sequence[WorkerSpec]) -> int:
@@ -246,29 +210,18 @@ def _emit_supervisor_specs_json(*, key: str, specs: Sequence[WorkerSpec]) -> int
     return 0
 
 
-def cmd_queue_worker(args: Any, *, deps: Any | None = None) -> int:
-    build_worker_specs = _dependency(deps, "_build_worker_specs", _build_worker_specs)
+def cmd_queue_worker(args: Any) -> int:
     try:
-        specs = build_worker_specs(args)
+        specs = _build_worker_specs(args)
     except ValueError as exc:
         emit_error(exc)
         return 1
 
     if bool(getattr(args, "json", False)):
-        emit_specs_json = _dependency(
-            deps, "_emit_supervisor_specs_json", _emit_supervisor_specs_json
-        )
-        return emit_specs_json(key="workers", specs=specs)
+        return _emit_supervisor_specs_json(key="workers", specs=specs)
 
-    detect_conflict = _dependency(
-        deps, "_detect_existing_orca_worker_conflict", _detect_existing_orca_worker_conflict
-    )
-    conflict = detect_conflict(specs, args=args)
+    conflict = _detect_existing_orca_worker_conflict(specs, args=args)
     if conflict is not None:
-        emit_conflict = _dependency(
-            deps, "_emit_existing_orca_worker_conflict", _emit_existing_orca_worker_conflict
-        )
-        return emit_conflict(conflict, command_name="queue worker")
+        return _emit_existing_orca_worker_conflict(conflict, command_name="queue worker")
 
-    run_supervisor = _dependency(deps, "_run_worker_supervisor", _run_worker_supervisor)
-    return run_supervisor(specs)
+    return _run_worker_supervisor(specs)

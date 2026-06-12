@@ -654,14 +654,12 @@ def test_workflow_only_worker_flags_require_workflow_app() -> None:
     )
 
 
-def test_terminate_process_kills_after_grace_period() -> None:
+def test_terminate_process_kills_after_grace_period(monkeypatch: pytest.MonkeyPatch) -> None:
     process = _HangingWorkerProcess()
     fake_time = _FakeTime()
+    monkeypatch.setattr(unified_cli, "time", fake_time)
 
-    unified_cli._terminate_process(
-        cast(Any, process),
-        deps=SimpleNamespace(time=fake_time),
-    )
+    unified_cli._terminate_process(cast(Any, process))
 
     assert process.terminate_calls == 1
     assert process.kill_calls == 1
@@ -692,18 +690,11 @@ def test_detect_existing_orca_worker_conflict_edges(
     import orca_auto.orca.queue_worker as orca_queue_worker
 
     args = argparse.Namespace(orca_auto_config="/tmp/orca_auto.yaml")
-    deps = SimpleNamespace(
-        _discover_shared_config_path=lambda explicit: (
-            str(Path(explicit).resolve()) if explicit else None
-        ),
-        _effective_shared_config_text=lambda parsed_args: parsed_args.orca_auto_config,
-    )
 
     assert (
         worker_conflicts._detect_existing_orca_worker_conflict(
             [unified_cli.WorkerSpec(app="workflow", argv=("workflow", "worker"))],
             args=args,
-            deps=deps,
         )
         is None
     )
@@ -715,7 +706,6 @@ def test_detect_existing_orca_worker_conflict_edges(
         worker_conflicts._detect_existing_orca_worker_conflict(
             [unified_cli.WorkerSpec(app="orca", argv=("orca", "worker"))],
             args=args,
-            deps=deps,
         )
         is None
     )
@@ -732,7 +722,6 @@ def test_detect_existing_orca_worker_conflict_edges(
         worker_conflicts._detect_existing_orca_worker_conflict(
             [unified_cli.WorkerSpec(app="orca", argv=("orca", "worker"))],
             args=args,
-            deps=deps,
         )
         is None
     )
@@ -744,7 +733,6 @@ def test_detect_existing_orca_worker_conflict_edges(
     conflict = worker_conflicts._detect_existing_orca_worker_conflict(
         [unified_cli.WorkerSpec(app="orca", argv=("orca", "worker"))],
         args=args,
-        deps=deps,
     )
 
     assert conflict == worker_conflicts._ExistingWorkerConflict(

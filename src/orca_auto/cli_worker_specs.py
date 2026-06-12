@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from orca_auto.cli_common import (
-    _dependency,
     _discover_shared_config_path,
     _effective_shared_config_text,
     _repo_root_for_subprocess,
@@ -114,20 +113,12 @@ def _engine_worker_spec(
     app: str,
     config_path: str,
     args: argparse.Namespace,
-    deps: Any | None = None,
 ) -> WorkerSpec:
-    build_worker_command = _dependency(deps, "worker_module_command", worker_module_command)
-    repo_root_for_subprocess = _dependency(
-        deps, "_repo_root_for_subprocess", _repo_root_for_subprocess
-    )
-    engine_worker_tail_argv = _dependency(
-        deps, "_engine_worker_tail_argv", _engine_worker_tail_argv
-    )
-    argv, cwd, env = build_worker_command(
+    argv, cwd, env = worker_module_command(
         config_path=config_path,
-        repo_root=repo_root_for_subprocess(),
+        repo_root=_repo_root_for_subprocess(),
         module_name=_ENGINE_WORKER_MODULES[app],
-        tail_argv=engine_worker_tail_argv(app=app, args=args),
+        tail_argv=_engine_worker_tail_argv(app=app, args=args),
     )
     env_payload = dict(env) if isinstance(env, dict) else None
     return WorkerSpec(app=app, argv=tuple(argv), cwd=cwd, env=env_payload)
@@ -212,58 +203,37 @@ def _add_workflow_worker_spec(
     workflow_root: str | None,
     config_path: str | None,
     args: argparse.Namespace,
-    deps: Any | None = None,
 ) -> None:
     if "workflow" in apps and not workflow_root:
         raise ValueError("workflow worker requires workflow.root in orca_auto.yaml")
 
     should_add_workflow = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
     if should_add_workflow and workflow_root:
-        workflow_worker_spec = _dependency(deps, "_workflow_worker_spec", _workflow_worker_spec)
         specs.append(
-            workflow_worker_spec(workflow_root=workflow_root, config_path=config_path, args=args)
+            _workflow_worker_spec(workflow_root=workflow_root, config_path=config_path, args=args)
         )
         return
 
-    workflow_only_worker_flag_error = _dependency(
-        deps, "_workflow_only_worker_flag_error", _workflow_only_worker_flag_error
-    )
-    flag_error = workflow_only_worker_flag_error(args)
+    flag_error = _workflow_only_worker_flag_error(args)
     if flag_error:
         raise ValueError(flag_error)
 
 
-def _build_worker_specs(args: Any, *, deps: Any | None = None) -> list[WorkerSpec]:
+def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     explicit_apps = list(getattr(args, "app", None) or [])
-    selected_worker_apps = _dependency(deps, "_selected_worker_apps", _selected_worker_apps)
-    apps = selected_worker_apps(explicit_apps)
+    apps = _selected_worker_apps(explicit_apps)
     explicit_app_selection = bool(explicit_apps)
-    discover_shared_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
-    workflow_root_for_args = _dependency(deps, "_workflow_root_for_args", _workflow_root_for_args)
-    config_path = discover_shared_config_path(effective_shared_config_text(args))
-    workflow_root = workflow_root_for_args(args)
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
+    workflow_root = _workflow_root_for_args(args)
     workflow_enabled = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
-    worker_engine_apps = _dependency(deps, "_worker_engine_apps", _worker_engine_apps)
-    engine_apps = worker_engine_apps(apps, workflow_enabled=workflow_enabled)
-    validate_engine_worker_config = _dependency(
-        deps, "_validate_engine_worker_config", _validate_engine_worker_config
-    )
-    validate_engine_worker_config(engine_apps, config_path)
+    engine_apps = _worker_engine_apps(apps, workflow_enabled=workflow_enabled)
+    _validate_engine_worker_config(engine_apps, config_path)
 
-    engine_worker_spec = _dependency(deps, "_engine_worker_spec", _engine_worker_spec)
     specs = [
-        engine_worker_spec(app=app, config_path=str(config_path), args=args, deps=deps)
+        _engine_worker_spec(app=app, config_path=str(config_path), args=args)
         for app in engine_apps
     ]
-    add_workflow_worker_spec = _dependency(
-        deps, "_add_workflow_worker_spec", _add_workflow_worker_spec
-    )
-    add_workflow_worker_spec(
+    _add_workflow_worker_spec(
         specs,
         apps=apps,
         explicit_app_selection=explicit_app_selection,

@@ -5,10 +5,9 @@ import logging
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 from orca_auto.cli_common import (
-    _dependency,
     _discover_shared_config_path,
     _effective_shared_config_text,
 )
@@ -85,18 +84,11 @@ def _detect_existing_orca_worker_conflict(
     specs: Sequence[WorkerSpec],
     *,
     args: argparse.Namespace,
-    deps: Any | None = None,
 ) -> _ExistingWorkerConflict | None:
     if not any(spec.app == "orca" for spec in specs):
         return None
 
-    discover_shared_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
-    config_path = discover_shared_config_path(effective_shared_config_text(args))
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
     if not normalize_text(config_path):
         return None
 
@@ -114,19 +106,13 @@ def _detect_existing_orca_worker_conflict(
     if existing_pid is None:
         return None
 
-    read_process_command = _dependency(deps, "_read_process_command", _read_process_command)
-    classify_existing_orca_worker = _dependency(
-        deps, "_classify_existing_orca_worker", _classify_existing_orca_worker
-    )
-    format_command_argv = _dependency(deps, "_format_command_argv", _format_command_argv)
-    command_argv = read_process_command(existing_pid)
-    source = classify_existing_orca_worker(command_argv)
+    command_argv = _read_process_command(existing_pid)
     return _ExistingWorkerConflict(
         app="orca",
         pid=existing_pid,
         allowed_root=str(allowed_root),
-        source=source,
-        command=format_command_argv(command_argv),
+        source=_classify_existing_orca_worker(command_argv),
+        command=_format_command_argv(command_argv),
     )
 
 

@@ -101,13 +101,30 @@ level — late binding preserved). One `cast("dict[str, Any]", ...)` needed in
 that `advance_workflow_registry_once` returns the
 `WorkflowRegistryCyclePayload` TypedDict while emitters take `dict[str, Any]`.
 
+**`cli_workers.py` + `cli_worker_specs.py` + `cli_worker_conflicts.py` DONE
+2026-06-13:** all 30 lookups removed (12 + 13 + 5) and every `deps` parameter
+dropped; `cmd_queue_worker(args)` now matches the `args.func(args)` call shape.
+The only two `deps=`-passing call sites lived in
+`tests/test_orca_auto_cli_workers.py`:
+`_terminate_process(..., deps=SimpleNamespace(time=fake))` now monkeypatches
+the module-global `time` name instead (same style as the file's other
+supervisor tests), and the `_detect_existing_orca_worker_conflict(deps=...)`
+overrides were behaviorally identical to the autouse fixture patch of
+`worker_conflicts._discover_shared_config_path` plus the real
+`_effective_shared_config_text`, so they were simply deleted. Everything else
+was already exercised via module-global monkeypatching
+(`_build_worker_specs`, `_run_worker_supervisor`, `subprocess.Popen`,
+`signal.*`, `time.sleep`, `worker_module_command`,
+`_discover_shared_config_path`) — late-bound direct calls serve those seams.
+
 Usage counts (2026-06-12): `flow/engines/xtb/terminal.py` 18,
-`flow/run_dir_manifest.py` 16, `cli_worker_specs.py` 13, `cli_workers.py` 12,
-`flow/run_dir_options.py` 11, `cli_common.py` 11 (defines it), others <10.
-Suggested next: `cli_workers.py` / `cli_worker_specs.py` (top-level CLI,
-same shape as the three done above), then `flow/run_dir_options.py` +
-`flow/run_dir_manifest.py` together (they cross-reference), leaving
-`flow/engines/xtb/terminal.py` last (engine layer, widest blast radius).
+`flow/run_dir_manifest.py` 16, `flow/run_dir_options.py` 11,
+`cli_common.py` 11 (defines it), `cli_systemd_status.py` 9,
+`cli_systemd_apply.py` 5, others <10.
+Suggested next: `flow/run_dir_options.py` + `flow/run_dir_manifest.py`
+together (they cross-reference), leaving `flow/engines/xtb/terminal.py` last
+(engine layer, widest blast radius). `cli_systemd_*.py` has deps-passing
+tests (`tests/test_cli_systemd.py`) — classify before touching.
 
 Tests known to pass `deps=` into this pattern: `tests/test_orca_auto_cli_queue.py:39`
 (`cmd_queue_list(args, deps=deps)`), `tests/test_cli_systemd.py`,
