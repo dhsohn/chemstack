@@ -36,6 +36,7 @@ from .orca_models import (
     WorkflowStageOutcome,
     ensure_submission_metadata,
     mapping_payload,
+    sibling_submitter_config,
 )
 
 
@@ -434,18 +435,6 @@ def orca_submitter_matches(
     return normalize_text(enqueue_payload.get("submitter")) in {"", *ORCA_SUBMITTERS}
 
 
-def submission_config(
-    *,
-    orca_config: str,
-    orca_repo_root: str | None,
-    normalize_text: Callable[[Any], str],
-) -> SiblingSubmitterConfig:
-    return SiblingSubmitterConfig(
-        config_path=normalize_text(orca_config),
-        repo_root=normalize_text(orca_repo_root) or None,
-    )
-
-
 def submission_kwargs(enqueue_payload: dict[str, Any]) -> dict[str, Any]:
     kwargs: dict[str, Any] = submission_resource_kwargs(enqueue_payload)
     if submission_force(enqueue_payload):
@@ -648,7 +637,7 @@ def submit_reaction_ts_search_workflow(
         workflow_root=workflow_root,
     )
     payload = deps.load_workflow_payload(workspace_dir)
-    submitter_config = submission_config(
+    submitter_config = sibling_submitter_config(
         orca_config=orca_config,
         orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,

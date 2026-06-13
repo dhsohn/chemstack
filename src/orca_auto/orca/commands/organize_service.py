@@ -4,8 +4,6 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict
 
-from orca_auto.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
-
 from ..config import AppConfig, load_config
 from ..job_locations import reindex_job_locations
 from ..organize_index import (
@@ -27,25 +25,15 @@ from . import organize_tracking as _organize_tracking
 from ._helpers import (
     _validate_reaction_dir,
     _validate_root_scan_dir,
+    _workflow_runtime_paths,
     finalize_batch_apply,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def workflow_runtime_paths(cfg: AppConfig, path: str | Path) -> dict[str, Path] | None:
-    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
-    if not workflow_root:
-        return None
-    return workflow_workspace_internal_engine_paths_from_path(
-        path,
-        workflow_root=workflow_root,
-        engine="orca",
-    )
-
-
 def resolved_organized_root(cfg: AppConfig, reaction_dir: str | Path) -> Path:
-    runtime_paths = workflow_runtime_paths(cfg, reaction_dir)
+    runtime_paths = _workflow_runtime_paths(cfg, reaction_dir)
     if runtime_paths is not None:
         return runtime_paths["organized_root"].expanduser().resolve()
     return Path(cfg.runtime.organized_root).resolve()

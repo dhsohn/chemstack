@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
 class SiblingSubmitterConfig:
     config_path: str
     repo_root: str | None
+
+
+def sibling_submitter_config(
+    *,
+    orca_config: str | None,
+    orca_repo_root: str | None,
+    normalize_text: Callable[[Any], str],
+) -> SiblingSubmitterConfig:
+    return SiblingSubmitterConfig(
+        config_path=normalize_text(orca_config),
+        repo_root=normalize_text(orca_repo_root) or None,
+    )
 
 
 @dataclass

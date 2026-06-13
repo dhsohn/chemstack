@@ -33,7 +33,7 @@ def _to_resolved_local(path_text: str) -> Path:
     return Path(path_text).expanduser().resolve()
 
 
-def _workflow_runtime_paths(cfg: AppConfig, path: Path) -> dict[str, Path] | None:
+def _workflow_runtime_paths(cfg: AppConfig, path: str | Path) -> dict[str, Path] | None:
     workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
     if not workflow_root:
         return None

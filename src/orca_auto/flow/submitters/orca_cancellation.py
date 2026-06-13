@@ -23,6 +23,7 @@ from .orca_models import (
     TaskRecordMutator,
     WorkflowBuckets,
     WorkflowStageOutcome,
+    sibling_submitter_config,
     workflow_metadata,
 )
 from .orca_submission import orca_submitter_matches
@@ -41,18 +42,6 @@ class CancellationDeps:
 
 CANCEL_RESULT = TaskRecordMutator("cancel_result")
 _CANCEL_SKIP_TERMINAL_STATUSES = frozenset({STATUS_COMPLETED, STATUS_FAILED})
-
-
-def cancel_config(
-    *,
-    orca_config: str | None,
-    orca_repo_root: str | None,
-    normalize_text: Callable[[Any], str],
-) -> SiblingSubmitterConfig:
-    return SiblingSubmitterConfig(
-        config_path=normalize_text(orca_config),
-        repo_root=normalize_text(orca_repo_root) or None,
-    )
 
 
 def cancel_stage_context(
@@ -389,7 +378,7 @@ def cancel_reaction_ts_search_workflow(
         workflow_root=workflow_root,
     )
     payload = deps.load_workflow_payload(workspace_dir)
-    submitter_config = cancel_config(
+    submitter_config = sibling_submitter_config(
         orca_config=orca_config,
         orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
