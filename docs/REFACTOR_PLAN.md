@@ -248,6 +248,59 @@ annotation leaf ~15 modules import), `dep_builders.py` (all builder/fallback
 machinery), `deps.py` (public entry: `orchestration_deps` /
 `orchestration_context`).
 
+## Phase 7 — Same-package duplicate bodies — **DONE 2026-06-13**
+
+After Phase 6 the facade seam was exhausted, so this round used a byte-identical
+function-body scan (AST-shape matches were too noisy — most were deliberate
+xtb/crest parallelism). Only two clusters were both byte-identical AND
+same-package (so no cross-layer coupling, no new indirection):
+
+- `orca/commands`: `organize_service.workflow_runtime_paths` was a verbatim copy
+  of `_helpers._workflow_runtime_paths` (only the annotation differed:
+  `str | Path` vs `Path`). Widened `_helpers` to `str | Path`, deleted the
+  `organize_service` copy, repointed its one call site, and dropped the
+  now-unused `workflow_workspace_internal_engine_paths_from_path` import.
+  Neither name was imported elsewhere or monkeypatched.
+- `flow/submitters`: `orca_cancellation.cancel_config` and
+  `orca_submission.submission_config` had identical bodies (build
+  `SiblingSubmitterConfig` from `normalize_text(orca_config)` /
+  `normalize_text(orca_repo_root) or None`). Extracted one
+  `sibling_submitter_config` into `orca_models.py` (the module that already
+  owns the dataclass and other small helpers), repointed both single call
+  sites. Each old name had exactly one in-module caller, no test refs.
+
+Net −22 lines. 1791 tests green.
+
+### Surveyed and DECLINED this round (do not re-investigate)
+
+- `flow/adapters/_orca_contract_status.py` `*_impl` (attempt_count / max_retries
+  / coerce_attempts / status_from_payloads) vs the concrete twins in
+  `orca/_job_location_utils.py`. The adapters versions take `normalize_text_fn`
+  / `safe_int_fn` injected and are wired by `flow/adapters/orca.py`'s
+  `OrcaContractLoaderDeps` container — a deliberate, consistently-applied DI
+  design across the whole `flow/adapters` package (same status as
+  `OrchestrationDeps`: legitimate architecture, out of scope). The two live in
+  different layers; merging would force a `flow → orca` (or worse) dependency.
+- `core/admission/persistence.py` vs `core/queue/persistence.py`
+  (load_slots/save_slots ≈ load_entries/save_entries) and the two `store.py`
+  `for_root` classmethods. The shared work (`atomic_write_json` /
+  `load_json_list_file` / `resolve_root_path`) is already extracted into
+  `core/utils/persistence.py`; what remains is a ~6-line typed wrapper over
+  different domain types. A generic `Store[T]` / `load_typed_list` would add a
+  layer for two callers — net-neutral and against the philosophy.
+- `flow/telegram_bot.py` `_dispatch_*` / `_send_*` / `_api_call` vs
+  `telegram_dispatch.py`: this is the DI binding seam (bot binds concrete impls,
+  `telegram_dispatch` exposes injectable functions, both delegate to
+  `telegram_interactive`). Intentional and heavily monkeypatched by
+  `test_telegram_bot.py` — not duplication.
+- `flow/submitters` `persist_cancellation_workflow` / `persist_submission_workflow`
+  (3-line bodies differing only in `deps: CancellationDeps` vs `SubmissionDeps`).
+  Merging needs a new structural Protocol — adds an abstraction to dedup six
+  lines, net-neutral. Left as-is.
+- All xtb↔crest `execution.py` / `queue_runtime.py` / `job_inputs.py` /
+  `_submitter_deps` byte-identical helpers: same decline as Phase 6 (parallel
+  engine packages; a shared home would re-add the DI indirection).
+
 ## Phase 6 — Re-export facade modules, round 2 — **DONE 2026-06-13**
 
 A reverse-import sweep over the remaining import-only modules (imports +
