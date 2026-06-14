@@ -46,12 +46,8 @@ def entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
     return _queue_persistence.entry_to_dict(entry)
 
 
-def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
-    return _queue_persistence.entry_from_dict(raw)
-
-
 def entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
-    return _entry_from_dict(raw)
+    return _queue_persistence.entry_from_dict(raw)
 
 
 def _status_value(status: QueueStatus | str) -> str:

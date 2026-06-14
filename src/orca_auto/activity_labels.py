@@ -100,7 +100,7 @@ def queue_task_label(task_kind: Any) -> str:
         "orca": "ORCA",
         "xtb": "xTB",
         "crest": "CREST",
-    }.get(normalized, normalize_text(task_kind) or "")
+    }.get(normalized, normalize_text(task_kind))
 
 
 def infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:

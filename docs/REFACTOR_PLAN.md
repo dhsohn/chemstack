@@ -347,6 +347,72 @@ after engine-name normalization the module pairs are only 0.4–0.8 similar
 (`terminal.py` 0.16, `execution.py` 0.51), so a shared parameterized core
 would add DI indirection, the exact pattern this plan removes.
 
+## Phase 8 — Meaningless fallbacks & redundant indirection — **DONE 2026-06-15**
+
+A fresh pass for *meaningless fallbacks* (defensive code that can never fire
+given the static types) and *over-complexity* (redundant computation /
+indirection), separate from the earlier delegation/DI theme. Coverage was both
+broad (repo-wide pattern greps + two AST scans over all 378 files: redundant
+public→private delegation, and dead module-level functions) and deep (full
+reads of the non-DI logic files `core/queue/store.py`,
+`flow/orchestration/lifecycle.py`, `core/utils/coercion.py`,
+`flow/xyz_utils.py`, `orca/out_analyzer.py`).
+
+Removed:
+
+- `flow/runtime_cycle.py` `workflow_lease_expires_at`: the body wrapped a
+  `from datetime import …` plus the timestamp arithmetic in a
+  `try/except Exception: return ""`. The import is stdlib (cannot fail) and the
+  math runs on an already-`<= 0`-guarded `float`, so the except was unreachable.
+  Moved the import to module top, dropped the try/except and a redundant
+  `float()`. The meaningful empty-lease path (`lease_seconds <= 0`) stays.
+  Updated `test_support_module_edges_final.py`, which had injected a fake
+  `sys.modules["datetime"]` and a `_BrokenDateTime` solely to cover that dead
+  branch — replaced with a `runtime_cycle.datetime` patch plus the real
+  `lease_seconds <= 0` assertion.
+- `flow/orchestration/support.py` `reaction_ts_guess_error_impl`: the sort key
+  computed `int(getattr(item, "rank", 0) or 0)` twice in one lambda; collapsed
+  to a single walrus.
+- `activity_labels.py` `queue_task_label`: `normalize_text(task_kind) or ""` —
+  `normalize_text` always returns `str`, so the `or ""` was a no-op (and the
+  same function already uses the bare value at line 86). Dropped.
+- `flow/submitters/orca.py` `_queued_payload`: `int(priority)` / `bool(force)`
+  in the `extra_fields` dict, where the params are already `priority: int` /
+  `force: bool` and the same function emits them bare two lines up
+  (`"priority": priority`, `if force:`). Dropped the inconsistent casts.
+- `core/queue/store.py`: `entry_from_dict` → `_entry_from_dict` →
+  `_queue_persistence.entry_from_dict` was a three-level chain; the private
+  middle layer (used only by the public twin, no test ref) added nothing while
+  the sibling `entry_to_dict` delegated straight through. Removed the middle
+  layer so both are symmetric.
+- `orca/summary.py`: `html_to_plain_text` was a pure pass-through to
+  `_html_to_plain_text` (identical `(message: str) -> str`, no caller, no test,
+  no seam). Merged the impl into the `__all__`-exported public name.
+
+Net −34 lines (incl. test simplification). 1791 tests green.
+
+### Surveyed and confirmed clean / deliberately left (do not re-investigate)
+
+- The AST delegation scan flagged 15 public→`_private` pairs; 13 are real
+  API / test-seam splits (external callers and/or `test_*` references) and one
+  (`attempt_reporting.finalize_and_emit`) is a kwargs→`FinalizeAndEmitRequest`
+  adapter, not pure indirection — only `summary.html_to_plain_text` was genuine.
+- The dead-function scan flagged only `DFTIndex.get_recent`, already in the
+  "Deliberately kept" list below.
+- `int(priority)` / `bool(force)` / `int(returncode)` casts on already-typed
+  values at serialization boundaries (`submitters/orca.py` `_submit_request`,
+  `internal_engine_submission.py`, `attempt_retry.py`): net-neutral churn, left
+  except the single internally-inconsistent function above.
+- `xyz_utils._select_energy_ranked_frame`'s
+  `item.energy if … is not None else float("-inf")` looks dead (the list is
+  pre-filtered) but is required: mypy does not narrow the element type, and `or`
+  would mis-handle a legitimate `0.0` energy. Left.
+- `run_dir_options.py` `is not None` / `is None` guards before
+  `normalize_text(…) != ""` are redundant (normalize_text handles None) but are
+  symmetric defensive coercion at a config boundary — net-neutral, left.
+- `bool | None` tri-state `is True` / `is False` ladders (`output_status.py`,
+  `dft_index_store.py`, `dft_monitor.py`) correctly distinguish `None`; left.
+
 ## Deliberately kept (do not "clean up")
 
 - `DFTIndex` query API (`get_stats`, `get_recent`, `get_lowest_energy`,

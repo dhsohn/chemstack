@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import _runtime_common
@@ -20,12 +21,7 @@ class WorkflowCycleDeps:
 def workflow_lease_expires_at(lease_seconds: float) -> str:
     if lease_seconds <= 0:
         return ""
-    try:
-        from datetime import datetime, timedelta, timezone
-
-        return (datetime.now(timezone.utc) + timedelta(seconds=float(lease_seconds))).isoformat()
-    except Exception:  # noqa: BLE001
-        return ""
+    return (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
 
 
 def start_workflow_cycle_with_deps(

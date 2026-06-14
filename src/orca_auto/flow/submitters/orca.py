@@ -109,8 +109,8 @@ def _queued_payload(
         job_id=parsed_stdout.get("job_id", ""),
         extra_fields={
             "reaction_dir": parsed_stdout.get("job_dir", _normalize_text(result.reaction_dir)),
-            "priority": int(priority),
-            "force": bool(force),
+            "priority": priority,
+            "force": force,
         },
     ).to_payload()
 

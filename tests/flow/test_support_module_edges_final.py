@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,6 +15,7 @@ from orca_auto.flow import (
     registry,
     registry_store,
     runtime,
+    runtime_cycle,
     state,
     workflow_journal,
     xyz_utils,
@@ -261,43 +261,21 @@ def test_runtime_edge_branches_cover_normalize_invalid_stage_and_lease_paths(
     monkeypatch.setattr(runtime, "append_workflow_journal_event", lambda root, **kwargs: journal_calls.append(kwargs))
     monkeypatch.setattr(runtime, "now_utc_iso", lambda: "2026-04-19T03:00:00+00:00")
 
-    fake_datetime: Any = ModuleType("datetime")
+    class _Stamp:
+        def __add__(self, other: object) -> "_Stamp":
+            return self
 
-    class _DateTime:
-        @staticmethod
-        def now(tz: object) -> object:
-            class _Stamp:
-                def __add__(self, other: object) -> "_Stamp":
-                    return self
+        def isoformat(self) -> str:
+            return "lease-ok"
 
-                def isoformat(self) -> str:
-                    return "lease-ok"
-
-            return _Stamp()
-
-    class _Timedelta:
-        def __init__(self, seconds: float) -> None:
-            self.seconds = seconds
-
-    class _Timezone:
-        utc = object()
-
-    fake_datetime.datetime = _DateTime
-    fake_datetime.timedelta = _Timedelta
-    fake_datetime.timezone = _Timezone
-    monkeypatch.setitem(sys.modules, "datetime", fake_datetime)
+    fake_datetime = SimpleNamespace(now=lambda tz: _Stamp())
+    monkeypatch.setattr(runtime_cycle, "datetime", fake_datetime)
     result = runtime.advance_workflow_registry_once(workflow_root=tmp_path / "root_ok", lease_seconds=5)
     assert result["worker_session_id"].startswith("wf_worker")
     assert state_calls[0]["lease_expires_at"] == "lease-ok"
 
-    class _BrokenDateTime:
-        @staticmethod
-        def now(tz: object) -> object:
-            raise RuntimeError("boom")
-
-    fake_datetime.datetime = _BrokenDateTime
-    runtime.advance_workflow_registry_once(workflow_root=tmp_path / "root_fail", lease_seconds=5)
-    assert state_calls[-2]["lease_expires_at"] == ""
+    # lease_seconds <= 0 short-circuits to an empty lease string.
+    assert runtime_cycle.workflow_lease_expires_at(0) == ""
 
 
 def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(

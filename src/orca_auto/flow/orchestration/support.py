@@ -97,7 +97,7 @@ def reaction_ts_guess_error_impl(
             if o.stages._normalize_text(getattr(item, "kind", "")) == "ts_guess"
             and o.stages._normalize_text(getattr(item, "path", ""))
         ],
-        key=lambda item: int(getattr(item, "rank", 0) or 0) if int(getattr(item, "rank", 0) or 0) > 0 else 10_000,
+        key=lambda item: rank if (rank := int(getattr(item, "rank", 0) or 0)) > 0 else 10_000,
     )
     if not details:
         return {

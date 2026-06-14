@@ -359,9 +359,5 @@ def format_attention_section(
     return _format_attention_section(failed, other)
 
 
-def _html_to_plain_text(message: str) -> str:
-    return unescape(_HTML_TAG_RE.sub("", message))
-
-
 def html_to_plain_text(message: str) -> str:
-    return _html_to_plain_text(message)
+    return unescape(_HTML_TAG_RE.sub("", message))
