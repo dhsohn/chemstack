@@ -81,6 +81,22 @@ def test_load_entries_cover_edge_cases(tmp_path: Path) -> None:
     assert entry.task_id == "q_ok"
 
 
+def test_enqueue_overwrites_worker_log_metadata_with_safe_queue_log(tmp_path: Path) -> None:
+    reaction_dir = tmp_path / "rxn"
+    reaction_dir.mkdir()
+
+    entry = queue_adapter.enqueue(
+        tmp_path,
+        str(reaction_dir),
+        metadata={"worker_log": "/tmp/unsafe-worker.log"},
+    )
+
+    metadata = queue_adapter.queue_entry_metadata(entry)
+    assert metadata["worker_log"] == str(
+        (tmp_path / "logs" / f"{entry.queue_id}.log").resolve()
+    )
+
+
 def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed_and_failed(
     tmp_path: Path,
 ) -> None:

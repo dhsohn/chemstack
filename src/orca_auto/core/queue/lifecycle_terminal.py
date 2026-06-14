@@ -71,8 +71,16 @@ def mark_terminal_process_queue_entry(
     rc: int,
     hooks: EngineQueueProcessLifecycleHooks,
     logger: logging.Logger = LOGGER,
-) -> None:
+) -> bool:
     queue_root = job_queue_root(worker, job)
+    if hooks.find_queue_entry_fn is not None:
+        current = hooks.find_queue_entry_fn(queue_root, queue_id)
+        if current is None or not entry_status_is_running(current):
+            logger.info(
+                "Skipping terminal mark for %s; entry is no longer running",
+                queue_id,
+            )
+            return False
     run_id = hooks.get_run_id_from_state_fn(job.reaction_dir)
     if hooks.get_cancel_requested_fn(queue_root, queue_id):
         logger.info("Job cancelled: %s (rc=%d)", queue_id, rc)
@@ -90,6 +98,7 @@ def mark_terminal_process_queue_entry(
             error=f"exit_code={rc}",
             run_id=run_id,
         )
+    return True
 
 
 def run_terminal_process_side_effects(
@@ -143,9 +152,18 @@ def finalize_process_finished_job(
     rc: int,
     hooks: EngineQueueProcessLifecycleHooks,
 ) -> None:
-    mark_terminal_process_queue_entry(worker, queue_id, job, rc=rc, hooks=hooks)
-    record_terminal_process_side_effects(worker, queue_id, job, hooks=hooks)
-    worker._release_admission_slot(job.admission_token)
+    try:
+        marked_terminal = mark_terminal_process_queue_entry(
+            worker,
+            queue_id,
+            job,
+            rc=rc,
+            hooks=hooks,
+        )
+        if marked_terminal:
+            record_terminal_process_side_effects(worker, queue_id, job, hooks=hooks)
+    finally:
+        worker._release_admission_slot(job.admission_token)
 
 
 def sync_terminal_running_entries(

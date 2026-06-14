@@ -28,11 +28,13 @@ def cancel_running_process_job(
     logger: logging.Logger = LOGGER,
 ) -> None:
     logger.info("Cancelling running job: %s", queue_id)
-    hooks.terminate_process_fn(job.process)
-    with suppress(subprocess.TimeoutExpired):
-        job.process.wait(timeout=5)
-    hooks.mark_cancelled_fn(job_queue_root(worker, job), queue_id)
-    worker._release_admission_slot(job.admission_token)
+    try:
+        hooks.terminate_process_fn(job.process)
+        with suppress(subprocess.TimeoutExpired):
+            job.process.wait(timeout=5)
+        hooks.mark_cancelled_fn(job_queue_root(worker, job), queue_id)
+    finally:
+        worker._release_admission_slot(job.admission_token)
 
 
 def shutdown_running_process_job(
@@ -42,9 +44,11 @@ def shutdown_running_process_job(
     *,
     hooks: EngineQueueProcessShutdownHooks,
 ) -> None:
-    hooks.terminate_process_fn(job.process)
-    hooks.requeue_running_entry_fn(job_queue_root(worker, job), queue_id)
-    worker._release_admission_slot(job.admission_token)
+    try:
+        hooks.terminate_process_fn(job.process)
+        hooks.requeue_running_entry_fn(job_queue_root(worker, job), queue_id)
+    finally:
+        worker._release_admission_slot(job.admission_token)
 
 
 def shutdown_running_job(
@@ -89,20 +93,23 @@ def finalize_child_worker_exit(
     if current is None and use_entry_fallback:
         current = job.entry
 
-    if current is not None and entry_status_is_running(current):
-        queue_id = current.queue_id
-        if getattr(current, "cancel_requested", False):
-            mark_cancelled_fn(root, queue_id, error=STATUS_CANCEL_REQUESTED)
-        elif shutdown_requested:
-            requeue_running_entry_fn(root, queue_id)
-            recovery_entry = (
-                recovery_entry_fn(current, job) if recovery_entry_fn is not None else current
-            )
-            mark_recovery_pending_fn(cfg, recovery_entry, reason="worker_shutdown")
-        elif fail_unexpected_exit and mark_failed_fn is not None:
-            mark_failed_fn(root, queue_id, error=f"worker_child_exit_code={int(rc or 0)}")
-
-    release_admission_slot_fn(job.admission_token)
+    try:
+        if current is not None and entry_status_is_running(current):
+            queue_id = current.queue_id
+            if getattr(current, "cancel_requested", False):
+                mark_cancelled_fn(root, queue_id, error=STATUS_CANCEL_REQUESTED)
+            elif shutdown_requested:
+                requeue_running_entry_fn(root, queue_id)
+                recovery_entry = (
+                    recovery_entry_fn(current, job)
+                    if recovery_entry_fn is not None
+                    else current
+                )
+                mark_recovery_pending_fn(cfg, recovery_entry, reason="worker_shutdown")
+            elif fail_unexpected_exit and mark_failed_fn is not None:
+                mark_failed_fn(root, queue_id, error=f"worker_child_exit_code={int(rc or 0)}")
+    finally:
+        release_admission_slot_fn(job.admission_token)
 
 
 def finalize_child_exit_with_policy(

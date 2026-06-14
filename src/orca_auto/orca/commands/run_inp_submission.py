@@ -109,6 +109,34 @@ def worker_status_for_submission(allowed_root: Path) -> WorkerStatusInfo:
     return WorkerStatusInfo(status="running", pid=pid)
 
 
+def queue_entry_worker_log(entry: Any, *, deps: Any) -> Any | None:
+    queue_adapter = deps.submission.queue_adapter
+    metadata_fn = getattr(queue_adapter, "queue_entry_metadata", None)
+    if not callable(metadata_fn):
+        return None
+    metadata = metadata_fn(entry)
+    if not isinstance(metadata, dict):
+        return None
+    worker_log = metadata.get("worker_log")
+    if isinstance(worker_log, (str, Path)):
+        return worker_log
+    return None
+
+
+def worker_status_with_log_file(
+    worker_info: WorkerStatusInfo,
+    worker_log: Any | None,
+) -> WorkerStatusInfo:
+    from .run_inp_context import WorkerStatusInfo
+
+    return WorkerStatusInfo(
+        status=worker_info.status,
+        pid=worker_info.pid,
+        log_file=worker_log or worker_info.log_file,
+        detail=worker_info.detail,
+    )
+
+
 def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueuedNotification:
     submission = deps.submission
     return {
@@ -271,7 +299,10 @@ def create_queued_submission(
             deps=deps,
         )
 
-    worker_info = worker_status_for_submission(allowed_root)
+    worker_info = worker_status_with_log_file(
+        worker_status_for_submission(allowed_root),
+        queue_entry_worker_log(entry, deps=deps),
+    )
     return QueuedSubmissionResult(
         entry=entry,
         reaction_dir=reaction_dir,

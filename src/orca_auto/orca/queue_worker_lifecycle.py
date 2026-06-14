@@ -29,6 +29,7 @@ class OrcaQueueWorkerLifecycleCallbacks:
     mark_completed: Callable[..., Any]
     upsert_terminal_job_record: Callable[..., Any]
     notify_terminal_job_from_state: Callable[[Any, str], bool]
+    find_queue_entry: Callable[[Any, str], Any | None] | None
     on_completed: Callable[[Any, Any], Any] | None
     queue_roots: Callable[[Any], tuple[Any, ...]]
     reconcile_stale_slots: Callable[[Any], Any]
@@ -53,6 +54,7 @@ def build_orca_worker_lifecycle_hooks(
         mark_completed_fn=callbacks.mark_completed,
         upsert_terminal_job_record_fn=callbacks.upsert_terminal_job_record,
         notify_terminal_job_from_state_fn=callbacks.notify_terminal_job_from_state,
+        find_queue_entry_fn=callbacks.find_queue_entry,
         on_completed_fn=callbacks.on_completed,
         terminal_side_effect_hooks=EngineQueueTerminalSideEffectHooks(
             upsert_terminal_job_record_fn=callbacks.upsert_terminal_job_record,

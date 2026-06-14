@@ -245,7 +245,11 @@ class TestQueueWorkerMethods(unittest.TestCase):
             task_id="task_test_123",
             task_kind="orca_run_inp",
             engine="orca",
-            metadata={"reaction_dir": str(self.root / "mol_A"), "force": False},
+            metadata={
+                "reaction_dir": str(self.root / "mol_A"),
+                "force": False,
+                "worker_log": "/tmp/unsafe-worker.log",
+            },
         )
         token = reserve_slot(
             self.root,
@@ -258,6 +262,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertIn("q_test", self.worker._running)
         mock_start_background_process.assert_called_once()
         command = mock_start_background_process.call_args.args[0]
+        self.assertEqual(
+            mock_start_background_process.call_args.kwargs["log_path"],
+            str((self.root / "logs" / "q_test.log").resolve()),
+        )
         self.assertIn("orca_auto.core.engines.worker_child", command)
         self.assertEqual(_command_arg(command, "--engine"), "orca")
         self.assertEqual(_command_arg(command, "--queue-root"), str(self.root))
@@ -345,6 +353,41 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._start_job(self.root, entry, admission_token=token or "")
         self.assertNotIn(entry.queue_id, self.worker._running)
         self.assertEqual(active_slot_count(self.root), 0)
+
+    @patch(
+        "orca_auto.orca.queue_worker.update_slot_metadata",
+        side_effect=RuntimeError("metadata store down"),
+    )
+    @patch("orca_auto.orca.queue_worker.start_background_process")
+    def test_start_job_attach_error_releases_slot_and_terminates_process(
+        self,
+        mock_start_background_process: MagicMock,
+        _mock_update_slot_metadata: MagicMock,
+    ) -> None:
+        mock_proc = MagicMock()
+        mock_proc.pid = 4323
+        mock_start_background_process.return_value = mock_proc
+        rxn = self.root / "mol_attach_err"
+        rxn.mkdir()
+        entry = enqueue(self.root, str(rxn))
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            work_dir=str(rxn),
+            queue_id=entry.queue_id,
+            source="queue_worker",
+            state="reserved",
+        )
+        self.assertIsNotNone(token)
+        dequeue_next(self.root)
+
+        self.assertFalse(self.worker._start_job(self.root, entry, admission_token=token or ""))
+
+        self.assertNotIn(entry.queue_id, self.worker._running)
+        mock_proc.terminate.assert_called_once()
+        self.assertEqual(active_slot_count(self.root), 0)
+        [updated] = list_queue(self.root)
+        self.assertEqual(updated.status.value, "failed")
 
     def test_check_completed_jobs_success(self) -> None:
         mock_proc = MagicMock()
@@ -745,6 +788,20 @@ class TestFillSlots(unittest.TestCase):
             self.assertEqual(worker.cfg.runtime.max_concurrent, 2)
             self.assertEqual(worker.max_concurrent, 2)
             self.assertEqual(worker.admission_limit, 2)
+
+    def test_queue_worker_does_not_mutate_config_with_explicit_admission_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            cfg.runtime.admission_limit = 5
+            original_max_concurrent = cfg.runtime.max_concurrent
+
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=2)
+
+            self.assertIs(worker.cfg, cfg)
+            self.assertEqual(cfg.runtime.max_concurrent, original_max_concurrent)
+            self.assertEqual(worker.max_concurrent, 2)
+            self.assertEqual(worker.admission_limit, 5)
 
     def test_fill_slots_starts_pending_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -215,6 +215,7 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(tracking_records[0]["selected_input_xyz"], str((reaction_dir / "rxn.inp").resolve()))
             self.assertEqual(result.worker_info.status, "inactive")
             self.assertIsNone(result.worker_info.pid)
+            self.assertEqual(result.worker_info.log_file, metadata["worker_log"])
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
 
@@ -241,8 +242,11 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertIsNotNone(result)
             assert result is not None
             self.assertEqual(len(list_queue(root)), 1)
+            [entry] = list_queue(root)
+            metadata = queue_entry_metadata(entry)
             self.assertEqual(result.worker_info.status, "running")
             self.assertEqual(result.worker_info.pid, 4321)
+            self.assertEqual(result.worker_info.log_file, metadata["worker_log"])
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
 

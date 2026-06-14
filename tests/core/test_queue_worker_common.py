@@ -721,6 +721,106 @@ def test_finalize_child_exit_with_policy_preserves_root_and_uses_recovery_entry(
     assert released == ["slot-1"]
 
 
+def test_finalize_process_finished_job_skips_terminal_mark_when_entry_was_requeued(
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    current = _entry("q-1", status="pending")
+    completed: list[str] = []
+    failed: list[str] = []
+    side_effects: list[str] = []
+    released: list[str] = []
+    worker = SimpleNamespace(
+        cfg=object(),
+        allowed_root=queue_root,
+        admission_root=tmp_path / "admission",
+        _release_admission_slot=released.append,
+    )
+    job = SimpleNamespace(
+        queue_root=queue_root,
+        reaction_dir=str(tmp_path / "rxn"),
+        admission_token="slot-1",
+    )
+
+    lifecycle_helpers.finalize_process_finished_job(
+        worker,
+        "q-1",
+        job,
+        rc=0,
+        hooks=lifecycle_helpers.EngineQueueProcessLifecycleHooks(
+            queue_entry_id_fn=lambda entry: entry.queue_id,
+            queue_entry_app_name_fn=lambda _entry: "app",
+            queue_entry_task_id_fn=lambda _entry: "task",
+            update_slot_metadata_fn=lambda *_args, **_kwargs: None,
+            terminate_process_fn=lambda _proc: None,
+            mark_failed_fn=lambda _root, queue_id, **_kwargs: failed.append(queue_id),
+            upsert_running_job_record_fn=lambda *_args, **_kwargs: None,
+            get_run_id_from_state_fn=lambda _reaction_dir: "run-1",
+            get_cancel_requested_fn=lambda *_args, **_kwargs: False,
+            mark_cancelled_fn=lambda *_args, **_kwargs: None,
+            mark_completed_fn=lambda _root, queue_id, **_kwargs: completed.append(queue_id),
+            upsert_terminal_job_record_fn=lambda *_args, **_kwargs: side_effects.append(
+                "record"
+            ),
+            notify_terminal_job_from_state_fn=lambda *_args, **_kwargs: True,
+            find_queue_entry_fn=lambda _root, _queue_id: current,
+            on_completed_fn=lambda *_args, **_kwargs: side_effects.append("completed"),
+        ),
+    )
+
+    assert completed == []
+    assert failed == []
+    assert side_effects == []
+    assert released == ["slot-1"]
+
+
+def test_finalize_process_finished_job_releases_slot_when_terminal_mark_raises(
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    current = _entry("q-1", status="running")
+    released: list[str] = []
+    worker = SimpleNamespace(
+        cfg=object(),
+        allowed_root=queue_root,
+        admission_root=tmp_path / "admission",
+        _release_admission_slot=released.append,
+    )
+    job = SimpleNamespace(
+        queue_root=queue_root,
+        reaction_dir=str(tmp_path / "rxn"),
+        admission_token="slot-1",
+    )
+
+    with pytest.raises(RuntimeError, match="queue write failed"):
+        lifecycle_helpers.finalize_process_finished_job(
+            worker,
+            "q-1",
+            job,
+            rc=0,
+            hooks=lifecycle_helpers.EngineQueueProcessLifecycleHooks(
+                queue_entry_id_fn=lambda entry: entry.queue_id,
+                queue_entry_app_name_fn=lambda _entry: "app",
+                queue_entry_task_id_fn=lambda _entry: "task",
+                update_slot_metadata_fn=lambda *_args, **_kwargs: None,
+                terminate_process_fn=lambda _proc: None,
+                mark_failed_fn=lambda *_args, **_kwargs: None,
+                upsert_running_job_record_fn=lambda *_args, **_kwargs: None,
+                get_run_id_from_state_fn=lambda _reaction_dir: "run-1",
+                get_cancel_requested_fn=lambda *_args, **_kwargs: False,
+                mark_cancelled_fn=lambda *_args, **_kwargs: None,
+                mark_completed_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("queue write failed")
+                ),
+                upsert_terminal_job_record_fn=lambda *_args, **_kwargs: None,
+                notify_terminal_job_from_state_fn=lambda *_args, **_kwargs: True,
+                find_queue_entry_fn=lambda _root, _queue_id: current,
+            ),
+        )
+
+    assert released == ["slot-1"]
+
+
 def test_reconcile_orphaned_running_with_policy_preserves_roots_and_reason(
     tmp_path: Path,
 ) -> None:

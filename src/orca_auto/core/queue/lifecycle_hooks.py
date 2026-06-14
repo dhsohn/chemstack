@@ -39,6 +39,7 @@ class EngineQueueProcessLifecycleHooks:
     mark_completed_fn: Callable[..., Any]
     upsert_terminal_job_record_fn: Callable[..., Any]
     notify_terminal_job_from_state_fn: Callable[[Any, str], bool]
+    find_queue_entry_fn: Callable[[Any, str], Any | None] | None = None
     on_completed_fn: Callable[[Any, Any], Any] | None = None
     terminal_side_effect_hooks: EngineQueueTerminalSideEffectHooks | None = None
 

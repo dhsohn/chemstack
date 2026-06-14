@@ -267,8 +267,7 @@ def _start_background_job_process(
     admission_token: str,
 ) -> BackgroundRunJobProcess:
     del admission_root
-    metadata = queue_entry_metadata(entry)
-    log_path = metadata.get("worker_log") or str(worker_log_path(queue_root, queue_entry_id(entry)))
+    log_path = str(worker_log_path(queue_root, queue_entry_id(entry)))
     return start_background_process(
         build_worker_child_command(
             config_path=config_path,
@@ -363,6 +362,13 @@ def _worker_config_with_effective_concurrency(
     return worker_cfg
 
 
+def _queue_entry_by_id(queue_root: Any, target_queue_id: str) -> QueueEntry | None:
+    for entry in list_queue(Path(queue_root)):
+        if queue_entry_id(entry) == target_queue_id:
+            return entry
+    return None
+
+
 def _lifecycle_callbacks() -> _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbacks:
     return _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbacks(
         queue_entry_id=queue_entry_id,
@@ -378,6 +384,7 @@ def _lifecycle_callbacks() -> _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbac
         mark_completed=mark_completed,
         upsert_terminal_job_record=_upsert_terminal_job_record,
         notify_terminal_job_from_state=_notify_terminal_job_from_state,
+        find_queue_entry=_queue_entry_by_id,
         on_completed=lambda worker, job: worker._auto_organize_terminal_job(job),
         queue_roots=queue_roots,
         reconcile_stale_slots=reconcile_stale_slots,

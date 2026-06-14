@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -102,13 +103,31 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         except OSError as exc:
             self._handle_worker_start_error(queue_root, entry, admission_token, exc)
             return False
+        except Exception as exc:  # noqa: BLE001
+            self._handle_worker_start_error(
+                queue_root,
+                entry,
+                admission_token,
+                OSError(f"worker start failed: {exc}"),
+            )
+            return False
 
-        if not self._on_worker_process_started(
-            queue_root,
-            entry,
-            process=proc,
-            admission_token=admission_token,
-        ):
+        try:
+            if not self._on_worker_process_started(
+                queue_root,
+                entry,
+                process=proc,
+                admission_token=admission_token,
+            ):
+                return False
+        except Exception as exc:  # noqa: BLE001
+            self._terminate_untracked_process(proc)
+            self._handle_worker_start_error(
+                queue_root,
+                entry,
+                admission_token,
+                OSError(f"worker attach failed: {exc}"),
+            )
             return False
 
         self._running[self._running_queue_id(entry)] = self._make_running_job(
@@ -118,6 +137,12 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
             admission_token=admission_token,
         )
         return True
+
+    def _terminate_untracked_process(self, process: Any) -> None:
+        terminate = getattr(process, "terminate", None)
+        if callable(terminate):
+            with contextlib.suppress(Exception):
+                terminate()
 
     def _handle_worker_start_error(
         self,
@@ -172,8 +197,10 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         error: str,
         mark_failed_fn: Callable[..., Any],
     ) -> None:
-        mark_failed_fn(queue_root, self._running_queue_id(entry), error=error)
-        self._release_admission_slot(admission_token)
+        try:
+            mark_failed_fn(queue_root, self._running_queue_id(entry), error=error)
+        finally:
+            self._release_admission_slot(admission_token)
 
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
         raise NotImplementedError

@@ -147,7 +147,7 @@ def enqueue(
         force=force,
         extra=metadata,
     )
-    queue_metadata.setdefault("worker_log", str(worker_log_path(allowed_root, queue_id)))
+    queue_metadata["worker_log"] = str(worker_log_path(allowed_root, queue_id))
 
     entry = QueueEntry(
         queue_id=queue_id,
