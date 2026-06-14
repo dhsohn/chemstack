@@ -51,29 +51,48 @@ def start_background_job_process(
     admission_root: str | Path | None = None,
     admission_token: str | None = None,
     include_admission_root: bool = True,
+    log_path: str | Path | None = None,
 ) -> subprocess.Popen[str]:
-    return start_background_process(
-        build_background_worker_command(
-            config_path=config_path,
-            queue_root=queue_root,
-            queue_id=entry.queue_id,
-            worker_job_module=worker_job_module,
-            admission_root=admission_root,
-            admission_token=admission_token,
-            include_admission_root=include_admission_root,
+    command = build_background_worker_command(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=entry.queue_id,
+        worker_job_module=worker_job_module,
+        admission_root=admission_root,
+        admission_token=admission_token,
+        include_admission_root=include_admission_root,
+    )
+    if log_path is None:
+        return start_background_process(command)
+    return start_background_process(command, log_path=log_path)
+
+
+def start_background_process(
+    command: Sequence[str],
+    *,
+    log_path: str | Path | None = None,
+) -> subprocess.Popen[str]:
+    if log_path is None:
+        return subprocess.Popen(
+            list(command),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            text=True,
         )
-    )
 
-
-def start_background_process(command: Sequence[str]) -> subprocess.Popen[str]:
-    return subprocess.Popen(
-        list(command),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
-    )
+    resolved_log_path = Path(log_path).expanduser()
+    resolved_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with resolved_log_path.open("a", encoding="utf-8") as log_handle:
+        return subprocess.Popen(
+            list(command),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            text=True,
+        )
 
 
 def live_queue_ids_for_slots(

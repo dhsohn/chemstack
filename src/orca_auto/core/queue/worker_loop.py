@@ -15,7 +15,7 @@ def fill_worker_slots(
     running_count: Callable[[], int],
     max_concurrent: int,
     reserve_next: Callable[[], tuple[str, T | None]],
-    start_reserved: Callable[[T], None],
+    start_reserved: Callable[[T], bool | None],
     max_new_jobs: int | None = None,
 ) -> SlotFillResult:
     started = 0
@@ -25,7 +25,11 @@ def fill_worker_slots(
         status, reserved = reserve_next()
         if status != "processed" or reserved is None:
             return SlotFillResult(status="processed" if started else status, started=started)
-        start_reserved(reserved)
+        before_start = running_count()
+        start_result = start_reserved(reserved)
+        after_start = running_count()
+        if start_result is False or (start_result is None and after_start <= before_start):
+            return SlotFillResult(status="processed", started=started)
         started += 1
     return SlotFillResult(status="processed" if started else "idle", started=started)
 
@@ -163,7 +167,7 @@ class QueueWorkerLoop:
     def _reserve_next_entry(self) -> tuple[str, Any | None]:
         raise NotImplementedError
 
-    def _start_reserved(self, reserved: Any) -> None:
+    def _start_reserved(self, reserved: Any) -> bool | None:
         raise NotImplementedError
 
     def _poll_job(self, job: Any) -> int | None:

@@ -170,7 +170,10 @@ def test_orca_queue_worker_uses_common_builder(monkeypatch: Any) -> None:
     )
 
     assert worker is fake_worker
-    assert captured["cfg"] is cfg
+    assert captured["cfg"] is not cfg
+    assert captured["cfg"].runtime is not cfg.runtime
+    assert captured["cfg"].runtime.max_concurrent == 1
+    assert cfg.runtime.max_concurrent == 1
     kwargs = captured["kwargs"]
     assert kwargs["engine"] == "orca"
     assert kwargs["config_path"] == "/tmp/config.yaml"

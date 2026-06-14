@@ -89,10 +89,10 @@ def dequeue_next_across_roots(
         return roots[0], entry
 
     selected_root: Path | None = None
-    selected_key: tuple[int, str, int, str] | None = None
+    selected_key: tuple[int, str, int, int] | None = None
 
     for root_index, root in enumerate(roots):
-        for entry in list_queue_fn(root):
+        for entry_index, entry in enumerate(list_queue_fn(root)):
             status_value = getattr(getattr(entry, "status", None), "value", None)
             status = str(status_value).strip().lower()
             if status != "pending" or getattr(entry, "cancel_requested", False):
@@ -101,7 +101,7 @@ def dequeue_next_across_roots(
                 int(getattr(entry, "priority", 10) or 10),
                 str(getattr(entry, "enqueued_at", "")),
                 root_index,
-                str(getattr(entry, "queue_id", "")),
+                entry_index,
             )
             if selected_key is None or key < selected_key:
                 selected_key = key
@@ -141,7 +141,11 @@ def reserve_dequeued_entry(
     if admission_token is None:
         return "blocked", None
 
-    dequeued = dequeue_next_fn(cfg)
+    try:
+        dequeued = dequeue_next_fn(cfg)
+    except Exception:
+        release_slot_fn(admission_root, admission_token)
+        raise
     if dequeued is None:
         release_slot_fn(admission_root, admission_token)
         return "idle", None

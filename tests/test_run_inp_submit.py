@@ -194,6 +194,10 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(metadata["max_retries"], 2)
             self.assertEqual(metadata["submitted_via"], "run_inp")
             self.assertEqual(metadata["job_type"], "opt")
+            self.assertEqual(
+                metadata["worker_log"],
+                str((root / "logs" / f"{entry.queue_id}.log").resolve()),
+            )
             self.assertTrue(str(metadata["molecule_key"]).strip())
             self.assertEqual(metadata["resource_request"]["max_cores"], 8)
             self.assertEqual(metadata["resource_request"]["max_memory_gb"], 32)

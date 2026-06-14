@@ -237,16 +237,6 @@ def _finish_attempt_exception(
     current_inp: Path,
     exc: BaseException,
 ) -> int:
-    if isinstance(exc, WorkerShutdownInterrupt):
-        logger.warning("Interrupted by worker shutdown during attempt %d", loop.execution_index)
-        return _finish_attempt(
-            ctx,
-            status=RunStatus.FAILED,
-            analyzer_status=AnalyzerStatus.INCOMPLETE,
-            reason="worker_shutdown",
-            last_out_path=str(current_inp.with_suffix(".out")),
-            exit_code=143,
-        )
     if isinstance(exc, KeyboardInterrupt):
         logger.warning("Interrupted by user during attempt %d", loop.execution_index)
         return _finish_attempt(
@@ -342,7 +332,10 @@ def _run_attempt_step(
             runner=ctx.runner,
             patch_actions=step.patch_actions,
         )
-    except (WorkerShutdownInterrupt, KeyboardInterrupt, Exception) as exc:  # noqa: BLE001
+    except WorkerShutdownInterrupt:
+        logger.warning("Interrupted by worker shutdown during attempt %d", loop.execution_index)
+        raise
+    except (KeyboardInterrupt, Exception) as exc:  # noqa: BLE001
         return None, _finish_attempt_exception(ctx, loop, step.current_inp, exc)
     return (
         RecordedAttemptResult(

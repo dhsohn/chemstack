@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 from collections.abc import Callable
 from contextlib import contextmanager
 from urllib.error import HTTPError
@@ -9,6 +10,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 LOGGER = logging.getLogger(__name__)
+_IPV4_RESOLUTION_LOCK = threading.RLock()
 
 
 def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
@@ -80,27 +82,28 @@ def _is_retryable_http_status(status_code: int | None) -> bool:
 @contextmanager
 def _force_ipv4_resolution(hostname: str):
     target = str(hostname).strip().lower()
-    original_getaddrinfo = socket.getaddrinfo
+    with _IPV4_RESOLUTION_LOCK:
+        original_getaddrinfo = socket.getaddrinfo
 
-    def _ipv4_only_getaddrinfo(
-        host: bytes | str | None,
-        port: bytes | str | int | None,
-        family: int = 0,
-        type: int = 0,
-        proto: int = 0,
-        flags: int = 0,
-    ):
-        results = original_getaddrinfo(host, port, family, type, proto, flags)
-        if str(host).strip().lower() != target:
-            return results
-        filtered = [item for item in results if item[0] == socket.AF_INET]
-        return filtered or results
+        def _ipv4_only_getaddrinfo(
+            host: bytes | str | None,
+            port: bytes | str | int | None,
+            family: int = 0,
+            type: int = 0,
+            proto: int = 0,
+            flags: int = 0,
+        ):
+            results = original_getaddrinfo(host, port, family, type, proto, flags)
+            if str(host).strip().lower() != target:
+                return results
+            filtered = [item for item in results if item[0] == socket.AF_INET]
+            return filtered or results
 
-    socket.getaddrinfo = _ipv4_only_getaddrinfo
-    try:
-        yield
-    finally:
-        socket.getaddrinfo = original_getaddrinfo
+        socket.getaddrinfo = _ipv4_only_getaddrinfo
+        try:
+            yield
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
 
 
 def urlopen_with_ipv4_fallback(
@@ -109,6 +112,11 @@ def urlopen_with_ipv4_fallback(
     timeout: float,
     urlopen_fn: Callable[..., object] = urlopen,
 ):
+    """Retry one request with hostname-scoped IPv4 resolution after IPv6 routing failure.
+
+    urllib does not expose per-request address-family selection, so the fallback
+    uses a short-lived resolver override guarded by a module lock.
+    """
     try:
         return urlopen_fn(request, timeout=timeout)
     except OSError as exc:

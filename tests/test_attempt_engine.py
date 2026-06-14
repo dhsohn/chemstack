@@ -97,7 +97,7 @@ class TestAttemptEngine(unittest.TestCase):
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(len(emitted_payloads), 1)
 
-    def test_worker_shutdown_emits_single_run_interrupted_event(self) -> None:
+    def test_worker_shutdown_propagates_without_failed_final_result(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction_dir = Path(td)
             selected_inp = reaction_dir / "rxn.inp"
@@ -106,28 +106,26 @@ class TestAttemptEngine(unittest.TestCase):
 
             emitted_payloads = []
 
-            rc = run_attempts(
-                reaction_dir,
-                selected_inp,
-                state,
-                resumed=False,
-                runner=_WorkerShutdownRunner(),
-                max_retries=3,
-                retry_inp_path=_retry_inp_path,
-                to_resolved_local=lambda raw: Path(raw),
-                emit=lambda payload: emitted_payloads.append(payload),
-            )
+            with self.assertRaises(WorkerShutdownInterrupt):
+                run_attempts(
+                    reaction_dir,
+                    selected_inp,
+                    state,
+                    resumed=False,
+                    runner=_WorkerShutdownRunner(),
+                    max_retries=3,
+                    retry_inp_path=_retry_inp_path,
+                    to_resolved_local=lambda raw: Path(raw),
+                    emit=lambda payload: emitted_payloads.append(payload),
+                )
 
             saved = load_state(reaction_dir)
 
-        self.assertEqual(rc, 143)
         self.assertIsNotNone(saved)
         assert saved is not None
-        final_result = saved["final_result"]
-        assert final_result is not None
-        self.assertEqual(final_result["reason"], "worker_shutdown")
-        self.assertEqual(saved["status"], "failed")
-        self.assertEqual(len(emitted_payloads), 1)
+        self.assertIsNone(saved["final_result"])
+        self.assertEqual(saved["status"], "running")
+        self.assertEqual(emitted_payloads, [])
 
     def test_retry_notification_callback_receives_retry_context(self) -> None:
         with tempfile.TemporaryDirectory() as td:

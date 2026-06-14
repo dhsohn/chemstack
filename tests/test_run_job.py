@@ -11,7 +11,8 @@ import pytest
 from orca_auto.core.engines import orca_execution as worker_job
 from orca_auto.core.engines.orca_execution import execute_run_job
 from orca_auto.core.queue.types import QueueEntry, QueueStatus
-from orca_auto.orca.queue_adapter import dequeue_next, enqueue
+from orca_auto.orca.orca_runner import WorkerShutdownInterrupt
+from orca_auto.orca.queue_adapter import dequeue_next, enqueue, list_queue
 
 
 @patch("orca_auto.core.engines.orca_execution._cmd_run_inp_execute", return_value=7)
@@ -207,6 +208,55 @@ def test_run_worker_child_job_finds_real_queue_entry_and_releases_slot(
     assert calls["kwargs"]["admission_app_name"] == "orca_auto_orca"
     assert calls["kwargs"]["admission_task_id"] == "task-real"
     assert released == [(str(admission_root), "slot-real")]
+
+
+def test_run_worker_child_job_requeues_on_worker_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    admission_root = tmp_path / "admission"
+    rxn = queue_root / "rxn_shutdown"
+    rxn.mkdir(parents=True)
+    entry = enqueue(queue_root, str(rxn), force=True, task_id="task-shutdown")
+    running = dequeue_next(queue_root)
+    assert running is not None
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(queue_root),
+            admission_root=str(admission_root),
+            admission_limit=1,
+            max_concurrent=1,
+        )
+    )
+    released: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(worker_job, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(worker_job, "install_shutdown_signal_handlers", lambda _callback: None)
+    monkeypatch.setattr(
+        worker_job,
+        "release_slot",
+        lambda root, token: released.append((str(root), token)),
+    )
+    monkeypatch.setattr(
+        worker_job,
+        "execute_run_job",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(WorkerShutdownInterrupt),
+    )
+
+    rc = worker_job.run_worker_child_job(
+        config_path="/tmp/config.yaml",
+        queue_root=queue_root,
+        queue_id=entry.queue_id,
+        admission_token="slot-shutdown",
+    )
+
+    assert rc == 0
+    assert released == [(str(admission_root), "slot-shutdown")]
+    [updated] = list_queue(queue_root)
+    assert updated.queue_id == entry.queue_id
+    assert updated.status == QueueStatus.PENDING
+    assert updated.started_at == ""
 
 
 def test_run_worker_child_job_releases_slot_when_entry_not_running(

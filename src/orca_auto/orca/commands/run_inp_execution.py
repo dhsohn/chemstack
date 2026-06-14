@@ -185,14 +185,13 @@ def existing_completed_exit(
     max_retries: int,
     deps: Any,
 ) -> int | None:
+    del admission_root, reservation_token
     execution = deps.execution
     statuses = deps.statuses
     done = execution._existing_completed_out(selected_inp)
     if done is None:
         return None
 
-    if reservation_token is not None:
-        execution.release_slot(admission_root, reservation_token)
     state, resumed = execution.load_or_create_state(
         reaction_dir,
         selected_inp,
@@ -223,17 +222,6 @@ def execute_locked_run(
 ) -> int:
     execution = deps.execution
     with execution.acquire_run_lock(context.reaction_dir):
-        if not getattr(args, "force", False):
-            existing_exit = execution._existing_completed_exit(
-                reaction_dir=context.reaction_dir,
-                selected_inp=context.selected_inp,
-                admission_root=context.admission_root,
-                reservation_token=context.reservation_token,
-                max_retries=context.max_retries,
-            )
-            if existing_exit is not None:
-                return existing_exit
-
         with execution._admission_context(
             admission_root=context.admission_root,
             reaction_dir=context.reaction_dir,
@@ -241,6 +229,17 @@ def execute_locked_run(
             admission_app_name=context.admission_app_name,
             admission_task_id=context.admission_task_id,
         ):
+            if not getattr(args, "force", False):
+                existing_exit = execution._existing_completed_exit(
+                    reaction_dir=context.reaction_dir,
+                    selected_inp=context.selected_inp,
+                    admission_root=context.admission_root,
+                    reservation_token=context.reservation_token,
+                    max_retries=context.max_retries,
+                )
+                if existing_exit is not None:
+                    return existing_exit
+
             state, resumed = execution.load_or_create_state(
                 context.reaction_dir,
                 context.selected_inp,

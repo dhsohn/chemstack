@@ -313,7 +313,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
         mock_resolve_job_metadata.assert_not_called()
         mock_upsert_job_record.assert_called_once_with(
-            self.cfg,
+            self.worker.cfg,
             job_id="task_meta_123",
             status="running",
             job_dir=reaction_dir.resolve(),
@@ -425,7 +425,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         )
 
         mock_organize.assert_called_once_with(
-            self.cfg,
+            self.worker.cfg,
             rxn,
             notify_summary=False,
         )
@@ -731,6 +731,21 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
 
 class TestFillSlots(unittest.TestCase):
+    def test_queue_worker_does_not_mutate_config_max_concurrent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            original_max_concurrent = cfg.runtime.max_concurrent
+
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=2)
+
+            self.assertEqual(cfg.runtime.max_concurrent, original_max_concurrent)
+            self.assertIsNot(worker.cfg, cfg)
+            self.assertIsNot(worker.cfg.runtime, cfg.runtime)
+            self.assertEqual(worker.cfg.runtime.max_concurrent, 2)
+            self.assertEqual(worker.max_concurrent, 2)
+            self.assertEqual(worker.admission_limit, 2)
+
     def test_fill_slots_starts_pending_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -799,6 +814,10 @@ class TestFillSlots(unittest.TestCase):
             self.assertEqual(slots[0].task_id, entry.task_id)
             self.assertNotEqual(slots[0].queue_id, slots[0].task_id)
             command = mock_start_background_process.call_args.args[0]
+            self.assertEqual(
+                mock_start_background_process.call_args.kwargs["log_path"],
+                str((root / "logs" / f"{entry.queue_id}.log").resolve()),
+            )
             self.assertEqual(
                 _command_arg(command, "--admission-token"),
                 slots[0].token,
@@ -934,7 +953,7 @@ class TestFillSlots(unittest.TestCase):
             enqueue(root, str(queued))
 
             token = reserve_slot(
-                root,
+                worker.admission_root,
                 1,
                 work_dir=str(root / "reserved_hold"),
                 source="queue_worker",
@@ -947,7 +966,7 @@ class TestFillSlots(unittest.TestCase):
                 ) as mock_start_background_process:
                     worker._fill_slots()
             finally:
-                release_slot(root, token or "")
+                release_slot(worker.admission_root, token or "")
 
             self.assertEqual(len(worker._running), 0)
             mock_start_background_process.assert_not_called()

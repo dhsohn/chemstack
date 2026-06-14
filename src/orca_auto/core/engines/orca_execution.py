@@ -23,7 +23,7 @@ from orca_auto.core.queue.worker import (
 from orca_auto.core.queue.worker_execution_dependencies import run_worker_child_entrypoint
 from orca_auto.orca.commands.run_inp import _cmd_run_inp_execute
 from orca_auto.orca.config import load_config
-from orca_auto.orca.orca_runner import OrcaRunner
+from orca_auto.orca.orca_runner import OrcaRunner, WorkerShutdownInterrupt
 from orca_auto.orca.queue_adapter import (
     list_queue,
     queue_entry_app_name,
@@ -122,14 +122,17 @@ def _run_orca_job_for_entry(
     _queue_root: Path,
     _options: _engine_execution.InternalWorkerOptions,
 ) -> int:
-    return execute_run_job(
-        context.config_path,
-        context.reaction_dir,
-        force=context.force,
-        reservation_token=context.admission_token,
-        admission_app_name=context.admission_app_name,
-        admission_task_id=context.admission_task_id,
-    )
+    try:
+        return execute_run_job(
+            context.config_path,
+            context.reaction_dir,
+            force=context.force,
+            reservation_token=context.admission_token,
+            admission_app_name=context.admission_app_name,
+            admission_task_id=context.admission_task_id,
+        )
+    except WorkerShutdownInterrupt as exc:
+        raise WorkerShutdownRequested(context) from exc
 
 
 def _worker_execution_spec(

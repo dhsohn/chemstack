@@ -82,14 +82,14 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
             release_slot_fn=deps.release_slot,
         )
 
-    def _start_reserved(self, reserved: Any) -> None:
-        self._start_job(
+    def _start_reserved(self, reserved: Any) -> bool:
+        return self._start_job(
             reserved.queue_root,
             reserved.entry,
             admission_token=reserved.admission_token,
         )
 
-    def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> None:
+    def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> bool:
         deps = self.deps
         try:
             proc = deps.start_background_job_process(
@@ -101,7 +101,7 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
             )
         except OSError as exc:
             self._handle_worker_start_error(queue_root, entry, admission_token, exc)
-            return
+            return False
 
         if not self._on_worker_process_started(
             queue_root,
@@ -109,7 +109,7 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
             process=proc,
             admission_token=admission_token,
         ):
-            return
+            return False
 
         self._running[self._running_queue_id(entry)] = self._make_running_job(
             queue_root=queue_root,
@@ -117,6 +117,7 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
             process=proc,
             admission_token=admission_token,
         )
+        return True
 
     def _handle_worker_start_error(
         self,

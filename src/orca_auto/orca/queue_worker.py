@@ -7,6 +7,7 @@ management, and signal handling remain centralized.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ from orca_auto.core.admission import (
     reserve_slot,
     update_slot_metadata,
 )
+from orca_auto.core.config.schema import resolved_admission_limit
 from orca_auto.core.engines.orca_execution import (
     WORKER_JOB_MODULE,
     BackgroundRunJobProcess,
@@ -54,9 +56,6 @@ from orca_auto.core.queue.worker import (
 )
 from orca_auto.core.queue.worker import (
     ManagedProcess as _ManagedProcess,
-)
-from orca_auto.core.queue.worker import (
-    resolve_admission_limit as _resolve_worker_admission_limit,
 )
 from orca_auto.core.queue.worker import (
     start_background_process,
@@ -94,6 +93,7 @@ from .queue_adapter import (
     queue_entry_task_id,
     reconcile_orphaned_running_entries,
     requeue_running_entry,
+    worker_log_path,
 )
 from .queue_worker_deps import (
     OrcaQueueWorkerFacadeBindings,
@@ -139,6 +139,7 @@ _LEGACY_COMPAT_EXPORTS = (
     time,
     upsert_job_record,
     update_slot_metadata,
+    worker_log_path,
     read_resource_request_from_input,
 )
 
@@ -266,13 +267,16 @@ def _start_background_job_process(
     admission_token: str,
 ) -> BackgroundRunJobProcess:
     del admission_root
+    metadata = queue_entry_metadata(entry)
+    log_path = metadata.get("worker_log") or str(worker_log_path(queue_root, queue_entry_id(entry)))
     return start_background_process(
         build_worker_child_command(
             config_path=config_path,
             queue_root=queue_root,
             queue_id=queue_entry_id(entry),
             admission_token=admission_token,
-        )
+        ),
+        log_path=log_path,
     )
 
 
@@ -341,9 +345,22 @@ def _notify_terminal_job_from_state(cfg: AppConfig, reaction_dir: str) -> bool:
 
 
 def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int:
-    if getattr(cfg.runtime, "max_concurrent", None) in (None, "", 0):
-        cfg.runtime.max_concurrent = fallback_max_concurrent
-    return _resolve_worker_admission_limit(cfg)
+    raw_limit = getattr(cfg.runtime, "admission_limit", None)
+    if raw_limit in (None, "", 0):
+        raw_limit = fallback_max_concurrent
+    return resolved_admission_limit(raw_limit, fallback_max_concurrent)
+
+
+def _worker_config_with_effective_concurrency(
+    cfg: AppConfig,
+    configured_max: int,
+) -> AppConfig:
+    if getattr(cfg.runtime, "admission_limit", None) not in (None, "", 0):
+        return cfg
+    worker_cfg = copy.copy(cfg)
+    worker_cfg.runtime = copy.copy(cfg.runtime)
+    worker_cfg.runtime.max_concurrent = configured_max
+    return worker_cfg
 
 
 def _lifecycle_callbacks() -> _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbacks:
@@ -524,10 +541,9 @@ def QueueWorker(
     auto_organize: bool = False,
 ) -> EngineQueueWorker:
     configured_max = max(1, int(max_concurrent))
-    if getattr(cfg.runtime, "admission_limit", None) in (None, ""):
-        cfg.runtime.max_concurrent = configured_max
+    worker_cfg = _worker_config_with_effective_concurrency(cfg, configured_max)
     worker = build_runtime_engine_queue_worker(
-        cfg,
+        worker_cfg,
         config_path=config_path,
         default_config_path=_default_config_path,
         engine="orca",
@@ -535,7 +551,7 @@ def QueueWorker(
         deps=_queue_worker_deps(),
         hooks=_queue_worker_hooks(),
         worker_pid_file_name=WORKER_PID_FILE,
-        admission_root=_admission_root_for_cfg(cfg),
+        admission_root=_admission_root_for_cfg(worker_cfg),
         auto_organize=auto_organize,
         after_init=_after_orca_worker_init,
         before_run=_before_orca_worker_run,

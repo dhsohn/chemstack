@@ -75,11 +75,16 @@ __all__ = [
     "requeue_running_entry",
     "update_running_entry_state",
     "update_terminal",
+    "worker_log_path",
 ]
 
 
 def _now_iso() -> str:
     return now_utc_iso()
+
+
+def worker_log_path(allowed_root: Path, queue_id: str) -> Path:
+    return Path(allowed_root).expanduser().resolve() / "logs" / f"{queue_id}.log"
 
 
 def _load_entries(allowed_root: Path) -> list[QueueEntry]:
@@ -136,9 +141,16 @@ def enqueue(
     """Add a reaction directory to the ORCA queue."""
     resolved = str(Path(reaction_dir).expanduser().resolve())
     reconcile_orphaned_running_entries(allowed_root)
+    queue_id = timestamped_token("q", token_bytes=4)
+    queue_metadata = entry_metadata(
+        reaction_dir=resolved,
+        force=force,
+        extra=metadata,
+    )
+    queue_metadata.setdefault("worker_log", str(worker_log_path(allowed_root, queue_id)))
 
     entry = QueueEntry(
-        queue_id=timestamped_token("q", token_bytes=4),
+        queue_id=queue_id,
         app_name=QUEUE_APP_NAME,
         task_id=normalize_text(task_id) or timestamped_token("orca", token_bytes=4),
         task_kind=normalize_text(task_kind) or QUEUE_TASK_KIND,
@@ -146,11 +158,7 @@ def enqueue(
         status=QueueStatus.PENDING,
         priority=priority,
         enqueued_at=_now_iso(),
-        metadata=entry_metadata(
-            reaction_dir=resolved,
-            force=force,
-            extra=metadata,
-        ),
+        metadata=queue_metadata,
     )
     entry = _queue_store.enqueue_entry(
         allowed_root,

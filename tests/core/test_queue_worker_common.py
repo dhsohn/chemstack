@@ -206,6 +206,21 @@ def test_dequeue_next_across_roots_returns_none_when_selected_root_dequeues_empt
     )
 
 
+def test_reserve_dequeued_entry_releases_slot_when_dequeue_raises() -> None:
+    released: list[tuple[str, str]] = []
+
+    with pytest.raises(RuntimeError, match="queue corrupt"):
+        worker_common.reserve_dequeued_entry(
+            _cfg(admission_root="/tmp/admission"),
+            admission_root="/tmp/admission",
+            reserve_slot_fn=lambda _cfg: "slot-1",
+            dequeue_next_fn=lambda _cfg: (_ for _ in ()).throw(RuntimeError("queue corrupt")),
+            release_slot_fn=lambda root, token: released.append((str(root), token)),
+        )
+
+    assert released == [("/tmp/admission", "slot-1")]
+
+
 def test_queue_entry_by_id_scans_queue_with_injected_lister(tmp_path: Path) -> None:
     entries = [_entry("q-1"), _entry("q-2")]
 
@@ -250,6 +265,34 @@ def test_start_background_process_uses_detached_devnull_popen(
             "text": True,
         }
     ]
+
+
+def test_start_background_process_redirects_output_to_log_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+    expected = object()
+    log_path = tmp_path / "logs" / "queue-1.log"
+
+    def fake_popen(command: list[str], **kwargs: object) -> object:
+        calls.append({"command": command, **kwargs})
+        stdout = kwargs["stdout"]
+        assert getattr(stdout, "name", None) == str(log_path)
+        assert not bool(getattr(stdout, "closed", True))
+        return expected
+
+    monkeypatch.setattr(child_process_helpers.subprocess, "Popen", fake_popen)
+
+    assert (
+        worker_common.start_background_process(("python", "-m", "worker"), log_path=log_path)
+        is expected
+    )
+    assert log_path.parent.exists()
+    assert calls[0]["stderr"] == child_process_helpers.subprocess.STDOUT
+    assert calls[0]["stdin"] == child_process_helpers.subprocess.DEVNULL
+    assert calls[0]["start_new_session"] is True
+    assert calls[0]["text"] is True
 
 
 def test_child_worker_command_requires_admission_root_when_included() -> None:
@@ -452,6 +495,32 @@ def test_fill_worker_slots_respects_max_new_jobs() -> None:
     assert result.status == "processed"
     assert result.started == 1
     assert running == ["slot"]
+
+
+def test_fill_worker_slots_does_not_count_handled_start_failure() -> None:
+    reservations = iter(
+        [
+            ("processed", "slot-1"),
+            ("processed", "slot-2"),
+        ]
+    )
+    reserve_calls = 0
+
+    def reserve_next() -> tuple[str, str | None]:
+        nonlocal reserve_calls
+        reserve_calls += 1
+        return next(reservations)
+
+    result = worker_common.fill_worker_slots(
+        running_count=lambda: 0,
+        max_concurrent=2,
+        reserve_next=reserve_next,
+        start_reserved=lambda _reserved: False,
+    )
+
+    assert result.status == "processed"
+    assert result.started == 0
+    assert reserve_calls == 1
 
 
 def test_pop_completed_worker_jobs_finalizes_and_removes_finished_jobs() -> None:

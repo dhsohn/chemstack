@@ -432,7 +432,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(_final_result(saved)["reason"], "worker_shutdown")
 
-    def test_worker_shutdown_stops_run_and_finalizes_state(self) -> None:
+    def test_worker_shutdown_propagates_without_finalizing_failed_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn5_worker_shutdown"
@@ -445,14 +445,12 @@ class TestCli(unittest.TestCase):
                 raise WorkerShutdownInterrupt
 
             with patch("orca_auto.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = self._run_internal_execute(config, reaction)
+                with self.assertRaises(WorkerShutdownInterrupt):
+                    self._run_internal_execute(config, reaction)
             saved = _loaded_state(reaction)
 
-        self.assertEqual(rc, 143)
-        self.assertEqual(saved["status"], "failed")
-        final_result = _final_result(saved)
-        self.assertEqual(final_result["reason"], "worker_shutdown")
-        self.assertEqual(final_result["analyzer_status"], "incomplete")
+        self.assertEqual(saved["status"], "running")
+        self.assertIsNone(saved["final_result"])
         self.assertEqual(len(saved["attempts"]), 0)
 
     def test_retries_and_completes(self) -> None:
