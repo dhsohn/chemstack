@@ -82,6 +82,22 @@ def test_workflow_file_helpers_and_resolution_support_direct_and_root_targets(tm
         resolve_workflow_workspace(target="missing-workflow", workflow_root=workflow_root)
 
 
+@pytest.mark.parametrize("target", ["../outside/workflow.json", "/tmp/outside-workflow.json"])
+def test_resolve_workflow_workspace_rejects_targets_outside_workflow_root(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_workflow = outside / "workflow.json"
+    outside_workflow.write_text("{}", encoding="utf-8")
+    resolved_target = str(outside_workflow) if target.startswith("/") else target
+
+    with pytest.raises(FileNotFoundError, match="workflow not found"):
+        resolve_workflow_workspace(target=resolved_target, workflow_root=workflow_root)
+
+
 def test_iter_workflow_runtime_workspaces_filters_engine_without_creating_missing_roots(tmp_path: Path) -> None:
     workflow_root = tmp_path / "workflow_root"
     conformer_workspace = workflow_root / "wf_conformer"

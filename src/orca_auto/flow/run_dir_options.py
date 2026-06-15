@@ -114,6 +114,18 @@ def _resolve_int_option(explicit: Any, manifest: dict[str, Any], key: str, defau
     return int(manifest_value)
 
 
+def _resolve_positive_int_option(
+    explicit: Any,
+    manifest: dict[str, Any],
+    key: str,
+    default: int,
+) -> int:
+    value = _resolve_int_option(explicit, manifest, key, default)
+    if value < 1:
+        raise ValueError(f"{key} must be >= 1. got={value}")
+    return value
+
+
 def _resolve_int_option_with_section(
     explicit: Any,
     manifest: dict[str, Any],
@@ -133,6 +145,27 @@ def _resolve_int_option_with_section(
     return int(section_value)
 
 
+def _resolve_positive_int_option_with_section(
+    explicit: Any,
+    manifest: dict[str, Any],
+    key: str,
+    section: dict[str, Any],
+    section_key: str,
+    default: int,
+) -> int:
+    value = _resolve_int_option_with_section(
+        explicit,
+        manifest,
+        key,
+        section,
+        section_key,
+        default,
+    )
+    if value < 1:
+        raise ValueError(f"{key} must be >= 1. got={value}")
+    return value
+
+
 def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
     del manifest
     # Attribute access keeps the cli_common monkeypatch seam used by tests.
@@ -140,10 +173,7 @@ def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
         getattr(args, "workflow_root", None)
     )
     if not resolved_workflow_root:
-        config_path = (
-            getattr(args, "orca_auto_config", None)
-            or getattr(args, "config", None)
-        )
+        config_path = getattr(args, "orca_auto_config", None) or getattr(args, "config", None)
         resolved_workflow_root = _cli_workflow_root_for_args(args, config_path=config_path)
     if not resolved_workflow_root:
         raise ValueError("workflow_root is not configured. Set workflow.root in orca_auto.yaml.")
@@ -177,7 +207,7 @@ def _resolve_run_dir_resource_options(
     sections: RunDirManifestSections,
 ) -> dict[str, Any]:
     return {
-        "max_cores": _resolve_int_option_with_section(
+        "max_cores": _resolve_positive_int_option_with_section(
             getattr(args, "max_cores", None),
             manifest,
             "max_cores",
@@ -185,7 +215,7 @@ def _resolve_run_dir_resource_options(
             "max_cores",
             8,
         ),
-        "max_memory_gb": _resolve_int_option_with_section(
+        "max_memory_gb": _resolve_positive_int_option_with_section(
             getattr(args, "max_memory_gb", None),
             manifest,
             "max_memory_gb",
@@ -204,7 +234,7 @@ def _resolve_run_dir_orca_options(
     defaults: _RunDirWorkflowOptionDefaults,
 ) -> dict[str, Any]:
     return {
-        "max_orca_stages": _resolve_int_option(
+        "max_orca_stages": _resolve_positive_int_option(
             getattr(args, "max_orca_stages", None),
             manifest,
             "max_orca_stages",
@@ -244,13 +274,13 @@ def _resolve_run_dir_stage_options(
     defaults: _RunDirWorkflowOptionDefaults,
 ) -> dict[str, Any]:
     return {
-        "max_crest_candidates": _resolve_int_option(
+        "max_crest_candidates": _resolve_positive_int_option(
             getattr(args, "max_crest_candidates", None),
             manifest,
             "max_crest_candidates",
             defaults.max_crest_candidates,
         ),
-        "max_xtb_stages": _resolve_int_option(
+        "max_xtb_stages": _resolve_positive_int_option(
             getattr(args, "max_xtb_stages", None),
             manifest,
             "max_xtb_stages",
@@ -314,4 +344,6 @@ __all__ = [
     "RunDirManifestSections",
     "RunDirWorkflowConfig",
     "RunDirWorkflowOptions",
+    "_resolve_positive_int_option",
+    "_resolve_positive_int_option_with_section",
 ]

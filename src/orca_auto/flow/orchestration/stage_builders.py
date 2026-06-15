@@ -45,8 +45,21 @@ class _EngineStageBuildRequest:
     enqueue_extra: dict[str, Any] | None = None
 
 
+def _positive_resource_value(value: int, *, field_name: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise ValueError(f"{field_name} must be >= 1. got={parsed}")
+    return parsed
+
+
 def _resource_request(max_cores: int, max_memory_gb: int) -> dict[str, int]:
-    return {"max_cores": int(max_cores), "max_memory_gb": int(max_memory_gb)}
+    return {
+        "max_cores": _positive_resource_value(max_cores, field_name="max_cores"),
+        "max_memory_gb": _positive_resource_value(
+            max_memory_gb,
+            field_name="max_memory_gb",
+        ),
+    }
 
 
 def _stage_payload_sections(
@@ -152,7 +165,9 @@ def _planned_stage_payload(
     return cast(WorkflowStageWithTaskPayload, stage.to_dict())
 
 
-def _planned_engine_stage_payload(request: _EngineStageBuildRequest) -> WorkflowStageWithTaskPayload:
+def _planned_engine_stage_payload(
+    request: _EngineStageBuildRequest,
+) -> WorkflowStageWithTaskPayload:
     task = _workflow_task(
         workflow_id=request.workflow_id,
         stage_id=request.stage_id,

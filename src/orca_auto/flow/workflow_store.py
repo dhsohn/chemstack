@@ -33,10 +33,20 @@ def _workflow_parent_dir(path: Path) -> Path:
     return path
 
 
+def _is_under_workflow_root(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def resolve_workflow_workspace(*, target: str, workflow_root: str | Path | None = None) -> Path:
     raw_target = _normalize_text(target)
     if not raw_target:
         raise ValueError("workflow target is required")
+
+    root = workflow_root_dir(workflow_root) if workflow_root is not None else None
 
     try:
         direct = Path(raw_target).expanduser().resolve()
@@ -44,15 +54,14 @@ def resolve_workflow_workspace(*, target: str, workflow_root: str | Path | None 
         direct = None
     if direct is not None and direct.exists():
         parent = _workflow_parent_dir(direct)
-        if parent.is_dir():
+        if parent.is_dir() and (root is None or _is_under_workflow_root(parent, root)):
             return parent
 
-    if workflow_root is None:
+    if root is None:
         raise FileNotFoundError(f"workflow not found: {target}")
 
-    root = workflow_root_dir(workflow_root)
-    candidate = root / raw_target
-    if candidate.exists():
+    candidate = (root / raw_target).resolve()
+    if _is_under_workflow_root(candidate, root) and candidate.exists():
         parent = _workflow_parent_dir(candidate)
         if parent.is_dir():
             return parent

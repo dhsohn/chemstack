@@ -60,6 +60,13 @@ class WorkflowFactoryDeps:
         )
 
 
+def _positive_int_field(value: Any, *, field_name: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise ValueError(f"{field_name} must be >= 1. got={parsed}")
+    return parsed
+
+
 def _normalized_reaction_ts_request(
     request: ReactionTsSearchWorkflowRequest,
     *,
@@ -68,9 +75,50 @@ def _normalized_reaction_ts_request(
     normalized_crest_mode = deps.normalize_text(request.crest_mode).lower()
     if normalized_crest_mode not in {"standard", "nci"}:
         raise ValueError("reaction_ts_search only supports crest_mode 'standard' or 'nci'")
-    if normalized_crest_mode == request.crest_mode:
-        return request
-    return replace(request, crest_mode=normalized_crest_mode)
+    return replace(
+        request,
+        crest_mode=normalized_crest_mode,
+        max_cores=_positive_int_field(request.max_cores, field_name="max_cores"),
+        max_memory_gb=_positive_int_field(
+            request.max_memory_gb,
+            field_name="max_memory_gb",
+        ),
+        max_crest_candidates=_positive_int_field(
+            request.max_crest_candidates,
+            field_name="max_crest_candidates",
+        ),
+        max_xtb_stages=_positive_int_field(
+            request.max_xtb_stages,
+            field_name="max_xtb_stages",
+        ),
+        max_orca_stages=_positive_int_field(
+            request.max_orca_stages,
+            field_name="max_orca_stages",
+        ),
+    )
+
+
+def _normalized_conformer_screening_request(
+    request: ConformerScreeningWorkflowRequest,
+    *,
+    deps: WorkflowFactoryDeps,
+) -> ConformerScreeningWorkflowRequest:
+    normalized_crest_mode = deps.normalize_text(request.crest_mode).lower()
+    if normalized_crest_mode not in {"standard", "nci"}:
+        raise ValueError("conformer_screening only supports crest_mode 'standard' or 'nci'")
+    return replace(
+        request,
+        crest_mode=normalized_crest_mode,
+        max_cores=_positive_int_field(request.max_cores, field_name="max_cores"),
+        max_memory_gb=_positive_int_field(
+            request.max_memory_gb,
+            field_name="max_memory_gb",
+        ),
+        max_orca_stages=_positive_int_field(
+            request.max_orca_stages,
+            field_name="max_orca_stages",
+        ),
+    )
 
 
 def create_reaction_ts_search_workflow_from_request(
@@ -95,7 +143,7 @@ def create_conformer_screening_workflow_from_request(
     return cast(
         dict[str, Any],
         create_conformer_screening_workflow_impl(
-            request=request,
+            request=_normalized_conformer_screening_request(request, deps=deps),
             context=deps.workflow_context(),
         ),
     )

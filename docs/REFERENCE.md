@@ -228,7 +228,10 @@ ORCA-specific notes:
   `reaction_dir` command line. The queue entry still stores `reaction_dir`, and
   downstream ORCA/workflow contracts should keep using that field.
 - `--force` re-runs even if completed output already exists
-- `--max-cores` and `--max-memory-gb` override recorded resource limits for that queued run
+- Standalone ORCA resource metadata comes from the selected input's `%pal`
+  and `%maxcore` directives, with config defaults injected only when those
+  directives are missing. The shared `--max-cores` and `--max-memory-gb`
+  flags do not override standalone ORCA input directives.
 - Retry inputs and resumed worker-shutdown inputs add `MORead` plus `%moinp`
   when the source input has a matching non-empty `.gbw` checkpoint. Resumed
   inputs are written as `*.resume.inp` so the original user input is not mutated.
@@ -242,7 +245,9 @@ Workflow notes:
 - `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB child jobs, waits for the full xTB phase to reach terminal states, and then batches any matching ORCA OptTS child jobs from the retained `ts_guess` artifacts
 - `conformer_search` starts with one CREST child job and then hands off up to 20 retained conformers to ORCA child jobs in the next workflow cycle
 - Set top-level `workflow.root` in `orca_auto.yaml` before using workflow commands
-- Public `run-dir` does not expose workflow override flags; workflow settings come from `flow.yaml` and `orca_auto.yaml`
+- Public `run-dir` accepts `--max-cores` and `--max-memory-gb` for workflow
+  resource requests. Other workflow settings come from `flow.yaml` and
+  `orca_auto.yaml`.
 - CREST topology overrides can be placed under `crest:` in `flow.yaml`, including `gfn: ff`, `no_preopt: true`, `noreftopo: true`, `notopo: true`, and `nocbonds: true`
 - `scaffold ts_search` and `scaffold conformer_search` write `flow.yaml` with `crest_mode: standard` by default; change it to `nci` when needed
 

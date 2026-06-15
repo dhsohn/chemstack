@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -58,6 +59,30 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
     assert stage["metadata"] == {"input_role": "reactant", "mode": "nci"}
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_cores": 0, "max_memory_gb": 12}, "max_cores must be >= 1"),
+        ({"max_cores": 4, "max_memory_gb": 0}, "max_memory_gb must be >= 1"),
+    ],
+)
+def test_new_crest_stage_rejects_non_positive_resources(
+    kwargs: dict[str, Any],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        new_crest_stage_impl(
+            workflow_id="wf_crest_01",
+            template_name="reaction_ts_search",
+            stage_id="crest_reactant_01",
+            source_path="/tmp/reactant.xyz",
+            input_role="reactant",
+            mode="nci",
+            priority=7,
+            **kwargs,
+        )
+
+
 def test_create_reaction_ts_search_workflow_rejects_mismatched_atom_order(tmp_path: Path) -> None:
     reactant_xyz = tmp_path / "reactant_bad.xyz"
     product_xyz = tmp_path / "product_bad.xyz"
@@ -84,6 +109,49 @@ def test_create_reaction_ts_search_workflow_rejects_invalid_crest_mode(tmp_path:
             product_xyz=str(product_xyz),
             workflow_root=tmp_path,
             crest_mode="weird",
+        )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_cores": 0}, "max_cores must be >= 1"),
+        ({"max_memory_gb": 0}, "max_memory_gb must be >= 1"),
+        ({"max_crest_candidates": 0}, "max_crest_candidates must be >= 1"),
+        ({"max_xtb_stages": 0}, "max_xtb_stages must be >= 1"),
+        ({"max_orca_stages": 0}, "max_orca_stages must be >= 1"),
+    ],
+)
+def test_create_reaction_ts_search_workflow_rejects_non_positive_limits(
+    tmp_path: Path,
+    kwargs: dict[str, Any],
+    message: str,
+) -> None:
+    reactant_xyz = tmp_path / "reactant.xyz"
+    product_xyz = tmp_path / "product.xyz"
+    _write_xyz(reactant_xyz, [("H", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, 0.96)])
+    _write_xyz(product_xyz, [("H", 0.1, 0.0, 0.0), ("O", 0.0, 0.0, 0.96)])
+
+    with pytest.raises(ValueError, match=message):
+        orchestration.create_reaction_ts_search_workflow(
+            reactant_xyz=str(reactant_xyz),
+            product_xyz=str(product_xyz),
+            workflow_root=tmp_path,
+            **kwargs,
+        )
+
+
+def test_create_conformer_screening_workflow_rejects_non_positive_resources(
+    tmp_path: Path,
+) -> None:
+    input_xyz = tmp_path / "conformer.xyz"
+    _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
+
+    with pytest.raises(ValueError, match="max_cores must be >= 1"):
+        orchestration.create_conformer_screening_workflow(
+            input_xyz=str(input_xyz),
+            workflow_root=tmp_path,
+            max_cores=0,
         )
 
 

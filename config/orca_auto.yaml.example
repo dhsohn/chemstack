@@ -9,8 +9,9 @@
 # not supported.
 
 resources:
-  # Default per-task resource limits used unless a task or manifest overrides
-  # them.
+  # Default per-task resource requests. ORCA uses these as defaults for missing
+  # input directives; workflow-managed xTB/CREST use them for launch flags/env
+  # and memory limits unless a task or manifest overrides them.
   max_cores_per_task: 8
   max_memory_gb_per_task: 32
 

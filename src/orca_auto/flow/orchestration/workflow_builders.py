@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from orca_auto.core.paths.workflow import WORKFLOW_FILE_NAME
 from orca_auto.flow.contracts import (
     WorkflowPlan,
     WorkflowPlanPayload,
@@ -63,6 +64,28 @@ def _optional_mapping_parameter(name: str, value: dict[str, Any] | None) -> dict
     return {name: dict(value)} if value else {}
 
 
+def _validate_workflow_id_path_segment(value: Any) -> str:
+    workflow_id = str(value or "").strip()
+    if not workflow_id:
+        raise ValueError("workflow_id is required")
+    if (
+        workflow_id in {".", ".."}
+        or "/" in workflow_id
+        or "\\" in workflow_id
+        or Path(workflow_id).is_absolute()
+    ):
+        raise ValueError(
+            f"workflow_id must be a single path segment under workflow_root: {workflow_id!r}"
+        )
+    return workflow_id
+
+
+def _ensure_new_workflow_workspace(workspace_dir: Path) -> None:
+    workflow_file = workspace_dir / WORKFLOW_FILE_NAME
+    if workflow_file.exists():
+        raise FileExistsError(f"workflow already exists: {workflow_file}")
+
+
 def _copy_input_impl(source: str, target: Path) -> str:
     src = Path(source).expanduser().resolve()
     if not src.exists():
@@ -96,9 +119,8 @@ def _persist_workflow(
     payload = plan.to_dict()
     payload["stages"] = cast(list[WorkflowStagePayload], list(stages))
     callback_payload = cast(dict[str, Any], payload)
-    creation_context.write_workflow_payload_fn(
-        persistence_context.workspace_dir, callback_payload
-    )
+    _ensure_new_workflow_workspace(persistence_context.workspace_dir)
+    creation_context.write_workflow_payload_fn(persistence_context.workspace_dir, callback_payload)
     creation_context.sync_workflow_registry_fn(
         persistence_context.workflow_root_path,
         persistence_context.workspace_dir,
@@ -114,14 +136,23 @@ def _workflow_workspace(
     default_id_prefix: str,
     context: WorkflowCreationContext,
 ) -> _WorkflowWorkspace:
-    resolved_workflow_id = str(workflow_id or "").strip() or context.workflow_id_factory(
+    raw_workflow_id = str(workflow_id or "").strip() or context.workflow_id_factory(
         default_id_prefix
     )
+    resolved_workflow_id = _validate_workflow_id_path_segment(raw_workflow_id)
     workflow_root_path = Path(workflow_root).expanduser().resolve()
+    workspace_dir = (workflow_root_path / resolved_workflow_id).resolve()
+    try:
+        workspace_dir.relative_to(workflow_root_path)
+    except ValueError as exc:
+        raise ValueError(
+            f"workflow_id must resolve under workflow_root: {resolved_workflow_id!r}"
+        ) from exc
+    _ensure_new_workflow_workspace(workspace_dir)
     return _WorkflowWorkspace(
         workflow_id=resolved_workflow_id,
         workflow_root_path=workflow_root_path,
-        workspace_dir=workflow_root_path / resolved_workflow_id,
+        workspace_dir=workspace_dir,
         requested_at=context.now_utc_iso_fn(),
     )
 
@@ -199,10 +230,12 @@ __all__ = [
     "_copy_conformer_input",
     "_copy_input_impl",
     "_copy_reaction_inputs",
+    "_ensure_new_workflow_workspace",
     "_merge_manifest_defaults",
     "_optional_mapping_parameter",
     "_persist_workflow",
     "_persistence_context",
     "_validate_reaction_atom_sequence",
+    "_validate_workflow_id_path_segment",
     "_workflow_workspace",
 ]

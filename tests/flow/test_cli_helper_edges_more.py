@@ -18,8 +18,12 @@ def test_cli_option_and_workflow_root_helpers(
     assert explicit_workflow_root is not None
     assert explicit_workflow_root.endswith("workflow-root")
 
-    monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/orca_auto.yaml")
-    monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
+    monkeypatch.setattr(
+        cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/orca_auto.yaml"
+    )
+    monkeypatch.setattr(
+        cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}"
+    )
     assert (
         cli_common._workflow_root_for_args(SimpleNamespace(workflow_root=None))
         == "resolved:/tmp/orca_auto.yaml"
@@ -56,11 +60,15 @@ def test_cli_shared_config_and_worker_root_defaults(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: str(config_path.resolve()))
+    monkeypatch.setattr(
+        cli_common, "_discover_shared_config_path", lambda explicit: str(config_path.resolve())
+    )
     args = SimpleNamespace(orca_auto_config=None, orca_config=None, workflow_root=None)
 
     assert cli_common._shared_orca_auto_config(args) == str(config_path.resolve())
-    assert cli_common._workflow_root_for_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
+    assert cli_common._workflow_root_for_args(args, config_path=str(config_path)) == str(
+        workflow_root.resolve()
+    )
 
     explicit_config = tmp_path / "explicit.yaml"
     explicit_args = SimpleNamespace(orca_auto_config=str(explicit_config), orca_config=None)
@@ -76,8 +84,12 @@ def test_cli_run_dir_manifest_and_path_resolution_edges(
 
     monkeypatch.setattr(run_dir_manifest, "WORKFLOW_MANIFEST_FILENAMES", ("flow.json",))
 
-    (workflow_dir / "flow.json").write_text('{"workflow_type": "reaction_ts_search"}', encoding="utf-8")
-    assert run_dir_manifest._load_run_dir_manifest(workflow_dir) == {"workflow_type": "reaction_ts_search"}
+    (workflow_dir / "flow.json").write_text(
+        '{"workflow_type": "reaction_ts_search"}', encoding="utf-8"
+    )
+    assert run_dir_manifest._load_run_dir_manifest(workflow_dir) == {
+        "workflow_type": "reaction_ts_search"
+    }
 
     (workflow_dir / "flow.json").write_text("null", encoding="utf-8")
     assert run_dir_manifest._load_run_dir_manifest(workflow_dir) == {}
@@ -150,6 +162,58 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
     assert options.charge == -2
     assert options.multiplicity == 3
     assert options.max_orca_stages == 3
+
+
+@pytest.mark.parametrize(
+    ("manifest", "sections", "message"),
+    [
+        ({"max_cores": 0}, {}, "max_cores must be >= 1"),
+        ({}, {"resources": {"max_memory_gb": 0}}, "max_memory_gb must be >= 1"),
+        ({"max_orca_stages": 0}, {}, "max_orca_stages must be >= 1"),
+        ({"max_crest_candidates": 0}, {}, "max_crest_candidates must be >= 1"),
+        ({"max_xtb_stages": 0}, {}, "max_xtb_stages must be >= 1"),
+    ],
+)
+def test_run_dir_workflow_options_reject_non_positive_resource_and_stage_limits(
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: dict[str, Any],
+    sections: dict[str, dict[str, Any]],
+    message: str,
+) -> None:
+    monkeypatch.setattr(
+        run_dir_options,
+        "_resolve_required_workflow_root",
+        lambda args, manifest: getattr(args, "workflow_root", None),
+    )
+    args = SimpleNamespace(
+        workflow_root="/tmp/cli_root",
+        crest_mode=None,
+        priority=None,
+        max_cores=None,
+        max_memory_gb=None,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+    )
+    resolved_sections = run_dir_options.RunDirManifestSections(
+        resources=sections.get("resources", {}),
+        crest={},
+        xtb={},
+        endpoint_pairing={},
+        orca={},
+    )
+
+    with pytest.raises(ValueError, match=message):
+        run_dir_options._resolve_run_dir_workflow_options(
+            args,
+            manifest,
+            resolved_sections,
+            default_orca_route_line="! default",
+            default_max_orca_stages=3,
+        )
 
 
 def test_run_dir_manifest_sections_resolve_paths_and_merge_endpoint_pairing(
@@ -229,7 +293,9 @@ def test_cmd_run_dir_reports_invalid_directory_and_unknown_layout(
 
     empty_workflow_dir = tmp_path / "empty_workflow"
     empty_workflow_dir.mkdir()
-    unknown_args = SimpleNamespace(**{**invalid_args.__dict__, "workflow_dir": str(empty_workflow_dir)})
+    unknown_args = SimpleNamespace(
+        **{**invalid_args.__dict__, "workflow_dir": str(empty_workflow_dir)}
+    )
     assert run_dir_cli.cmd_run_dir(unknown_args) == 1
     assert "workflow run-dir requires flow.yaml" in capsys.readouterr().err
 
@@ -260,7 +326,9 @@ def test_cmd_run_dir_for_conformer_uses_nested_crest_section(
     )
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
+    monkeypatch.setattr(
+        cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root"
+    )
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
@@ -270,7 +338,9 @@ def test_cmd_run_dir_for_conformer_uses_nested_crest_section(
             "stages": [{}],
         }
 
-    monkeypatch.setattr(run_dir_cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+    monkeypatch.setattr(
+        run_dir_cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),

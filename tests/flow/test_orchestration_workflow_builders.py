@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from orca_auto.flow.contracts import (
     WorkflowArtifactRef,
     WorkflowStagePayload,
@@ -26,11 +28,12 @@ from orca_auto.flow.orchestration.workflow_builders import (
 def _workflow_context(
     *,
     copy_input_fn: Any | None = None,
+    workflow_id_factory: Any | None = None,
     write_workflow_payload_fn: Any | None = None,
     sync_workflow_registry_fn: Any | None = None,
 ) -> WorkflowCreationContext:
     return WorkflowCreationContext(
-        workflow_id_factory=lambda prefix: f"{prefix}_generated",
+        workflow_id_factory=workflow_id_factory or (lambda prefix: f"{prefix}_generated"),
         copy_input_fn=copy_input_fn or (lambda source, target: str(target)),
         now_utc_iso_fn=lambda: "2026-05-29T00:00:00+00:00",
         new_crest_stage_fn=lambda **_kwargs: cast(Any, {}),
@@ -65,6 +68,69 @@ def test_workflow_workspace_generates_id_and_requested_at(tmp_path: Path) -> Non
     assert workspace.workflow_root_path == (tmp_path / "workflows").resolve()
     assert workspace.workspace_dir == (tmp_path / "workflows" / "wf_demo_generated").resolve()
     assert workspace.requested_at == "2026-05-29T00:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "workflow_id",
+    [
+        "../outside",
+        "nested/wf",
+        "nested\\wf",
+        ".",
+        "..",
+        "/tmp/wf_absolute",
+    ],
+)
+def test_workflow_workspace_rejects_unsafe_workflow_id(
+    tmp_path: Path,
+    workflow_id: str,
+) -> None:
+    with pytest.raises(ValueError, match="single path segment"):
+        _workflow_workspace(
+            workflow_id=workflow_id,
+            workflow_root=tmp_path / "workflows",
+            default_id_prefix="wf_demo",
+            context=_workflow_context(),
+        )
+
+
+def test_workflow_workspace_rejects_unsafe_generated_workflow_id(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="single path segment"):
+        _workflow_workspace(
+            workflow_id=None,
+            workflow_root=tmp_path / "workflows",
+            default_id_prefix="wf_demo",
+            context=_workflow_context(workflow_id_factory=lambda _prefix: "../generated"),
+        )
+
+
+def test_workflow_workspace_rejects_existing_workflow_payload(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "workflows" / "wf_existing"
+    workspace_dir.mkdir(parents=True)
+    (workspace_dir / "workflow.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="workflow already exists"):
+        _workflow_workspace(
+            workflow_id="wf_existing",
+            workflow_root=tmp_path / "workflows",
+            default_id_prefix="wf_demo",
+            context=_workflow_context(),
+        )
+
+
+def test_workflow_workspace_allows_existing_scaffold_without_payload(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "workflows" / "rxn.case-01"
+    workspace_dir.mkdir(parents=True)
+
+    workspace = _workflow_workspace(
+        workflow_id="rxn.case-01",
+        workflow_root=tmp_path / "workflows",
+        default_id_prefix="wf_demo",
+        context=_workflow_context(),
+    )
+
+    assert workspace.workflow_id == "rxn.case-01"
+    assert workspace.workspace_dir == workspace_dir.resolve()
 
 
 def test_copy_reaction_inputs_uses_role_directories_and_reaction_key(tmp_path: Path) -> None:
