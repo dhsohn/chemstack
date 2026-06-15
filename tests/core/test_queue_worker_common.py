@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -612,6 +613,52 @@ def test_pop_completed_worker_jobs_removes_finished_job_when_finalizer_raises() 
     assert running == {}
 
 
+def test_pop_completed_worker_jobs_isolates_finalize_error_when_handler_supplied() -> None:
+    running = {
+        "q-bad": SimpleNamespace(rc=1),
+        "q-good": SimpleNamespace(rc=0),
+    }
+    finalized: list[str] = []
+    errors: list[tuple[str, int, str]] = []
+
+    def finalize(queue_id: str, _job: object, rc: int) -> None:
+        if queue_id == "q-bad":
+            raise RuntimeError("boom")
+        finalized.append(queue_id)
+
+    count = worker_common.pop_completed_worker_jobs(
+        running,
+        poll_job=lambda job: job.rc,
+        finalize_finished=finalize,
+        on_finalize_error=lambda queue_id, _job, rc, exc: errors.append((queue_id, rc, str(exc))),
+    )
+
+    assert count == 2
+    assert finalized == ["q-good"]
+    assert errors == [("q-bad", 1, "boom")]
+    assert running == {}
+
+
+def test_queue_worker_loop_survives_finalize_error_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _Loop(worker_common.QueueWorkerLoop):
+        def _poll_job(self, job: Any) -> int | None:
+            return job.rc
+
+        def _finalize_completed_job(self, queue_id: str, job: Any, rc: int) -> None:
+            raise RuntimeError("finalize exploded")
+
+    loop = _Loop(max_concurrent=1, poll_interval_seconds=0.0)
+    loop._running["q-1"] = SimpleNamespace(rc=0)
+
+    with caplog.at_level(logging.ERROR):
+        loop._check_completed_jobs()  # must not raise: a finalize failure cannot kill the worker
+
+    assert loop._running == {}
+    assert any("finalize failed" in record.getMessage() for record in caplog.records)
+
+
 def test_terminate_process_group_handles_finished_process() -> None:
     worker_common.terminate_process_group(SimpleNamespace(poll=lambda: 0))
 
@@ -829,9 +876,7 @@ def test_finalize_process_finished_job_skips_terminal_mark_when_entry_was_requeu
             get_cancel_requested_fn=lambda *_args, **_kwargs: False,
             mark_cancelled_fn=lambda *_args, **_kwargs: None,
             mark_completed_fn=lambda _root, queue_id, **_kwargs: completed.append(queue_id),
-            upsert_terminal_job_record_fn=lambda *_args, **_kwargs: side_effects.append(
-                "record"
-            ),
+            upsert_terminal_job_record_fn=lambda *_args, **_kwargs: side_effects.append("record"),
             notify_terminal_job_from_state_fn=lambda *_args, **_kwargs: True,
             find_queue_entry_fn=lambda _root, _queue_id: current,
             on_completed_fn=lambda *_args, **_kwargs: side_effects.append("completed"),
@@ -932,9 +977,7 @@ def test_reconcile_orphaned_process_entries_passes_policy_kwargs(tmp_path: Path)
         worker,
         hooks=lifecycle_helpers.EngineQueueProcessReconcileHooks(
             queue_roots_fn=lambda _cfg: (queue_root,),
-            reconcile_stale_slots_fn=lambda admission_root: calls.append(
-                ("stale", admission_root)
-            ),
+            reconcile_stale_slots_fn=lambda admission_root: calls.append(("stale", admission_root)),
             reconcile_orphaned_running_entries_fn=lambda root, **kwargs: calls.append(
                 ("orphans", (root, kwargs))
             ),

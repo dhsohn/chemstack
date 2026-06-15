@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import MutableMapping
 from typing import Any, Callable, TypeVar
 
 from .worker_models import SlotFillResult
 from .worker_signals import install_shutdown_signal_handlers
+
+LOGGER = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -39,6 +42,7 @@ def pop_completed_worker_jobs(
     *,
     poll_job: Callable[[T], int | None],
     finalize_finished: Callable[[str, T, int], None],
+    on_finalize_error: Callable[[str, T, int, Exception], None] | None = None,
 ) -> int:
     completed: list[tuple[str, T, int]] = []
     for queue_id, job in list(running.items()):
@@ -50,6 +54,14 @@ def pop_completed_worker_jobs(
     for queue_id, job, rc in completed:
         try:
             finalize_finished(queue_id, job, rc)
+        except Exception as exc:  # noqa: BLE001
+            # Without a handler the caller keeps the historical re-raise contract.
+            # With one (the supervised loop), a single job's finalize failure is
+            # isolated so the long-running worker survives. KeyboardInterrupt and
+            # SystemExit are BaseException and intentionally still propagate.
+            if on_finalize_error is None:
+                raise
+            on_finalize_error(queue_id, job, rc, exc)
         finally:
             running.pop(queue_id, None)
     return len(completed)
@@ -149,6 +161,16 @@ class QueueWorkerLoop:
             self._running,
             poll_job=self._poll_job,
             finalize_finished=self._finalize_completed_job,
+            on_finalize_error=self._on_finalize_error,
+        )
+
+    def _on_finalize_error(self, queue_id: str, job: Any, rc: int, exc: Exception) -> None:
+        del job
+        LOGGER.error(
+            "worker job finalize failed; dropping job to keep worker alive: queue_id=%s rc=%s",
+            queue_id,
+            rc,
+            exc_info=exc,
         )
 
     def _running_jobs(self) -> list[tuple[str, Any]]:
