@@ -29,6 +29,23 @@ def _runtime_allowed_root_label(engine: str | None) -> str:
     return f"{_runtime_section_label(engine)}.allowed_root"
 
 
+def _reject_engine_runtime_scheduler_keys(runtime: dict[str, Any], *, engine: str | None) -> None:
+    if engine != "orca":
+        return
+    legacy_keys = {
+        key for key in ("max_concurrent", "admission_root", "admission_limit") if key in runtime
+    }
+    if not legacy_keys:
+        return
+
+    formatted_keys = ", ".join(f"orca.runtime.{key}" for key in sorted(legacy_keys))
+    raise ValueError(
+        f"{formatted_keys} no longer configure scheduling. "
+        "Use top-level scheduler.max_active_simulations and scheduler.admission_root; "
+        "admission_limit is derived from scheduler.max_active_simulations."
+    )
+
+
 def _internal_engine_runtime_paths(path: Path, raw: dict[str, Any]) -> dict[str, Path]:
     workflow_root = workflow_root_from_mapping(raw)
     if not workflow_root:
@@ -56,6 +73,7 @@ def _configured_runtime_paths(
     if not isinstance(runtime, dict):
         raise ValueError(f"Missing {_runtime_section_label(engine)} section in config: {path}")
     scheduler = mapping_section(raw, "scheduler")
+    _reject_engine_runtime_scheduler_keys(runtime, engine=engine)
 
     resolved_runtime_paths: dict[str, Path] = {}
     for key in ("allowed_root", "organized_root"):

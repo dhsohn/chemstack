@@ -119,6 +119,64 @@ def test_cmd_run_dir_dispatches_to_workflow_for_manifest_directories(
     assert calls == [("workflow", str(target), str(target))]
 
 
+def test_cmd_run_dir_rejects_resource_overrides_for_orca_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = tmp_path / "orca_job"
+    target.mkdir()
+    (target / "job.inp").write_text("! Opt\n", encoding="utf-8")
+
+    def _fake_orca_run_dir(args: Any) -> int:
+        raise AssertionError(f"ORCA run-dir should not be called: {args}")
+
+    monkeypatch.setattr(cli_run_dir, "cmd_orca_run_dir", _fake_orca_run_dir)
+
+    result = cli_run_dir.cmd_run_dir(
+        SimpleNamespace(
+            path=str(target),
+            max_cores=12,
+            max_memory_gb=None,
+            priority=None,
+        )
+    )
+
+    assert result == 1
+    err = capsys.readouterr().err
+    assert "--max-cores" in err
+    assert "--max-memory-gb" in err
+    assert "%pal/%maxcore" in err
+
+
+def test_cmd_run_dir_allows_resource_overrides_for_workflow_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "workflow_job"
+    target.mkdir()
+    (target / "flow.yaml").write_text("workflow_type: conformer_screening\n", encoding="utf-8")
+    calls: list[tuple[str, int | None, int | None]] = []
+
+    def _fake_workflow_run_dir(args: Any) -> int:
+        calls.append(("workflow", getattr(args, "max_cores", None), getattr(args, "max_memory_gb", None)))
+        return 42
+
+    monkeypatch.setattr(cli_run_dir, "cmd_workflow_run_dir", _fake_workflow_run_dir)
+
+    result = cli_run_dir.cmd_run_dir(
+        SimpleNamespace(
+            path=str(target),
+            max_cores=12,
+            max_memory_gb=48,
+            priority=None,
+        )
+    )
+
+    assert result == 42
+    assert calls == [("workflow", 12, 48)]
+
+
 def test_cmd_run_dir_prefers_orca_for_mixed_input_xyz_and_inp_without_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

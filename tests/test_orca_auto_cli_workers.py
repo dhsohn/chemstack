@@ -385,6 +385,56 @@ def test_run_worker_supervisor_keeps_siblings_running_after_clean_exit(
     assert "restarting worker[workflow]: workflow worker" in out
 
 
+def test_run_worker_supervisor_stops_after_finite_workflow_clean_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    processes = [
+        _FakeWorkerProcess([0]),
+        _FakeWorkerProcess([None]),
+    ]
+    popen_calls = 0
+    installed_handlers: dict[int, Any] = {}
+
+    def _fake_popen(*args: Any, **kwargs: Any) -> _FakeWorkerProcess:
+        del args, kwargs
+        nonlocal popen_calls
+        process = processes[popen_calls]
+        popen_calls += 1
+        return process
+
+    def _fake_signal(sig: int, handler: Any) -> None:
+        installed_handlers[sig] = handler
+
+    def _fail_sleep(_seconds: float) -> None:
+        raise AssertionError("finite workflow clean exit should stop without sleeping")
+
+    monkeypatch.setattr(unified_cli.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(unified_cli.signal, "getsignal", lambda sig: None)
+    monkeypatch.setattr(unified_cli.signal, "signal", _fake_signal)
+    monkeypatch.setattr(unified_cli.time, "sleep", _fail_sleep)
+
+    result = unified_cli._run_worker_supervisor(
+        [
+            unified_cli.WorkerSpec(
+                app="workflow",
+                argv=("workflow", "worker", "--max-cycles", "3"),
+                restart_on_clean_exit=False,
+            ),
+            unified_cli.WorkerSpec(app="orca", argv=("orca", "worker")),
+        ]
+    )
+
+    assert result == 0
+    assert processes[0].terminate_calls == 0
+    assert processes[1].terminate_calls == 1
+    assert popen_calls == 2
+    out = capsys.readouterr().out
+    assert "worker[workflow] exited with code 0" in out
+    assert "worker[workflow] completed cleanly; stopping supervisor." in out
+    assert "restarting worker[workflow]" not in out
+
+
 def test_run_worker_supervisor_restarts_workers_after_failure(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -606,6 +656,7 @@ def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
         ),
     )
 
+    assert spec.restart_on_clean_exit is False
     assert spec.argv[1:] == (
         "-m",
         "orca_auto.flow.cli_workflow",
@@ -624,6 +675,22 @@ def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
         "--lock-timeout-seconds",
         "9.0",
     )
+
+    default_spec = worker_specs._workflow_worker_spec(
+        workflow_root="/tmp/workflows",
+        config_path="/tmp/orca_auto.yaml",
+        args=argparse.Namespace(
+            no_submit=False,
+            once=False,
+            refresh_registry=False,
+            refresh_each_cycle=False,
+            max_cycles=0,
+            interval_seconds=0,
+            lock_timeout_seconds=0,
+        ),
+    )
+
+    assert default_spec.restart_on_clean_exit is True
 
 
 def test_workflow_only_worker_flags_require_workflow_app() -> None:

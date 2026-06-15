@@ -4,7 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Type
 
-from orca_auto.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
+from orca_auto.core.utils.process_lock import parse_lock_info
+from orca_auto.core.utils.process_tracking import active_run_lock_pid
 
 from ..completion_rules import detect_completion_mode
 from ..out_analyzer import analyze_output
@@ -79,11 +80,12 @@ def recover_crashed_state(reaction_dir: Path, *, logger: logging.Logger) -> bool
         return False
 
     lock_path = reaction_dir / LOCK_FILE_NAME
-    if lock_path.exists():
-        lock_info = parse_lock_info(lock_path)
-        lock_pid = lock_info.get("pid")
-        if isinstance(lock_pid, int) and is_process_alive(lock_pid):
-            return False
+    if lock_path.exists() and active_run_lock_pid(
+        reaction_dir,
+        logger=logger,
+        lock_file_name=LOCK_FILE_NAME,
+    ):
+        return False
 
     logger.warning(
         "Detected crashed run in %s (status=%s, no active lock). Recovering state.",
@@ -104,22 +106,13 @@ def recover_crashed_state(reaction_dir: Path, *, logger: logging.Logger) -> bool
 
 def active_direct_run_error(reaction_dir: Path, *, logger: logging.Logger) -> str | None:
     lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
-    lock_pid = lock_info.get("pid")
-    if not isinstance(lock_pid, int) or not is_process_alive(lock_pid):
+    lock_pid = active_run_lock_pid(
+        reaction_dir,
+        logger=logger,
+        lock_file_name=LOCK_FILE_NAME,
+    )
+    if lock_pid is None:
         return None
-
-    expected_ticks = lock_info.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(lock_pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            logger.info(
-                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
-                reaction_dir,
-                lock_pid,
-                expected_ticks,
-                observed_ticks,
-            )
-            return None
 
     started_at = lock_info.get("started_at")
     started = started_at if isinstance(started_at, str) and started_at else "unknown"

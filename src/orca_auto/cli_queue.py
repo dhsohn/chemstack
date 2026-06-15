@@ -297,6 +297,9 @@ def _watch_queue_list(
 
 def cmd_queue_list(args: Any, *, deps: QueueCliDeps | None = None) -> int:
     request = _queue_list_request(args)
+    if bool(getattr(args, "watch", False)) and request.json_output:
+        emit_error("orca_auto queue list --watch does not support --json.")
+        return 1
     if normalize_text(getattr(args, "action", None)).lower() == "clear":
         return _cmd_queue_list_clear(args, request)
 

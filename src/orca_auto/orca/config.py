@@ -125,6 +125,23 @@ def _required_runtime_paths(
     return allowed_root, orca_executable
 
 
+def _reject_legacy_runtime_scheduler_keys(runtime_raw: Dict[str, Any]) -> None:
+    legacy_keys = {
+        key
+        for key in ("max_concurrent", "admission_root", "admission_limit")
+        if key in runtime_raw
+    }
+    if not legacy_keys:
+        return
+
+    formatted_keys = ", ".join(f"orca.runtime.{key}" for key in sorted(legacy_keys))
+    raise ValueError(
+        f"{formatted_keys} no longer configure scheduling. "
+        "Use top-level scheduler.max_active_simulations and scheduler.admission_root; "
+        "admission_limit is derived from scheduler.max_active_simulations."
+    )
+
+
 def _scheduler_runtime_settings(
     path: Path,
     scheduler_raw: Dict[str, Any],
@@ -168,6 +185,7 @@ def load_config(config_path: str) -> AppConfig:
     telegram_raw = _section_mapping(raw, "telegram")
     resources_raw = _section_mapping(raw, "resources")
 
+    _reject_legacy_runtime_scheduler_keys(runtime_raw)
     allowed_root, orca_executable = _required_runtime_paths(path, runtime_raw, paths_raw)
     organized_root = _config_engines.as_nonempty_str(
         runtime_raw.get("organized_root"),

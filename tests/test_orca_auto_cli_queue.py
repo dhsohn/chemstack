@@ -41,6 +41,37 @@ def test_cmd_queue_list_watch_loops_until_interrupt() -> None:
     assert calls["emit"] == 1
 
 
+def test_cmd_queue_list_rejects_watch_json(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = {"emit": 0}
+
+    def _emit_once(args: Any, request: Any) -> int:
+        del args, request
+        calls["emit"] += 1
+        return 0
+
+    args = SimpleNamespace(
+        action=None,
+        orca_auto_config=None,
+        limit=0,
+        refresh=False,
+        engine=None,
+        status=None,
+        kind=None,
+        json=True,
+        watch=True,
+        interval=2.0,
+    )
+    deps = unified_cli.QueueCliDeps(emit_queue_list_once=_emit_once)
+
+    assert unified_cli.cmd_queue_list(args, deps=deps) == 1
+    assert calls["emit"] == 0
+    err = capsys.readouterr().err
+    assert "--watch" in err
+    assert "--json" in err
+
+
 @pytest.fixture(autouse=True)
 def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     def _explicit_shared_config_path(explicit: str | None) -> str | None:

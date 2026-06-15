@@ -135,6 +135,10 @@ def _restart_or_stop_worker(
     else:
         managed.startup_failure_count = 0
 
+    if returncode == 0 and not spec.restart_on_clean_exit:
+        print(f"worker[{spec.app}] completed cleanly; stopping supervisor.")
+        return 0
+
     restarted = _spawn_supervised_worker(spec, restart=True)
     restarted.startup_failure_count = managed.startup_failure_count
     processes[index] = restarted

@@ -82,6 +82,15 @@ def cmd_run_dir(args: Any) -> int:
     if run_dir_app == "workflow":
         args.workflow_dir = args.path
         return int(cmd_workflow_run_dir(args))
+    if (
+        getattr(args, "max_cores", None) is not None
+        or getattr(args, "max_memory_gb", None) is not None
+    ):
+        emit_error(
+            "ORCA run-dir does not support --max-cores or --max-memory-gb. "
+            "Edit %pal/%maxcore in the selected .inp, or use a workflow run-dir."
+        )
+        return 1
     if getattr(args, "priority", None) is None:
         args.priority = 10
     return int(cmd_orca_run_dir(args))

@@ -248,6 +248,38 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.resolved_admission_limit, 6)
             self.assertEqual(cfg.runtime.resolved_admission_root, str(root / "admission"))
 
+    def test_orca_runtime_rejects_legacy_scheduler_keys(self) -> None:
+        legacy_values: dict[str, object] = {
+            "max_concurrent": 6,
+            "admission_root": "/tmp/legacy-admission",
+            "admission_limit": 3,
+        }
+        for key, value in legacy_values.items():
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                allowed = root / "orca_runs"
+                allowed.mkdir()
+                fake_orca = root / "orca"
+                _write_fake_executable(fake_orca)
+
+                cfg_path = _write_orca_config(
+                    root / "orca_auto.yaml",
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            key: value,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    },
+                )
+
+                with self.assertRaises(ValueError) as ctx:
+                    load_config(str(cfg_path))
+                message = str(ctx.exception)
+                self.assertIn(f"orca.runtime.{key}", message)
+                self.assertIn("scheduler.max_active_simulations", message)
+                self.assertIn("scheduler.admission_root", message)
+
     def test_behavior_auto_organize_is_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

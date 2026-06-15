@@ -36,6 +36,7 @@ class WorkerSpec:
     argv: tuple[str, ...]
     cwd: str | None = None
     env: dict[str, str] | None = None
+    restart_on_clean_exit: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         env_payload: dict[str, str] | None = None
@@ -53,6 +54,7 @@ class WorkerSpec:
             "argv": list(self.argv),
             "cwd": self.cwd or "",
             "env": env_payload,
+            "restart_on_clean_exit": self.restart_on_clean_exit,
         }
 
 
@@ -159,7 +161,12 @@ def _workflow_worker_spec(
     lock_timeout_seconds = float(getattr(args, "lock_timeout_seconds", 0.0) or 0.0)
     if lock_timeout_seconds > 0:
         argv.extend(["--lock-timeout-seconds", str(lock_timeout_seconds)])
-    return WorkerSpec(app="workflow", argv=tuple(argv))
+    finite_worker = bool(getattr(args, "once", False)) or max_cycles > 0
+    return WorkerSpec(
+        app="workflow",
+        argv=tuple(argv),
+        restart_on_clean_exit=not finite_worker,
+    )
 
 
 def _worker_engine_apps(apps: Sequence[str], *, workflow_enabled: bool) -> list[str]:
