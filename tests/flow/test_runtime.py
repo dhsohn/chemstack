@@ -64,7 +64,9 @@ def _capture_worker_side_effects(
         return list(records)
 
     monkeypatch.setattr(runtime, "write_workflow_worker_state", fake_write_workflow_worker_state)
-    monkeypatch.setattr(runtime, "append_workflow_journal_event", fake_append_workflow_journal_event)
+    monkeypatch.setattr(
+        runtime, "append_workflow_journal_event", fake_append_workflow_journal_event
+    )
     monkeypatch.setattr(runtime, "list_workflow_registry", fake_list_workflow_registry)
     monkeypatch.setattr(runtime, "reindex_workflow_registry", fake_reindex_workflow_registry)
     return state_calls, journal_calls, registry_calls
@@ -442,7 +444,9 @@ def test_workflow_needs_terminal_sync_falls_back_to_downstream_activity(
         downstream_checks.append(current_payload)
         return downstream_active
 
-    monkeypatch.setattr(runtime, "workflow_has_active_downstream", fake_workflow_has_active_downstream)
+    monkeypatch.setattr(
+        runtime, "workflow_has_active_downstream", fake_workflow_has_active_downstream
+    )
 
     assert runtime._workflow_needs_terminal_sync("/tmp/workflow_workspace") is expected
     assert downstream_checks == [payload]
@@ -472,7 +476,9 @@ def test_advance_workflow_registry_once_skips_terminal_workflow_without_sync(
     monkeypatch.setattr(
         runtime,
         "advance_workflow",
-        lambda **kwargs: pytest.fail("advance_workflow should not run for skipped terminal workflows"),
+        lambda **kwargs: pytest.fail(
+            "advance_workflow should not run for skipped terminal workflows"
+        ),
     )
 
     result = runtime.advance_workflow_registry_once(
@@ -599,7 +605,9 @@ def test_advance_workflow_registry_once_advances_non_terminal_workflow(
     monkeypatch.setattr(
         runtime,
         "_workflow_needs_terminal_sync",
-        lambda workspace_dir: pytest.fail("terminal sync checks should not run for active workflows"),
+        lambda workspace_dir: pytest.fail(
+            "terminal sync checks should not run for active workflows"
+        ),
     )
 
     def fake_advance_workflow(**kwargs: Any) -> dict[str, Any]:
@@ -680,7 +688,9 @@ def test_advance_workflow_registry_once_defers_submission_when_admission_full(
     monkeypatch.setattr(
         runtime,
         "_workflow_needs_terminal_sync",
-        lambda workspace_dir: pytest.fail("terminal sync checks should not run for active workflows"),
+        lambda workspace_dir: pytest.fail(
+            "terminal sync checks should not run for active workflows"
+        ),
     )
 
     def fake_advance_workflow(**kwargs: Any) -> dict[str, Any]:
@@ -767,7 +777,9 @@ def test_advance_workflow_registry_once_appends_stage_transition_events(
     monkeypatch.setattr(
         runtime,
         "_workflow_needs_terminal_sync",
-        lambda workspace_dir: pytest.fail("terminal sync checks should not run for active workflows"),
+        lambda workspace_dir: pytest.fail(
+            "terminal sync checks should not run for active workflows"
+        ),
     )
     monkeypatch.setattr(runtime, "_safe_workflow_summary", lambda *args, **kwargs: next(summaries))
     monkeypatch.setattr(
@@ -819,7 +831,9 @@ def test_advance_workflow_registry_once_records_non_terminal_advance_failure(
     monkeypatch.setattr(
         runtime,
         "_workflow_needs_terminal_sync",
-        lambda workspace_dir: pytest.fail("terminal sync checks should not run for active workflows"),
+        lambda workspace_dir: pytest.fail(
+            "terminal sync checks should not run for active workflows"
+        ),
     )
 
     def fake_advance_workflow(**kwargs: Any) -> dict[str, Any]:

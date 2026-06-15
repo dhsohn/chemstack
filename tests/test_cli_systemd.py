@@ -272,7 +272,9 @@ def test_cmd_service_status_emits_json(capsys: Any) -> None:
         text: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         del check, stdout, stderr, text
-        return subprocess.CompletedProcess(argv, 0, stdout=f"{states[(argv[1], argv[2])]}\n", stderr="")
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=f"{states[(argv[1], argv[2])]}\n", stderr=""
+        )
 
     result = cli_systemd_status.cmd_service_status(
         Namespace(target_user=None, json=True),
@@ -379,7 +381,9 @@ def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
         Namespace(target_user=None),
         deps=cli_systemd_status.ServiceCliDeps(
             default_service_user=lambda: "alice",
-            restart_unit_for_user=lambda target_user, run: f"orca_auto-runtime@{target_user}.target",
+            restart_unit_for_user=lambda target_user, run: (
+                f"orca_auto-runtime@{target_user}.target"
+            ),
             is_root=lambda: False,
             run=_fake_run,
             which=lambda name: f"/usr/bin/{name}" if name in {"systemctl", "sudo"} else None,
@@ -433,7 +437,10 @@ def test_apply_systemd_install_plan_requires_sudo_when_plan_uses_sudo(
 ) -> None:
     monkeypatch.setattr("orca_auto.cli_systemd_apply.shutil.which", lambda name: None)
 
-    assert cli_systemd_apply.apply_systemd_install_plan(_single_unit_plan(tmp_path, use_sudo=True)) == 1
+    assert (
+        cli_systemd_apply.apply_systemd_install_plan(_single_unit_plan(tmp_path, use_sudo=True))
+        == 1
+    )
     assert "sudo is required to write system units" in capsys.readouterr().err
 
 

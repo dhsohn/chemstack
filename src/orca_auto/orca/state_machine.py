@@ -42,7 +42,9 @@ def decide_attempt_outcome(
     if parsed == AnalyzerStatus.ERROR_MULTIPLICITY_IMPOSSIBLE:
         return AttemptDecision(run_status=RunStatus.FAILED, reason=analyzer_reason, exit_code=1)
     if retries_used >= max_retries:
-        return AttemptDecision(run_status=RunStatus.FAILED, reason="retry_limit_reached", exit_code=1)
+        return AttemptDecision(
+            run_status=RunStatus.FAILED, reason="retry_limit_reached", exit_code=1
+        )
     return None
 
 
@@ -89,7 +91,9 @@ def load_or_create_state(
 ) -> tuple[RunState, bool]:
     state = load_state(reaction_dir)
     resumed = False
-    if not state or not state_matches_selected(state, selected_inp, to_resolved_local=to_resolved_local):
+    if not state or not state_matches_selected(
+        state, selected_inp, to_resolved_local=to_resolved_local
+    ):
         state = new_state(reaction_dir, selected_inp, max_retries=max_retries)
     elif is_resumable_state(state):
         resumed = True

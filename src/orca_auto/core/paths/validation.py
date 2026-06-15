@@ -106,7 +106,9 @@ def require_subpath(path: Path, root: Path, *, label: str = "Path") -> Path:
     resolved_path = path.expanduser().resolve()
     resolved_root = root.expanduser().resolve()
     if not is_subpath(resolved_path, resolved_root):
-        raise ValueError(f"{label} must be under allowed root: {resolved_root}. got={resolved_path}")
+        raise ValueError(
+            f"{label} must be under allowed root: {resolved_root}. got={resolved_path}"
+        )
     return resolved_path
 
 
@@ -119,7 +121,9 @@ def ensure_directory(path_text: str | Path, *, label: str = "Directory") -> Path
     return path
 
 
-def validate_job_dir(job_dir_text: str, allowed_root_text: str, *, label: str = "Job directory") -> Path:
+def validate_job_dir(
+    job_dir_text: str, allowed_root_text: str, *, label: str = "Job directory"
+) -> Path:
     job_dir = ensure_directory(job_dir_text, label=label)
     allowed_root = ensure_directory(allowed_root_text, label="Allowed root")
     return require_subpath(job_dir, allowed_root, label=label)
@@ -131,7 +135,9 @@ def resolve_artifact_path(path_text: str, base_dir: str | Path) -> Path | None:
         return None
     base = Path(base_dir).expanduser().resolve()
     candidate = Path(raw)
-    candidates = [candidate] if candidate.is_absolute() else [base / candidate, base / candidate.name]
+    candidates = (
+        [candidate] if candidate.is_absolute() else [base / candidate, base / candidate.name]
+    )
     seen: set[Path] = set()
     for item in candidates:
         try:

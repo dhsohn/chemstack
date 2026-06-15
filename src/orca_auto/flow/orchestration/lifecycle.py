@@ -174,9 +174,7 @@ def _template_name(payload: dict[str, Any], *, normalize_text_fn: Callable[[Any]
     return normalize_text_fn(payload.get("template_name")).lower()
 
 
-def _stage_task_status(
-    stage: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]
-) -> str:
+def _stage_task_status(stage: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]) -> str:
     task = stage.get("task")
     if not isinstance(task, dict):
         return ""
@@ -272,13 +270,13 @@ def recompute_workflow_status_impl(
         for _, status, engine in stage_rows
     ):
         return "failed"
-    if (
-        current_status not in {STATUS_CANCELLED, STATUS_CANCEL_REQUESTED}
-        and _conformer_orca_handoff_pending(
-            payload,
-            stage_rows,
-            normalize_text_fn=normalize_text_fn,
-        )
+    if current_status not in {
+        STATUS_CANCELLED,
+        STATUS_CANCEL_REQUESTED,
+    } and _conformer_orca_handoff_pending(
+        payload,
+        stage_rows,
+        normalize_text_fn=normalize_text_fn,
     ):
         return STATUS_RUNNING
     return _workflow_status_from_stage_statuses(

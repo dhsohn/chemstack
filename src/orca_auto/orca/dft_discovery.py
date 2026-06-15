@@ -82,7 +82,9 @@ def _discover_orca_outputs_targets(
         ):
             continue
         _add_if_valid_target(
-            resolved=resolved, max_bytes=max_bytes, targets=targets,
+            resolved=resolved,
+            max_bytes=max_bytes,
+            targets=targets,
             run_state_status=status,
         )
 
@@ -110,7 +112,9 @@ def _discover_orca_runs_targets(
         if resolved is None:
             continue
         _add_if_valid_target(
-            resolved=resolved, max_bytes=max_bytes, targets=targets,
+            resolved=resolved,
+            max_bytes=max_bytes,
+            targets=targets,
             run_state_status=status,
         )
 
@@ -197,7 +201,8 @@ def _add_if_valid_target(
     except OSError:
         return
     targets[str(resolved)] = DiscoveredTarget(
-        path=resolved, run_state_status=run_state_status,
+        path=resolved,
+        run_state_status=run_state_status,
     )
 
 
@@ -209,6 +214,7 @@ def _load_report_json(report_path: Path) -> dict[str, Any] | None:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         logger.warning(
             "dft_job_report_parse_failed: path=%s error=%s",
-            report_path, exc,
+            report_path,
+            exc,
         )
         return None

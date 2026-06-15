@@ -12,17 +12,19 @@ from orca_auto.orca.orca_parser import parse_opt_progress, parse_orca_output
 def test_error_termination_is_classified_as_failed(tmp_path: Path) -> None:
     out_file = tmp_path / "error_case.out"
     out_file.write_text(
-        "\n".join([
-            "! B3LYP def2-SVP Opt",
-            "* xyz 0 1",
-            "C 0.0 0.0 0.0",
-            "H 0.0 0.0 1.0",
-            "*",
-            "",
-            "ORCA finished by error termination in SCF gradient",
-            "[file orca_tools/qcmsg.cpp, line 394]:",
-            "  .... aborting the run",
-        ]),
+        "\n".join(
+            [
+                "! B3LYP def2-SVP Opt",
+                "* xyz 0 1",
+                "C 0.0 0.0 0.0",
+                "H 0.0 0.0 1.0",
+                "*",
+                "",
+                "ORCA finished by error termination in SCF gradient",
+                "[file orca_tools/qcmsg.cpp, line 394]:",
+                "  .... aborting the run",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -34,16 +36,18 @@ def test_error_termination_is_classified_as_failed(tmp_path: Path) -> None:
 def test_utf16_completed_output_is_parsed(tmp_path: Path) -> None:
     out_file = tmp_path / "utf16_completed.out"
     out_file.write_text(
-        "\n".join([
-            "! B3LYP def2-SVP Opt",
-            "* xyz 0 1",
-            "C 0.0 0.0 0.0",
-            "H 0.0 0.0 1.0",
-            "*",
-            "FINAL SINGLE POINT ENERGY      -100.123456",
-            "                             ****ORCA TERMINATED NORMALLY****",
-            "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
-        ]),
+        "\n".join(
+            [
+                "! B3LYP def2-SVP Opt",
+                "* xyz 0 1",
+                "C 0.0 0.0 0.0",
+                "H 0.0 0.0 1.0",
+                "*",
+                "FINAL SINGLE POINT ENERGY      -100.123456",
+                "                             ****ORCA TERMINATED NORMALLY****",
+                "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
+            ]
+        ),
         encoding="utf-16",
     )
 
@@ -57,56 +61,58 @@ def test_utf16_completed_output_is_parsed(tmp_path: Path) -> None:
 # parse_opt_progress tests
 # ---------------------------------------------------------------------------
 
-_OPT_RUNNING_OUT = "\n".join([
-    "! B3LYP def2-SVP Opt",
-    "* xyz 0 1",
-    "C 0.0 0.0 0.0",
-    "H 0.0 0.0 1.0",
-    "*",
-    "",
-    "CARTESIAN COORDINATES (ANGSTROEM)",
-    "----------------------------",
-    " C    0.000000    0.000000    0.000000",
-    " H    0.000000    0.000000    1.000000",
-    "",
-    "---------------------------------------------------",
-    "| Geometry Optimization Cycle   1                 |",
-    "---------------------------------------------------",
-    "",
-    "FINAL SINGLE POINT ENERGY      -100.100000000",
-    "",
-    "---------------------------------------------------",
-    "| Geometry Optimization Cycle   2                 |",
-    "---------------------------------------------------",
-    "",
-    "FINAL SINGLE POINT ENERGY      -100.120000000",
-    "",
-    "                         *************************************",
-    "                         *  GEOMETRY CONVERGENCE              *",
-    "                         *************************************",
-    "Item                Value     Tolerance   Converged",
-    "Energy change      -0.020000  5.0000e-06    NO",
-    "MAX gradient        0.005000  3.0000e-04    NO",
-    "RMS gradient        0.002000  1.0000e-04    NO",
-    "MAX step            0.010000  4.0000e-03    NO",
-    "RMS step            0.004000  2.0000e-03    NO",
-    "",
-    "---------------------------------------------------",
-    "| Geometry Optimization Cycle   3                 |",
-    "---------------------------------------------------",
-    "",
-    "FINAL SINGLE POINT ENERGY      -100.123000000",
-    "",
-    "                         *************************************",
-    "                         *  GEOMETRY CONVERGENCE              *",
-    "                         *************************************",
-    "Item                Value     Tolerance   Converged",
-    "Energy change      -0.003000  5.0000e-06    NO",
-    "MAX gradient        0.000200  3.0000e-04    YES",
-    "RMS gradient        0.000080  1.0000e-04    YES",
-    "MAX step            0.003000  4.0000e-03    YES",
-    "RMS step            0.001500  2.0000e-03    YES",
-])
+_OPT_RUNNING_OUT = "\n".join(
+    [
+        "! B3LYP def2-SVP Opt",
+        "* xyz 0 1",
+        "C 0.0 0.0 0.0",
+        "H 0.0 0.0 1.0",
+        "*",
+        "",
+        "CARTESIAN COORDINATES (ANGSTROEM)",
+        "----------------------------",
+        " C    0.000000    0.000000    0.000000",
+        " H    0.000000    0.000000    1.000000",
+        "",
+        "---------------------------------------------------",
+        "| Geometry Optimization Cycle   1                 |",
+        "---------------------------------------------------",
+        "",
+        "FINAL SINGLE POINT ENERGY      -100.100000000",
+        "",
+        "---------------------------------------------------",
+        "| Geometry Optimization Cycle   2                 |",
+        "---------------------------------------------------",
+        "",
+        "FINAL SINGLE POINT ENERGY      -100.120000000",
+        "",
+        "                         *************************************",
+        "                         *  GEOMETRY CONVERGENCE              *",
+        "                         *************************************",
+        "Item                Value     Tolerance   Converged",
+        "Energy change      -0.020000  5.0000e-06    NO",
+        "MAX gradient        0.005000  3.0000e-04    NO",
+        "RMS gradient        0.002000  1.0000e-04    NO",
+        "MAX step            0.010000  4.0000e-03    NO",
+        "RMS step            0.004000  2.0000e-03    NO",
+        "",
+        "---------------------------------------------------",
+        "| Geometry Optimization Cycle   3                 |",
+        "---------------------------------------------------",
+        "",
+        "FINAL SINGLE POINT ENERGY      -100.123000000",
+        "",
+        "                         *************************************",
+        "                         *  GEOMETRY CONVERGENCE              *",
+        "                         *************************************",
+        "Item                Value     Tolerance   Converged",
+        "Energy change      -0.003000  5.0000e-06    NO",
+        "MAX gradient        0.000200  3.0000e-04    YES",
+        "RMS gradient        0.000080  1.0000e-04    YES",
+        "MAX step            0.003000  4.0000e-03    YES",
+        "RMS step            0.001500  2.0000e-03    YES",
+    ]
+)
 
 
 def test_parse_opt_progress_extracts_all_cycles(tmp_path: Path) -> None:
@@ -165,12 +171,14 @@ def test_parse_opt_progress_running_detection(tmp_path: Path) -> None:
 
 def test_parse_opt_progress_converged_detection(tmp_path: Path) -> None:
     """When convergence is achieved and termination is normal, is_converged == True and is_running == False."""
-    converged_out = _OPT_RUNNING_OUT + "\n".join([
-        "",
-        "THE OPTIMIZATION HAS CONVERGED",
-        "                             ****ORCA TERMINATED NORMALLY****",
-        "TOTAL RUN TIME: 0 days 0 hours 5 minutes 30 seconds 0 msec",
-    ])
+    converged_out = _OPT_RUNNING_OUT + "\n".join(
+        [
+            "",
+            "THE OPTIMIZATION HAS CONVERGED",
+            "                             ****ORCA TERMINATED NORMALLY****",
+            "TOTAL RUN TIME: 0 days 0 hours 5 minutes 30 seconds 0 msec",
+        ]
+    )
     out_file = tmp_path / "converged.out"
     out_file.write_text(converged_out, encoding="utf-8")
 
@@ -181,15 +189,17 @@ def test_parse_opt_progress_converged_detection(tmp_path: Path) -> None:
 
 def test_parse_opt_progress_sp_returns_empty_steps(tmp_path: Path) -> None:
     """Single-point calculations have no optimization cycles, so steps should be an empty list."""
-    sp_out = "\n".join([
-        "! B3LYP def2-SVP",
-        "* xyz 0 1",
-        "C 0.0 0.0 0.0",
-        "*",
-        "FINAL SINGLE POINT ENERGY      -100.000000",
-        "                             ****ORCA TERMINATED NORMALLY****",
-        "TOTAL RUN TIME: 0 days 0 hours 0 minutes 10 seconds 0 msec",
-    ])
+    sp_out = "\n".join(
+        [
+            "! B3LYP def2-SVP",
+            "* xyz 0 1",
+            "C 0.0 0.0 0.0",
+            "*",
+            "FINAL SINGLE POINT ENERGY      -100.000000",
+            "                             ****ORCA TERMINATED NORMALLY****",
+            "TOTAL RUN TIME: 0 days 0 hours 0 minutes 10 seconds 0 msec",
+        ]
+    )
     out_file = tmp_path / "sp.out"
     out_file.write_text(sp_out, encoding="utf-8")
 

@@ -269,6 +269,7 @@ class EngineArtifactSnapshot:
             resource_actual=resource_actual,
         )
 
+
 def _first_value(sources: tuple[dict[str, Any], ...], key: str) -> Any:
     return first_artifact_value(sources, key)
 

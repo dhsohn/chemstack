@@ -32,7 +32,12 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
                     "stage_id": "crest_done",
                     "status": "completed",
                     "output_artifacts": [{"kind": "crest_conformer", "path": "/tmp/done.xyz"}],
-                    "task": {"engine": "crest", "status": "completed", "payload": {}, "enqueue_payload": {}},
+                    "task": {
+                        "engine": "crest",
+                        "status": "completed",
+                        "payload": {},
+                        "enqueue_payload": {},
+                    },
                     "metadata": {"queue_id": "q_done"},
                 },
                 {
@@ -91,9 +96,13 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
     assert saved["status"] == "planned"
     assert "workflow_error" not in saved["metadata"]
     assert saved["metadata"]["restart_summary"]["restarted_count"] == 2
-    assert saved["metadata"]["phase_notifications"] == {"xtb_summary": {"sent_at": "2026-04-27T01:00:00+00:00"}}
+    assert saved["metadata"]["phase_notifications"] == {
+        "xtb_summary": {"sent_at": "2026-04-27T01:00:00+00:00"}
+    }
     assert saved["stages"][0]["status"] == "completed"
-    assert saved["stages"][0]["output_artifacts"] == [{"kind": "crest_conformer", "path": "/tmp/done.xyz"}]
+    assert saved["stages"][0]["output_artifacts"] == [
+        {"kind": "crest_conformer", "path": "/tmp/done.xyz"}
+    ]
 
     restarted_orca = saved["stages"][1]
     assert restarted_orca["status"] == "planned"
@@ -201,7 +210,9 @@ def test_restart_cancelled_workflow_resets_cancelled_stages(tmp_path: Path) -> N
                         "enqueue_payload": {"job_dir": "/tmp/reactant", "priority": 10},
                     },
                     "metadata": {"queue_id": "q_reactant"},
-                    "output_artifacts": [{"kind": "crest_conformer", "path": "/tmp/reactant/conf.xyz"}],
+                    "output_artifacts": [
+                        {"kind": "crest_conformer", "path": "/tmp/reactant/conf.xyz"}
+                    ],
                 },
             ],
             "metadata": {"final_child_sync_pending": False},
@@ -264,13 +275,18 @@ def test_restart_failed_workflow_reloads_flow_yaml_for_crest_stage(tmp_path: Pat
                         "status": "failed",
                         "resource_request": {"max_cores": 8, "max_memory_gb": 32},
                         "payload": {
-                            "source_input_xyz": str(workspace / "inputs" / "products" / "product.xyz"),
+                            "source_input_xyz": str(
+                                workspace / "inputs" / "products" / "product.xyz"
+                            ),
                             "selected_input_xyz": str(workspace / "old_crest" / "input.xyz"),
                             "job_dir": str(workspace / "old_crest"),
                             "mode": "standard",
                             "job_manifest_overrides": {"rthr": 0.3},
                         },
-                        "enqueue_payload": {"job_dir": str(workspace / "old_crest"), "priority": 10},
+                        "enqueue_payload": {
+                            "job_dir": str(workspace / "old_crest"),
+                            "priority": 10,
+                        },
                         "metadata": {"mode": "standard", "job_manifest_overrides": {"rthr": 0.3}},
                     },
                     "metadata": {
@@ -498,7 +514,12 @@ def test_restart_failed_workflow_rejects_non_mapping_flow_yaml(tmp_path: Path) -
                 {
                     "stage_id": "xtb_failed",
                     "status": "failed",
-                    "task": {"engine": "xtb", "status": "failed", "payload": {}, "enqueue_payload": {}},
+                    "task": {
+                        "engine": "xtb",
+                        "status": "failed",
+                        "payload": {},
+                        "enqueue_payload": {},
+                    },
                     "metadata": {},
                 }
             ],

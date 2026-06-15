@@ -21,7 +21,9 @@ from orca_auto.orca.commands._helpers import (
 from orca_auto.orca.config import AppConfig, PathsConfig, RuntimeConfig
 
 
-def _cfg(allowed_root: Path, organized_root: Path, *, workflow_root: Path | None = None) -> AppConfig:
+def _cfg(
+    allowed_root: Path, organized_root: Path, *, workflow_root: Path | None = None
+) -> AppConfig:
     return AppConfig(
         runtime=RuntimeConfig(
             allowed_root=str(allowed_root),
@@ -124,6 +126,7 @@ class TestHelperUtilities(unittest.TestCase):
         original_exists = Path.exists
 
         with patch.dict(os.environ, {CONFIG_ENV_VAR: ""}, clear=False):
+
             def repo_exists(path: Path) -> bool:
                 if path == repo_default:
                     return True
@@ -142,10 +145,13 @@ class TestHelperUtilities(unittest.TestCase):
                     return True
                 return original_exists(path)
 
-            with patch.object(Path, "home", return_value=fake_home), patch.object(
-                Path,
-                "exists",
-                home_exists,
+            with (
+                patch.object(Path, "home", return_value=fake_home),
+                patch.object(
+                    Path,
+                    "exists",
+                    home_exists,
+                ),
             ):
                 self.assertEqual(default_config_path(), str(home_default))
 
@@ -154,10 +160,13 @@ class TestHelperUtilities(unittest.TestCase):
                     return False
                 return original_exists(path)
 
-            with patch.object(Path, "home", return_value=fake_home), patch.object(
-                Path,
-                "exists",
-                fallback_exists,
+            with (
+                patch.object(Path, "home", return_value=fake_home),
+                patch.object(
+                    Path,
+                    "exists",
+                    fallback_exists,
+                ),
             ):
                 self.assertEqual(default_config_path(), str(repo_default))
 

@@ -59,10 +59,7 @@ def is_resumed_state(
         if isinstance(status_payload, Mapping)
         else str(status_payload or "").strip().lower()
     )
-    return (
-        is_recovery_pending_fn(previous_state)
-        or status_text == "running"
-    )
+    return is_recovery_pending_fn(previous_state) or status_text == "running"
 
 
 def default_engine_resource_caps(cfg: Any) -> dict[str, int]:

@@ -12,7 +12,9 @@ from .state import load_organized_ref, load_report_json, load_state
 
 def job_type_for_mode(mode: str) -> str:
     normalized = _engine_locations.normalize_text(mode).lower()
-    return "crest_nci_conformer_search" if normalized == "nci" else "crest_standard_conformer_search"
+    return (
+        "crest_nci_conformer_search" if normalized == "nci" else "crest_standard_conformer_search"
+    )
 
 
 def normalize_molecule_key(value: str) -> str:

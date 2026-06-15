@@ -46,7 +46,9 @@ def load_job_manifest(job_dir: Path) -> dict[str, Any]:
 def job_type(manifest: dict[str, Any]) -> str:
     value = _normalize_text(manifest.get("job_type", "path_search")).lower() or "path_search"
     if value not in SUPPORTED_JOB_TYPES:
-        raise ValueError(f"Unsupported xtb job_type: {value}. supported={sorted(SUPPORTED_JOB_TYPES)}")
+        raise ValueError(
+            f"Unsupported xtb job_type: {value}. supported={sorted(SUPPORTED_JOB_TYPES)}"
+        )
     return value
 
 
@@ -119,7 +121,9 @@ def _resolve_ranking_inputs(
     resolved_job_dir: Path,
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
-    candidates_dir_name = _normalize_text(manifest.get("candidates_dir", "candidates")) or "candidates"
+    candidates_dir_name = (
+        _normalize_text(manifest.get("candidates_dir", "candidates")) or "candidates"
+    )
     candidates_dir = (resolved_job_dir / candidates_dir_name).resolve()
     if not candidates_dir.exists() or not candidates_dir.is_dir():
         raise ValueError(f"Missing ranking candidates directory: {candidates_dir}")

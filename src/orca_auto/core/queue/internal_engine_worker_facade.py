@@ -78,9 +78,7 @@ class InternalEngineQueueWorkerLifecycleFacade:
             list_queue_fn=deps.list_queue,
             list_slots_fn=list_slots_fn or deps.list_slots,
             reconcile_stale_slots_fn=deps.reconcile_stale_slots,
-            reconcile_orphaned_child_queue_entries_fn=(
-                deps.reconcile_orphaned_child_queue_entries
-            ),
+            reconcile_orphaned_child_queue_entries_fn=(deps.reconcile_orphaned_child_queue_entries),
             mark_cancelled_fn=deps.mark_cancelled,
             requeue_running_entry_fn=deps.requeue_running_entry,
             mark_recovery_pending_fn=deps.mark_recovery_pending,

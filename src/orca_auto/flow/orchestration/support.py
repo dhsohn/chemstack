@@ -21,9 +21,7 @@ def _runtime_paths_for_engine(
     return o.engines.engine_runtime_paths(config_path, engine=engine)
 
 
-def submission_target_impl(
-    stage: dict[str, Any], *, deps: OrchestrationDeps | None = None
-) -> str:
+def submission_target_impl(stage: dict[str, Any], *, deps: OrchestrationDeps | None = None) -> str:
     o = _orchestration_context(deps)
     stage_metadata = stage.get("metadata")
     if isinstance(stage_metadata, dict):
@@ -93,7 +91,8 @@ def reaction_ts_guess_error_impl(
     o = _orchestration_context(deps)
     details = sorted(
         [
-            item for item in getattr(contract, "candidate_details", ())
+            item
+            for item in getattr(contract, "candidate_details", ())
             if o.stages._normalize_text(getattr(item, "kind", "")) == "ts_guess"
             and o.stages._normalize_text(getattr(item, "path", ""))
         ],
@@ -106,7 +105,9 @@ def reaction_ts_guess_error_impl(
         }
     candidate = details[0]
     _, metadata = o.engines.choose_orca_geometry_frame(candidate.path, candidate_kind="ts_guess")
-    selection_reason = o.stages._normalize_text(metadata.get("selection_reason")) or "invalid_or_empty_xyz"
+    selection_reason = (
+        o.stages._normalize_text(metadata.get("selection_reason")) or "invalid_or_empty_xyz"
+    )
     reason_map = {
         "invalid_or_empty_xyz": "xtb_ts_guess_invalid",
         "ts_guess_requires_single_frame": "xtb_ts_guess_not_single_geometry",
@@ -155,7 +156,9 @@ def reaction_orca_allows_next_candidate_impl(
     if o.stages._normalize_text(metadata.get("reaction_candidate_status")) == "superseded":
         return False
     analyzer_status = o.stages._normalize_text(metadata.get("analyzer_status")).lower()
-    latest_attempt_status = o.stages._normalize_text(metadata.get("orca_latest_attempt_status")).lower()
+    latest_attempt_status = o.stages._normalize_text(
+        metadata.get("orca_latest_attempt_status")
+    ).lower()
     reason = o.stages._normalize_text(metadata.get("reason")).lower()
     allowed = {
         "ts_not_found",
@@ -186,8 +189,13 @@ def clear_reaction_xtb_handoff_error_if_recovering_impl(
         if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != "xtb":
             continue
         stage_status = o.stages._normalize_text(stage.get("status")).lower()
-        handoff_status = o.stages._normalize_text(o.stages._stage_metadata(stage).get("reaction_handoff_status")).lower()
-        if stage_status in {"planned", "queued", "running", "submitted"} or handoff_status == "retrying":
+        handoff_status = o.stages._normalize_text(
+            o.stages._stage_metadata(stage).get("reaction_handoff_status")
+        ).lower()
+        if (
+            stage_status in {"planned", "queued", "running", "submitted"}
+            or handoff_status == "retrying"
+        ):
             metadata.pop("workflow_error", None)
             return
 

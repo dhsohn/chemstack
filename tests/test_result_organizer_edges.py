@@ -40,7 +40,9 @@ def _plan(tmp_path: Path) -> OrganizePlan:
     )
 
 
-@pytest.mark.parametrize(("status", "expected_reason"), [("", "state_schema_invalid"), (123, "not_completed")])
+@pytest.mark.parametrize(
+    ("status", "expected_reason"), [("", "state_schema_invalid"), (123, "not_completed")]
+)
 def test_check_eligibility_rejects_blank_or_invalid_status_as_schema_invalid(
     tmp_path: Path,
     status: object,
@@ -63,7 +65,9 @@ def test_check_eligibility_rejects_blank_or_invalid_status_as_schema_invalid(
     assert skip.reason == expected_reason
 
 
-def test_last_successful_attempt_inp_path_returns_none_when_no_attempt_is_usable(tmp_path: Path) -> None:
+def test_last_successful_attempt_inp_path_returns_none_when_no_attempt_is_usable(
+    tmp_path: Path,
+) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
     failed_inp = reaction_dir / "failed.inp"
@@ -73,7 +77,10 @@ def test_last_successful_attempt_inp_path_returns_none_when_no_attempt_is_usable
         "attempts": [
             "not-a-dict",
             {"inp_path": "   ", "out_path": str(reaction_dir / "blank.out"), "return_code": 0},
-            {"inp_path": str(reaction_dir / "missing.inp"), "out_path": str(reaction_dir / "missing.out")},
+            {
+                "inp_path": str(reaction_dir / "missing.inp"),
+                "out_path": str(reaction_dir / "missing.out"),
+            },
             {"inp_path": str(failed_inp), "return_code": 1},
         ],
         "final_result": {},
@@ -108,7 +115,10 @@ def test_select_organize_metadata_uses_successful_retry_when_selected_input_is_m
         "orca_auto.orca.result_organizer_planning.resolve_molecule_key",
         return_value=SimpleNamespace(source="input_file", key="H2"),
     ):
-        assert organizer_planning.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
+        assert (
+            organizer_planning.select_organize_metadata_inp_path(state, reaction_dir)
+            == retry_inp.resolve()
+        )
 
 
 def test_last_successful_attempt_returns_successful_retry_without_final_output_match(
@@ -129,7 +139,10 @@ def test_last_successful_attempt_returns_successful_retry_without_final_output_m
         "final_result": {},
     }
 
-    assert organizer_planning._last_successful_attempt_inp_path(state, reaction_dir) == retry_inp.resolve()
+    assert (
+        organizer_planning._last_successful_attempt_inp_path(state, reaction_dir)
+        == retry_inp.resolve()
+    )
 
 
 def test_compute_organize_plan_requires_non_empty_string_run_id(tmp_path: Path) -> None:
@@ -137,10 +150,14 @@ def test_compute_organize_plan_requires_non_empty_string_run_id(tmp_path: Path) 
     reaction_dir.mkdir()
 
     with pytest.raises(RuntimeError, match="missing run_id"):
-        organizer_planning.compute_organize_plan(reaction_dir, {"run_id": ""}, tmp_path / "organized")
+        organizer_planning.compute_organize_plan(
+            reaction_dir, {"run_id": ""}, tmp_path / "organized"
+        )
 
     with pytest.raises(RuntimeError, match="missing run_id"):
-        organizer_planning.compute_organize_plan(reaction_dir, {"run_id": 123}, tmp_path / "organized")
+        organizer_planning.compute_organize_plan(
+            reaction_dir, {"run_id": 123}, tmp_path / "organized"
+        )
 
 
 def test_rollback_move_reraises_non_exdev_oserror(tmp_path: Path) -> None:

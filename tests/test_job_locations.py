@@ -136,7 +136,9 @@ def test_upsert_job_record_writes_allowed_root_index_and_resolves_latest_dir() -
         assert len(loaded) == 1
         assert loaded[0]["job_id"] == "job_live_1"
         assert loaded[0]["original_run_dir"] == str(job_dir.resolve())
-        job_path, loaded_state, loaded_report = load_job_artifacts(index_root_for_cfg(cfg), "job_live_1")
+        job_path, loaded_state, loaded_report = load_job_artifacts(
+            index_root_for_cfg(cfg), "job_live_1"
+        )
         assert job_path == job_dir.resolve()
         assert loaded_state is not None and loaded_state["job_id"] == "job_live_1"
         assert loaded_report is not None and loaded_report["job"]["id"] == "job_live_1"
@@ -283,7 +285,9 @@ def test_load_job_artifacts_follows_organized_ref_when_index_lookup_is_missing()
         job_path, loaded_state, loaded_report = load_job_artifacts(allowed_root, str(original_dir))
         assert job_path == organized_dir.resolve()
         assert loaded_state is not None and loaded_state["job_id"] == "job_hist_2"
-        assert loaded_report is not None and loaded_report["engine_payload"]["run_id"] == "run_hist_2"
+        assert (
+            loaded_report is not None and loaded_report["engine_payload"]["run_id"] == "run_hist_2"
+        )
 
 
 def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_target() -> None:
@@ -428,8 +432,13 @@ def test_load_job_runtime_context_exposes_queue_entry_and_organized_refresh() ->
         assert context.queue_entry["queue_id"] == "q_hist_4"
         assert context.organized_dir == organized_dir.resolve()
         assert context.artifact.job_dir == organized_dir.resolve()
-        assert context.artifact.state is not None and context.artifact.state["run_id"] == "run_hist_4"
-        assert context.artifact.report is not None and context.artifact.report["job"]["id"] == "job_hist_4"
+        assert (
+            context.artifact.state is not None and context.artifact.state["run_id"] == "run_hist_4"
+        )
+        assert (
+            context.artifact.report is not None
+            and context.artifact.report["job"]["id"] == "job_hist_4"
+        )
         assert context.artifact.organized_ref is not None
         assert context.artifact.organized_ref["organized_output_dir"] == str(organized_dir)
 

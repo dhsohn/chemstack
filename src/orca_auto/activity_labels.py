@@ -197,13 +197,8 @@ def queue_name_text(item: dict[str, Any]) -> str:
 
     if kind == "workflow":
         workspace_name = queue_metadata_path_name(metadata, ("workspace_dir", "workflow_file"))
-        if (
-            workspace_name
-            and (
-                not label
-                or queue_looks_like_path(label)
-                or label.lower() in _GENERIC_WORKFLOW_LABELS
-            )
+        if workspace_name and (
+            not label or queue_looks_like_path(label) or label.lower() in _GENERIC_WORKFLOW_LABELS
         ):
             return workspace_name
         if label and not queue_looks_like_path(label):

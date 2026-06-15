@@ -62,7 +62,11 @@ class TestOrganizeCommandHelpers(unittest.TestCase):
 
     def test_build_organize_message_includes_summary_and_limits(self) -> None:
         organized = [
-            {"run_id": f"run_{idx:02d}", "action": "moved", "_plan": _plan(run_id=f"run_{idx:02d}_abcdef123456")}
+            {
+                "run_id": f"run_{idx:02d}",
+                "action": "moved",
+                "_plan": _plan(run_id=f"run_{idx:02d}_abcdef123456"),
+            }
             for idx in range(_ORGANIZE_RESULT_LIMIT + 1)
         ]
         skipped = [{"run_id": "run_skip", "action": "skipped", "reason": "already_organized"}]

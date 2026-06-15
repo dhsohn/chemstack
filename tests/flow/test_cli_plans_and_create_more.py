@@ -27,18 +27,24 @@ def test_cmd_run_dir_reads_manifest_for_reaction_workflow(
 ) -> None:
     workflow_dir = tmp_path / "reaction_job"
     workflow_dir.mkdir()
-    (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
+    (workflow_dir / "reactant.xyz").write_text(
+        "2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8"
+    )
     (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
     (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
+    monkeypatch.setattr(
+        cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root"
+    )
 
     def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         return _create_payload("reaction_ts_search")
 
-    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow)
+    monkeypatch.setattr(
+        cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -117,7 +123,9 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
         captured.update(kwargs)
         return _create_payload("conformer_screening")
 
-    monkeypatch.setattr(cli_run_dir, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+    monkeypatch.setattr(
+        cli_run_dir, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -166,13 +174,21 @@ def test_cmd_run_dir_reuses_direct_child_workflow_directory_when_already_under_w
     workflow_root = tmp_path / "workflow_root"
     workflow_dir = workflow_root / "rxn_case"
     workflow_dir.mkdir(parents=True)
-    (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
+    (workflow_dir / "reactant.xyz").write_text(
+        "2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8"
+    )
     (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
     (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: str(workflow_root.resolve()))
-    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", lambda **kwargs: captured.update(kwargs) or _create_payload("reaction_ts_search"))
+    monkeypatch.setattr(
+        cli_common, "_discover_workflow_root", lambda explicit: str(workflow_root.resolve())
+    )
+    monkeypatch.setattr(
+        cli_run_dir,
+        "create_reaction_ts_search_workflow",
+        lambda **kwargs: captured.update(kwargs) or _create_payload("reaction_ts_search"),
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -273,7 +289,9 @@ def test_cmd_run_dir_requires_standard_input_xyz_name_for_conformer_workflow(
     workflow_dir = tmp_path / "conformer_nonstandard"
     workflow_dir.mkdir()
     (workflow_dir / "molecule.xyz").write_text("x", encoding="utf-8")
-    (workflow_dir / "flow.yaml").write_text("workflow_type: conformer_screening\n", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text(
+        "workflow_type: conformer_screening\n", encoding="utf-8"
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -330,7 +348,9 @@ def test_cmd_run_dir_requires_standard_reaction_xyz_names_for_reaction_workflow(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().err
+    assert (
+        "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().err
+    )
 
 
 def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
@@ -355,7 +375,9 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
         create_called = True
         return _create_payload("reaction_ts_search")
 
-    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow)
+    monkeypatch.setattr(
+        cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -391,7 +413,9 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
     workflow_dir = tmp_path / "conformer_missing_root"
     workflow_dir.mkdir()
     (workflow_dir / "input.xyz").write_text("x", encoding="utf-8")
-    (workflow_dir / "flow.yaml").write_text("workflow_type: conformer_screening\n", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text(
+        "workflow_type: conformer_screening\n", encoding="utf-8"
+    )
     create_called = False
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
@@ -404,7 +428,9 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
         create_called = True
         return _create_payload("conformer_screening")
 
-    monkeypatch.setattr(cli_run_dir, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+    monkeypatch.setattr(
+        cli_run_dir, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -439,7 +465,9 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
 ) -> None:
     workflow_dir = tmp_path / "reaction_job_nested"
     workflow_dir.mkdir()
-    (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
+    (workflow_dir / "reactant.xyz").write_text(
+        "2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8"
+    )
     (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
     (workflow_dir / "path.inp").write_text("$path\nnrun=3\n$end\n", encoding="utf-8")
     (workflow_dir / "flow.yaml").write_text(
@@ -476,13 +504,17 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
     )
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
+    monkeypatch.setattr(
+        cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root"
+    )
 
     def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         return _create_payload("reaction_ts_search")
 
-    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow)
+    monkeypatch.setattr(
+        cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow
+    )
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),

@@ -19,12 +19,8 @@ class EngineLocationService:
     load_state_fn: Callable[[Path], dict[str, Any] | None]
     load_report_json_fn: Callable[[Path], dict[str, Any] | None]
     load_organized_ref_fn: Callable[[Path], dict[str, Any] | None]
-    get_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None] = (
-        get_job_location
-    )
-    list_job_locations_fn: Callable[[str | Path], list[JobLocationRecord]] = (
-        list_job_locations
-    )
+    get_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None] = get_job_location
+    list_job_locations_fn: Callable[[str | Path], list[JobLocationRecord]] = list_job_locations
     resolve_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None] = (
         resolve_job_location
     )

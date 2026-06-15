@@ -442,9 +442,7 @@ class TestParserRealisticOutputs:
 # ---------------------------------------------------------------------------
 
 
-def _write_fixture(
-    kb_dir: Path, name: str, content: str, status: str = "completed"
-) -> Path:
+def _write_fixture(kb_dir: Path, name: str, content: str, status: str = "completed") -> Path:
     """Write an ORCA output and job_state.json into a job directory."""
     job_dir = kb_dir / name
     job_dir.mkdir(parents=True, exist_ok=True)

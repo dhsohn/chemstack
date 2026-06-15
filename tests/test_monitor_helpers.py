@@ -12,12 +12,12 @@ from orca_auto.orca.dft_monitor import MonitorResult, ScanReport
 
 def _cfg(allowed_root: Path, *, telegram_enabled: bool = True) -> AppConfig:
     telegram = (
-        TelegramConfig(bot_token="token", chat_id="1234")
-        if telegram_enabled
-        else TelegramConfig()
+        TelegramConfig(bot_token="token", chat_id="1234") if telegram_enabled else TelegramConfig()
     )
     return AppConfig(
-        runtime=RuntimeConfig(allowed_root=str(allowed_root), organized_root=str(allowed_root.parent / "outputs")),
+        runtime=RuntimeConfig(
+            allowed_root=str(allowed_root), organized_root=str(allowed_root.parent / "outputs")
+        ),
         paths=PathsConfig(orca_executable="/usr/bin/orca"),
         telegram=telegram,
     )
@@ -88,17 +88,24 @@ def test_run_monitor_returns_one_when_notification_fails(tmp_path: Path) -> None
     allowed_root = tmp_path / "orca_runs"
     allowed_root.mkdir()
     cfg = _cfg(allowed_root, telegram_enabled=True)
-    fake_monitor = SimpleNamespace(scan=lambda: ScanReport(new_results=[MonitorResult()], scanned_files=1))
+    fake_monitor = SimpleNamespace(
+        scan=lambda: ScanReport(new_results=[MonitorResult()], scanned_files=1)
+    )
 
-    with patch("orca_auto.orca.commands.monitor.DFTIndex") as index_cls, patch(
-        "orca_auto.orca.commands.monitor.DFTMonitor",
-        return_value=fake_monitor,
-    ), patch(
-        "orca_auto.orca.commands.monitor.has_monitor_updates",
-        return_value=True,
-    ), patch(
-        "orca_auto.orca.commands.monitor.notify_monitor_report",
-        return_value=False,
+    with (
+        patch("orca_auto.orca.commands.monitor.DFTIndex") as index_cls,
+        patch(
+            "orca_auto.orca.commands.monitor.DFTMonitor",
+            return_value=fake_monitor,
+        ),
+        patch(
+            "orca_auto.orca.commands.monitor.has_monitor_updates",
+            return_value=True,
+        ),
+        patch(
+            "orca_auto.orca.commands.monitor.notify_monitor_report",
+            return_value=False,
+        ),
     ):
         assert monitor._run_monitor(cfg) == 1
 
@@ -109,10 +116,13 @@ def test_cmd_monitor_returns_status_for_loaded_config(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path / "orca_runs", telegram_enabled=True)
     args = SimpleNamespace(config="config.yml")
 
-    with patch("orca_auto.orca.commands.monitor.load_config", return_value=cfg) as load_config_mock, patch(
-        "orca_auto.orca.commands.monitor._run_monitor",
-        return_value=7,
-    ) as run_monitor_mock:
+    with (
+        patch("orca_auto.orca.commands.monitor.load_config", return_value=cfg) as load_config_mock,
+        patch(
+            "orca_auto.orca.commands.monitor._run_monitor",
+            return_value=7,
+        ) as run_monitor_mock,
+    ):
         assert monitor.cmd_monitor(args) == 7
 
     load_config_mock.assert_called_once_with("config.yml")

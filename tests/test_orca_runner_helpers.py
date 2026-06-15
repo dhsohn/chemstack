@@ -81,7 +81,9 @@ def test_terminate_subprocess_tree_waits_after_sigkill() -> None:
     assert proc.wait.mock_calls == [call(timeout=3), call(timeout=5)]
 
 
-def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_kill_fails() -> None:
+def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_kill_fails() -> (
+    None
+):
     runner = OrcaRunner("/opt/orca/orca")
     proc = MagicMock()
     proc.poll.return_value = None
@@ -95,7 +97,9 @@ def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_
     proc.terminate.assert_called_once()
 
 
-def test_terminate_subprocess_tree_ignores_proc_kill_failure_when_sigkill_group_kill_fails() -> None:
+def test_terminate_subprocess_tree_ignores_proc_kill_failure_when_sigkill_group_kill_fails() -> (
+    None
+):
     runner = OrcaRunner("/opt/orca/orca")
     proc = MagicMock()
     proc.poll.return_value = None

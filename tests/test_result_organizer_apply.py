@@ -68,8 +68,14 @@ def test_attempt_and_metadata_helpers_cover_edge_cases(tmp_path: Path) -> None:
             type("Resolution", (), {"source": "directory_fallback", "key": "unknown"})(),
             type("Resolution", (), {"source": "input_file", "key": "H2"})(),
         ]
-        assert organizer_planning._last_successful_attempt_inp_path(state, reaction_dir) == retry_inp.resolve()
-        assert organizer_planning.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
+        assert (
+            organizer_planning._last_successful_attempt_inp_path(state, reaction_dir)
+            == retry_inp.resolve()
+        )
+        assert (
+            organizer_planning.select_organize_metadata_inp_path(state, reaction_dir)
+            == retry_inp.resolve()
+        )
 
     assert organizer_planning.resolve_organize_metadata({"selected_inp": ""}, reaction_dir) == (
         None,
@@ -114,12 +120,13 @@ def test_verify_copytree_raises_for_missing_and_size_mismatch(tmp_path: Path) ->
 def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
 
-    with patch(
-        "orca_auto.orca.result_organizer_filesystem.os.rename",
-        side_effect=OSError(errno.EXDEV, "cross-device"),
-    ), patch(
-        "orca_auto.orca.result_organizer_filesystem._cross_device_move"
-    ) as cross_device_move:
+    with (
+        patch(
+            "orca_auto.orca.result_organizer_filesystem.os.rename",
+            side_effect=OSError(errno.EXDEV, "cross-device"),
+        ),
+        patch("orca_auto.orca.result_organizer_filesystem._cross_device_move") as cross_device_move,
+    ):
         organizer_fs.execute_move(plan)
 
     cross_device_move.assert_called_once_with(plan.source_dir, plan.target_abs_path)
@@ -128,12 +135,13 @@ def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_pa
     if source_dir.exists():
         source_dir.rmdir()
     plan.target_abs_path.mkdir(parents=True, exist_ok=True)
-    with patch(
-        "orca_auto.orca.result_organizer_filesystem.os.rename",
-        side_effect=OSError(errno.EXDEV, "cross-device"),
-    ), patch(
-        "orca_auto.orca.result_organizer_filesystem._cross_device_move"
-    ) as cross_device_move:
+    with (
+        patch(
+            "orca_auto.orca.result_organizer_filesystem.os.rename",
+            side_effect=OSError(errno.EXDEV, "cross-device"),
+        ),
+        patch("orca_auto.orca.result_organizer_filesystem._cross_device_move") as cross_device_move,
+    ):
         organizer_fs.rollback_move(plan)
 
     cross_device_move.assert_called_once_with(plan.target_abs_path, plan.source_dir)
@@ -144,7 +152,9 @@ def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_pa
         organizer_fs.rollback_move(plan)
 
 
-def test_sync_state_after_relocation_updates_paths_and_raises_for_invalid_state(tmp_path: Path) -> None:
+def test_sync_state_after_relocation_updates_paths_and_raises_for_invalid_state(
+    tmp_path: Path,
+) -> None:
     source_dir = tmp_path / "runs" / "run_1"
     target_dir = tmp_path / "organized" / "run_1"
     source_dir.mkdir(parents=True)
@@ -216,10 +226,12 @@ def test_moved_path_helpers_and_fsync_directory_cover_noop_and_success(tmp_path:
     target_inp = target_dir / "calc.inp"
     target_inp.write_text("! Opt\n", encoding="utf-8")
 
-    assert organizer_state._remap_moved_path("relative.out", source_dir, target_dir) == "relative.out"
-    assert organizer_state._remap_moved_path(str(tmp_path / "other" / "calc.out"), source_dir, target_dir) == str(
-        tmp_path / "other" / "calc.out"
+    assert (
+        organizer_state._remap_moved_path("relative.out", source_dir, target_dir) == "relative.out"
     )
+    assert organizer_state._remap_moved_path(
+        str(tmp_path / "other" / "calc.out"), source_dir, target_dir
+    ) == str(tmp_path / "other" / "calc.out")
     assert organizer_state._normalize_moved_artifact_path(
         str(source_dir / "calc.inp"),
         source_dir,
@@ -231,9 +243,11 @@ def test_moved_path_helpers_and_fsync_directory_cover_noop_and_success(tmp_path:
         target_dir,
     ) == str(target_dir / "missing.inp")
 
-    with patch("orca_auto.orca.result_organizer_filesystem.os.open", return_value=11) as os_open, patch(
-        "orca_auto.orca.result_organizer_filesystem.os.fsync"
-    ) as fsync, patch("orca_auto.orca.result_organizer_filesystem.os.close") as close:
+    with (
+        patch("orca_auto.orca.result_organizer_filesystem.os.open", return_value=11) as os_open,
+        patch("orca_auto.orca.result_organizer_filesystem.os.fsync") as fsync,
+        patch("orca_auto.orca.result_organizer_filesystem.os.close") as close,
+    ):
         organizer_fs._fsync_directory(target_dir)
 
     os_open.assert_called_once()

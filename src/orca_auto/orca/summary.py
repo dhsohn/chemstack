@@ -130,9 +130,7 @@ def _scan_cwd_process_counts(allowed_root: Path, proc_root: Path | None = None) 
     return counts
 
 
-def scan_cwd_process_counts(
-    allowed_root: Path, proc_root: Path | None = None
-) -> dict[Path, int]:
+def scan_cwd_process_counts(allowed_root: Path, proc_root: Path | None = None) -> dict[Path, int]:
     return _scan_cwd_process_counts(allowed_root, proc_root=proc_root)
 
 
@@ -246,7 +244,10 @@ def _build_progress_snapshot(
             logger.debug("summary_progress_parse_failed: path=%s error=%s", out_path, exc)
         else:
             if progress.steps:
-                best_step = max(progress.steps, key=lambda step: (step.cycle, step.energy_hartree or float("-inf")))
+                best_step = max(
+                    progress.steps,
+                    key=lambda step: (step.cycle, step.energy_hartree or float("-inf")),
+                )
                 cycle = best_step.cycle
                 energy_hartree = best_step.energy_hartree
 
@@ -292,7 +293,9 @@ def _format_running_section(
         ]
 
         cycle_text = str(snapshot.cycle) if snapshot.cycle is not None else None
-        energy_text = f"{snapshot.energy_hartree:.6f} Eh" if snapshot.energy_hartree is not None else None
+        energy_text = (
+            f"{snapshot.energy_hartree:.6f} Eh" if snapshot.energy_hartree is not None else None
+        )
         if cycle_text or energy_text:
             progress_parts: list[str] = []
             if cycle_text:
@@ -308,8 +311,7 @@ def _format_running_section(
             detail_lines.append("   \u26a0\ufe0f run.lock present")
 
         lines.append(
-            f"{status_icon(run.status)} <b>{escape_html(run.name)}</b>\n"
-            + "\n".join(detail_lines)
+            f"{status_icon(run.status)} <b>{escape_html(run.name)}</b>\n" + "\n".join(detail_lines)
         )
 
     header = f"\u23f3 <b>Active Runs</b>  ({len(active)})"
@@ -342,8 +344,7 @@ def _format_attention_section(
         if run.final_reason:
             detail += f" · {escape_html(run.final_reason)}"
         lines.append(
-            f"{status_icon(run.status)} <b>{escape_html(run.name)}</b>\n"
-            f"   \U0001f4cc {detail}"
+            f"{status_icon(run.status)} <b>{escape_html(run.name)}</b>\n   \U0001f4cc {detail}"
         )
 
     header = f"\u26a0\ufe0f <b>Needs Attention</b>  ({len(attention)})"

@@ -9,7 +9,9 @@ import yaml
 from orca_auto.flow import scaffold
 
 
-def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cmd_scaffold_creates_reaction_workflow_scaffold(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     workflow_dir = tmp_path / "reaction_workflow"
 
     rc = scaffold.cmd_scaffold(
@@ -93,7 +95,9 @@ def test_cmd_scaffold_is_idempotent_for_conformer_workflow(
     assert (workflow_dir / "input.xyz").read_text(encoding="utf-8") == custom_input
 
 
-def test_cmd_scaffold_rejects_invalid_crest_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cmd_scaffold_rejects_invalid_crest_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     workflow_dir = tmp_path / "bad_mode"
 
     rc = scaffold.cmd_scaffold(

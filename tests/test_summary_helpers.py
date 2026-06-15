@@ -143,11 +143,15 @@ def test_scan_cwd_process_counts_handles_proc_absence_and_filters(tmp_path: Path
             return str(outside)
         raise OSError("missing cwd")
 
-    with patch.object(Path, "is_dir", return_value=True), patch.object(
-        Path,
-        "iterdir",
-        return_value=entries,
-    ), patch("orca_auto.orca.summary.os.readlink", side_effect=_readlink):
+    with (
+        patch.object(Path, "is_dir", return_value=True),
+        patch.object(
+            Path,
+            "iterdir",
+            return_value=entries,
+        ),
+        patch("orca_auto.orca.summary.os.readlink", side_effect=_readlink),
+    ):
         counts = summary._scan_cwd_process_counts(allowed_root)
 
     assert counts == {inside.resolve(): 1}
@@ -171,7 +175,9 @@ def test_read_tail_and_last_non_empty_line_cover_error_empty_and_decode_fallback
         assert summary._read_tail_text(Path("virtual.out")) == "decoded via fallback"
 
 
-def test_extract_geometry_maxiter_and_eta_summary_cover_remaining_time_branches(tmp_path: Path) -> None:
+def test_extract_geometry_maxiter_and_eta_summary_cover_remaining_time_branches(
+    tmp_path: Path,
+) -> None:
     out_path = tmp_path / "calc.out"
     out_path.write_text(
         "\n".join(
@@ -186,16 +192,27 @@ def test_extract_geometry_maxiter_and_eta_summary_cover_remaining_time_branches(
     with patch("orca_auto.orca.summary.datetime", _FrozenDateTime):
         assert summary._extract_geometry_maxiter(out_path) == 174
         assert summary._extract_geometry_maxiter(tmp_path / "missing.out") is None
-        assert summary._eta_summary(cycle=None, maxiter=10, started_at="2026-01-10T10:00:00+00:00") == "n/a"
-        assert summary._eta_summary(cycle=2, maxiter=8, started_at="2026-01-08T12:00:00+00:00").startswith("6d 0h")
-        assert summary._eta_summary(cycle=4, maxiter=10, started_at="2026-01-10T10:00:00+00:00").startswith("3h 0m")
-        assert summary._eta_summary(cycle=1, maxiter=2, started_at="2026-01-10T11:00:00+00:00").startswith("1h 0m")
+        assert (
+            summary._eta_summary(cycle=None, maxiter=10, started_at="2026-01-10T10:00:00+00:00")
+            == "n/a"
+        )
+        assert summary._eta_summary(
+            cycle=2, maxiter=8, started_at="2026-01-08T12:00:00+00:00"
+        ).startswith("6d 0h")
+        assert summary._eta_summary(
+            cycle=4, maxiter=10, started_at="2026-01-10T10:00:00+00:00"
+        ).startswith("3h 0m")
+        assert summary._eta_summary(
+            cycle=1, maxiter=2, started_at="2026-01-10T11:00:00+00:00"
+        ).startswith("1h 0m")
         assert summary._eta_summary(cycle=1, maxiter=2, started_at="bad") == "n/a"
 
 
 def test_build_progress_snapshot_handles_missing_outputs_and_parser_failure(tmp_path: Path) -> None:
     missing_run = _snapshot(tmp_path / "missing_run", latest_out_path=None)
-    missing_snapshot = summary._build_progress_snapshot(missing_run, {missing_run.reaction_dir.resolve(): 3})
+    missing_snapshot = summary._build_progress_snapshot(
+        missing_run, {missing_run.reaction_dir.resolve(): 3}
+    )
 
     assert missing_snapshot.out_name == "n/a"
     assert missing_snapshot.proc_count == 3
@@ -207,11 +224,16 @@ def test_build_progress_snapshot_handles_missing_outputs_and_parser_failure(tmp_
         "FINAL SINGLE POINT ENERGY      -99.123456\nSCF still running\n",
         encoding="utf-8",
     )
-    running_run = _snapshot(out_path.parent, latest_out_path=out_path, started_at="2026-01-10T10:00:00+00:00")
+    running_run = _snapshot(
+        out_path.parent, latest_out_path=out_path, started_at="2026-01-10T10:00:00+00:00"
+    )
 
-    with patch("orca_auto.orca.summary.parse_opt_progress", side_effect=RuntimeError("bad parse")), patch(
-        "orca_auto.orca.summary._updated_ago_text",
-        return_value="5m",
+    with (
+        patch("orca_auto.orca.summary.parse_opt_progress", side_effect=RuntimeError("bad parse")),
+        patch(
+            "orca_auto.orca.summary._updated_ago_text",
+            return_value="5m",
+        ),
     ):
         progress_snapshot = summary._build_progress_snapshot(running_run, {})
 
@@ -229,8 +251,12 @@ def test_section_formatters_cover_empty_and_truncated_sections(tmp_path: Path) -
     attention: list[RunSnapshot] = []
     for index in range(9):
         run_dir = tmp_path / f"rxn_{index}"
-        active.append(_snapshot(run_dir, name=f"rxn_{index}", selected_inp_name=f"calc_{index}.inp"))
-        attention.append(_snapshot(run_dir, name=f"failed_{index}", status="failed", final_reason="boom"))
+        active.append(
+            _snapshot(run_dir, name=f"rxn_{index}", selected_inp_name=f"calc_{index}.inp")
+        )
+        attention.append(
+            _snapshot(run_dir, name=f"failed_{index}", status="failed", final_reason="boom")
+        )
 
     (active[0].reaction_dir / summary.LOCK_FILE_NAME).write_text("{}", encoding="utf-8")
     fake_progress = summary.ProgressSnapshot(

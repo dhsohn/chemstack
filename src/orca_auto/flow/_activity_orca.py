@@ -63,9 +63,7 @@ def snapshot_indexes(snapshots: list[Any]) -> tuple[dict[str, Any], dict[str, An
     snapshot_by_dir: dict[str, Any] = {}
     for snapshot in snapshots:
         try:
-            snapshot_by_dir[str(Path(snapshot.reaction_dir).expanduser().resolve())] = (
-                snapshot
-            )
+            snapshot_by_dir[str(Path(snapshot.reaction_dir).expanduser().resolve())] = snapshot
         except OSError:
             continue
     return snapshot_by_run_id, snapshot_by_dir
@@ -213,10 +211,10 @@ def orca_records(
     rows: list[ActivityRecord] = []
 
     for entry in queue_entries:
-        snapshot = snapshot_matches_entry(
-            queue_adapter, entry, snapshot_by_run_id, snapshot_by_dir
+        snapshot = snapshot_matches_entry(queue_adapter, entry, snapshot_by_run_id, snapshot_by_dir)
+        rows.append(
+            queue_record(queue_adapter, entry, snapshot, allowed_root=allowed_root, deps=deps)
         )
-        rows.append(queue_record(queue_adapter, entry, snapshot, allowed_root=allowed_root, deps=deps))
         if snapshot is not None and queue_represents_snapshot(queue_adapter, entry, snapshot):
             represented_snapshot_keys.add(normalize_text(getattr(snapshot, "key", "")))
 

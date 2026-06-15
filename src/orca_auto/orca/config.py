@@ -127,9 +127,7 @@ def _required_runtime_paths(
 
 def _reject_legacy_runtime_scheduler_keys(runtime_raw: Dict[str, Any]) -> None:
     legacy_keys = {
-        key
-        for key in ("max_concurrent", "admission_root", "admission_limit")
-        if key in runtime_raw
+        key for key in ("max_concurrent", "admission_root", "admission_limit") if key in runtime_raw
     }
     if not legacy_keys:
         return

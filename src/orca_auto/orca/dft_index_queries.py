@@ -83,4 +83,3 @@ def comparison_filters(
     if method:
         filters["method"] = method
     return filters
-

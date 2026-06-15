@@ -55,7 +55,6 @@ def _make_completed_dir(root: Path, name: str, route: str = "! Opt") -> Path:
 
 
 class TestCheckEligibility(unittest.TestCase):
-
     def test_completed_is_eligible(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")
@@ -139,15 +138,18 @@ class TestCheckEligibility(unittest.TestCase):
             d.mkdir()
             inp = d / "rxn.inp"
             inp.write_text("! Opt\n", encoding="utf-8")
-            _write_state(d, {
-                "run_id": "run_test",
-                "status": "completed",
-                "selected_inp": str(inp),
-                "final_result": {
+            _write_state(
+                d,
+                {
+                    "run_id": "run_test",
                     "status": "completed",
-                    "last_out_path": str(d / "nonexistent.out"),
+                    "selected_inp": str(inp),
+                    "final_result": {
+                        "status": "completed",
+                        "last_out_path": str(d / "nonexistent.out"),
+                    },
                 },
-            })
+            )
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
             assert skip is not None
@@ -168,7 +170,6 @@ class TestCheckEligibility(unittest.TestCase):
 
 
 class TestDetectJobType(unittest.TestCase):
-
     def _inp(self, td: str, route: str) -> Path:
         p = Path(td) / "rxn.inp"
         p.write_text(f"{route}\n* xyz 0 1\nH 0 0 0\n*\n", encoding="utf-8")
@@ -216,7 +217,6 @@ class TestDetectJobType(unittest.TestCase):
 
 
 class TestComputeOrganizePlan(unittest.TestCase):
-
     def test_correct_target_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1", route="! OptTS Freq")
@@ -298,7 +298,6 @@ class TestComputeOrganizePlan(unittest.TestCase):
 
 
 class TestPlanRootScan(unittest.TestCase):
-
     def test_scans_multiple_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "runs"
@@ -331,7 +330,6 @@ class TestPlanRootScan(unittest.TestCase):
             plans, skips = plan_root_scan(root, organized)
             self.assertEqual(len(plans), 2)
             self.assertEqual(len(skips), 0)
-
 
     def test_scan_ignores_report_only_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -367,7 +365,8 @@ class TestPlanRootScan(unittest.TestCase):
                 },
             }
             (d2 / "job_report.json").write_text(
-                json.dumps(report, ensure_ascii=True, indent=2), encoding="utf-8",
+                json.dumps(report, ensure_ascii=True, indent=2),
+                encoding="utf-8",
             )
             (d2 / "job_report.md").write_text("# Report\n", encoding="utf-8")
 
@@ -379,7 +378,6 @@ class TestPlanRootScan(unittest.TestCase):
 
 
 class TestCheckConflict(unittest.TestCase):
-
     def test_no_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")

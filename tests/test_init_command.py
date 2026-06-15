@@ -108,17 +108,24 @@ def test_ensure_directory_covers_existing_decline_and_create(capsys, tmp_path: P
     assert missing.is_dir()
 
 
-def test_prompt_organized_root_retries_when_nested_under_allowed_root(capsys, tmp_path: Path) -> None:
+def test_prompt_organized_root_retries_when_nested_under_allowed_root(
+    capsys, tmp_path: Path
+) -> None:
     allowed_root = (tmp_path / "allowed").resolve()
     allowed_root.mkdir()
     nested = allowed_root / "organized"
     valid = (tmp_path / "organized").resolve()
 
-    with patch(
-        "orca_auto.orca.commands.init._prompt_directory_path",
-        side_effect=[nested, valid],
-    ), patch("orca_auto.orca.commands.init._ensure_directory", return_value=True):
-        assert init._prompt_organized_root(allowed_root, engine_key="orca", engine_label="ORCA") == str(valid)
+    with (
+        patch(
+            "orca_auto.orca.commands.init._prompt_directory_path",
+            side_effect=[nested, valid],
+        ),
+        patch("orca_auto.orca.commands.init._ensure_directory", return_value=True),
+    ):
+        assert init._prompt_organized_root(
+            allowed_root, engine_key="orca", engine_label="ORCA"
+        ) == str(valid)
 
     assert "must not contain each other" in capsys.readouterr().out
 
@@ -139,10 +146,14 @@ def test_prompt_telegram_config_covers_skip_and_retry(capsys) -> None:
     with patch("orca_auto.orca.commands.init._prompt_yes_no", return_value=False):
         assert init._prompt_telegram_config() == {"bot_token": "", "chat_id": ""}
 
-    with patch("orca_auto.orca.commands.init._prompt_yes_no", return_value=True), patch(
-        "orca_auto.orca.commands.init._prompt_secret_text",
-        side_effect=["token-only", "token"],
-    ), patch("orca_auto.orca.commands.init._prompt_text", side_effect=["", "123"]):
+    with (
+        patch("orca_auto.orca.commands.init._prompt_yes_no", return_value=True),
+        patch(
+            "orca_auto.orca.commands.init._prompt_secret_text",
+            side_effect=["token-only", "token"],
+        ),
+        patch("orca_auto.orca.commands.init._prompt_text", side_effect=["", "123"]),
+    ):
         assert init._prompt_telegram_config() == {"bot_token": "token", "chat_id": "123"}
 
     assert "Both Telegram bot token and chat id are required" in capsys.readouterr().out
@@ -164,12 +175,16 @@ def test_cmd_init_returns_zero_when_existing_config_not_overwritten(tmp_path: Pa
     config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text("existing: true\n", encoding="utf-8")
 
-    with patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "orca_auto.orca.commands.init._stdin_supports_interactive_prompts",
-        return_value=True,
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_yes_no",
-        return_value=False,
+    with (
+        patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)),
+        patch(
+            "orca_auto.orca.commands.init._stdin_supports_interactive_prompts",
+            return_value=True,
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_yes_no",
+            return_value=False,
+        ),
     ):
         assert init.cmd_init(Namespace(force=False)) == 0
 
@@ -183,10 +198,14 @@ def test_cmd_init_existing_config_in_noninteractive_mode_requires_force(
     config_path = tmp_path / "orca_auto.yaml"
     config_path.write_text("existing: true\n", encoding="utf-8")
 
-    with patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "orca_auto.orca.commands.init._stdin_supports_interactive_prompts",
-        return_value=False,
-    ), patch("orca_auto.orca.commands.init._prompt_yes_no") as prompt_yes_no:
+    with (
+        patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)),
+        patch(
+            "orca_auto.orca.commands.init._stdin_supports_interactive_prompts",
+            return_value=False,
+        ),
+        patch("orca_auto.orca.commands.init._prompt_yes_no") as prompt_yes_no,
+    ):
         assert init.cmd_init(Namespace(force=False)) == 1
 
     prompt_yes_no.assert_not_called()
@@ -197,9 +216,12 @@ def test_cmd_init_existing_config_in_noninteractive_mode_requires_force(
 def test_cmd_init_handles_interrupt(tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "orca_auto.yaml"
 
-    with patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "orca_auto.orca.commands.init._prompt_workflow_root",
-        side_effect=KeyboardInterrupt,
+    with (
+        patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)),
+        patch(
+            "orca_auto.orca.commands.init._prompt_workflow_root",
+            side_effect=KeyboardInterrupt,
+        ),
     ):
         assert init.cmd_init(Namespace(force=True)) == 1
 
@@ -211,36 +233,45 @@ def test_cmd_init_handles_write_or_load_failure(tmp_path: Path, capsys) -> None:
     workflow_root = tmp_path / "workflow_root"
     orca_allowed_root = tmp_path / "orca_allowed"
 
-    with patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "orca_auto.orca.commands.init._prompt_workflow_root",
-        return_value=str(workflow_root),
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_orca_runtime",
-        return_value={
-            "allowed_root": str(orca_allowed_root),
-            "organized_root": str(tmp_path / "orca_organized"),
-            "default_max_retries": 2,
-            "executable": "/usr/bin/orca",
-        },
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_xtb_runtime",
-        return_value={
-            "executable": "/usr/bin/xtb",
-        },
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_crest_runtime",
-        return_value={
-            "executable": "/usr/bin/crest",
-        },
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_max_active_simulations",
-        return_value=4,
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_telegram_config",
-        return_value={"bot_token": "", "chat_id": ""},
-    ), patch(
-        "orca_auto.orca.commands.init._validate_generated_config",
-        side_effect=RuntimeError("bad config"),
+    with (
+        patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)),
+        patch(
+            "orca_auto.orca.commands.init._prompt_workflow_root",
+            return_value=str(workflow_root),
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_orca_runtime",
+            return_value={
+                "allowed_root": str(orca_allowed_root),
+                "organized_root": str(tmp_path / "orca_organized"),
+                "default_max_retries": 2,
+                "executable": "/usr/bin/orca",
+            },
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_xtb_runtime",
+            return_value={
+                "executable": "/usr/bin/xtb",
+            },
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_crest_runtime",
+            return_value={
+                "executable": "/usr/bin/crest",
+            },
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_max_active_simulations",
+            return_value=4,
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_telegram_config",
+            return_value={"bot_token": "", "chat_id": ""},
+        ),
+        patch(
+            "orca_auto.orca.commands.init._validate_generated_config",
+            side_effect=RuntimeError("bad config"),
+        ),
     ):
         assert init.cmd_init(Namespace(force=True)) == 1
 
@@ -253,34 +284,45 @@ def test_cmd_init_success_writes_config_and_prints_summary(tmp_path: Path, capsy
     orca_allowed_root = tmp_path / "orca_allowed"
     orca_organized_root = tmp_path / "orca_organized"
 
-    with patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "orca_auto.orca.commands.init._prompt_workflow_root",
-        return_value=str(workflow_root),
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_orca_runtime",
-        return_value={
-            "allowed_root": str(orca_allowed_root),
-            "organized_root": str(orca_organized_root),
-            "default_max_retries": 2,
-            "executable": "/usr/bin/orca",
-        },
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_xtb_runtime",
-        return_value={
-            "executable": "/usr/bin/xtb",
-        },
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_crest_runtime",
-        return_value={
-            "executable": "/usr/bin/crest",
-        },
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_max_active_simulations",
-        return_value=4,
-    ), patch(
-        "orca_auto.orca.commands.init._prompt_telegram_config",
-        return_value={"bot_token": "token", "chat_id": "123"},
-    ), patch("orca_auto.orca.commands.init._validate_generated_config") as validate_generated_config:
+    with (
+        patch("orca_auto.orca.commands.init.default_config_path", return_value=str(config_path)),
+        patch(
+            "orca_auto.orca.commands.init._prompt_workflow_root",
+            return_value=str(workflow_root),
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_orca_runtime",
+            return_value={
+                "allowed_root": str(orca_allowed_root),
+                "organized_root": str(orca_organized_root),
+                "default_max_retries": 2,
+                "executable": "/usr/bin/orca",
+            },
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_xtb_runtime",
+            return_value={
+                "executable": "/usr/bin/xtb",
+            },
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_crest_runtime",
+            return_value={
+                "executable": "/usr/bin/crest",
+            },
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_max_active_simulations",
+            return_value=4,
+        ),
+        patch(
+            "orca_auto.orca.commands.init._prompt_telegram_config",
+            return_value={"bot_token": "token", "chat_id": "123"},
+        ),
+        patch(
+            "orca_auto.orca.commands.init._validate_generated_config"
+        ) as validate_generated_config,
+    ):
         assert init.cmd_init(Namespace(force=True)) == 0
 
     validate_generated_config.assert_called_once_with(str(config_path.resolve()))

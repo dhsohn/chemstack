@@ -262,13 +262,19 @@ def flatten_engine_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     flattened.setdefault("status", normalize_text(status.get("state")))
     flattened.setdefault("reason", normalize_text(status.get("reason")))
     flattened.setdefault("exit_code", status.get("exit_code"))
-    flattened.setdefault("selected_input_xyz", normalize_text(input_payload.get("selected_xyz_path")))
+    flattened.setdefault(
+        "selected_input_xyz", normalize_text(input_payload.get("selected_xyz_path"))
+    )
     flattened.setdefault("manifest_path", normalize_text(artifacts.get("manifest_path")))
     flattened.setdefault("stdout_log", normalize_text(artifacts.get("stdout_log")))
     flattened.setdefault("stderr_log", normalize_text(artifacts.get("stderr_log")))
     flattened.setdefault("organized_output_dir", normalize_text(artifacts.get("organized_dir")))
-    flattened.setdefault("resource_request", resources.get("request") if isinstance(resources, dict) else {})
-    flattened.setdefault("resource_actual", resources.get("actual") if isinstance(resources, dict) else {})
+    flattened.setdefault(
+        "resource_request", resources.get("request") if isinstance(resources, dict) else {}
+    )
+    flattened.setdefault(
+        "resource_actual", resources.get("actual") if isinstance(resources, dict) else {}
+    )
     return flattened
 
 

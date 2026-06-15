@@ -76,7 +76,9 @@ def test_coerce_bool(value: Any, default: bool, expected: bool) -> None:
     assert persistence.coerce_bool(value, default=default) is expected
 
 
-def test_resolve_root_path_expands_user_and_resolves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_root_path_expands_user_and_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     home = tmp_path / "home"
     home.mkdir()
     root = home / "chem-core-root"
@@ -107,14 +109,7 @@ def test_atomic_write_json_success_path(tmp_path: Path) -> None:
 
     assert path.parent.exists()
     assert path.read_text(encoding="utf-8") == (
-        '{\n'
-        '  "b": 1,\n'
-        '  "a": [\n'
-        '    1,\n'
-        '    2\n'
-        '  ],\n'
-        '  "text": "caf\\u00e9"\n'
-        "}"
+        '{\n  "b": 1,\n  "a": [\n    1,\n    2\n  ],\n  "text": "caf\\u00e9"\n}'
     )
 
 

@@ -18,7 +18,9 @@ ENGINE_DEFINITION = build_queue_engine_definition(
         "orca_auto.flow.engines.crest.execution",
         "run_worker_child_job",
     ),
-    queue_worker_runner=build_lazy_queue_worker_runner("orca_auto.flow.engines.crest.queue_runtime"),
+    queue_worker_runner=build_lazy_queue_worker_runner(
+        "orca_auto.flow.engines.crest.queue_runtime"
+    ),
     worker_pid_file_name="crest_queue_worker.pid",
     job_started=notify_crest_job_started,
     job_finished=notify_crest_job_finished,

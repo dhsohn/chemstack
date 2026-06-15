@@ -98,8 +98,8 @@ def install_worker_runtime_methods(
     cancel_running_job_fn: Callable[[Any, str, Any], Any],
 ) -> None:
     worker.__dict__["_auto_organize_terminal_job"] = lambda job: auto_organize_fn(worker, job)
-    worker.__dict__["_cancel_running_job"] = (
-        lambda queue_id, job: cancel_running_job_fn(worker, queue_id, job)
+    worker.__dict__["_cancel_running_job"] = lambda queue_id, job: cancel_running_job_fn(
+        worker, queue_id, job
     )
 
 

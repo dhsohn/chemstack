@@ -90,7 +90,9 @@ class TestOrganizeHelpers(unittest.TestCase):
             root = Path(td)
             plan = _make_plan(root)
             cfg = AppConfig(
-                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                runtime=RuntimeConfig(
+                    allowed_root=str(root / "runs"), organized_root=str(root / "organized")
+                ),
                 paths=PathsConfig(orca_executable="/usr/bin/true"),
             )
             captured = {}
@@ -101,21 +103,31 @@ class TestOrganizeHelpers(unittest.TestCase):
                 emit_fn(summary)
                 return 1 if failures else 0
 
-            with patch("orca_auto.orca.commands.organize_service.acquire_index_lock", return_value=contextlib.nullcontext()), patch(
-                "orca_auto.orca.commands.organize_service.load_index",
-                return_value=[],
-            ), patch(
-                "orca_auto.orca.commands.organize_service.check_conflict",
-                return_value="already_organized",
-            ), patch(
-                "orca_auto.orca.commands.organize_service.finalize_batch_apply",
-                side_effect=_finalize,
-            ), patch(
-                "orca_auto.orca.commands.organize_output.emit_organize",
-                return_value=None,
-            ) as emit_mock, patch(
-                "orca_auto.orca.commands.organize_service.execute_move",
-            ) as move_mock:
+            with (
+                patch(
+                    "orca_auto.orca.commands.organize_service.acquire_index_lock",
+                    return_value=contextlib.nullcontext(),
+                ),
+                patch(
+                    "orca_auto.orca.commands.organize_service.load_index",
+                    return_value=[],
+                ),
+                patch(
+                    "orca_auto.orca.commands.organize_service.check_conflict",
+                    return_value="already_organized",
+                ),
+                patch(
+                    "orca_auto.orca.commands.organize_service.finalize_batch_apply",
+                    side_effect=_finalize,
+                ),
+                patch(
+                    "orca_auto.orca.commands.organize_output.emit_organize",
+                    return_value=None,
+                ) as emit_mock,
+                patch(
+                    "orca_auto.orca.commands.organize_service.execute_move",
+                ) as move_mock,
+            ):
                 rc = cmd_organize_apply([plan], [], root / "organized", cfg)
 
         self.assertEqual(rc, 0)
@@ -136,7 +148,9 @@ class TestOrganizeHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = AppConfig(
-                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                runtime=RuntimeConfig(
+                    allowed_root=str(root / "runs"), organized_root=str(root / "organized")
+                ),
                 paths=PathsConfig(orca_executable="/usr/bin/true"),
             )
             plan = _make_plan(root)
@@ -165,7 +179,9 @@ class TestOrganizeHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = AppConfig(
-                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                runtime=RuntimeConfig(
+                    allowed_root=str(root / "runs"), organized_root=str(root / "organized")
+                ),
                 paths=PathsConfig(orca_executable="/usr/bin/true"),
             )
             mock_scope.return_value = ([], [SkipReason("rxn_skip", "already_organized")])
@@ -186,7 +202,9 @@ class TestOrganizeHelpers(unittest.TestCase):
             reaction_dir = workflow_root / "wf_local" / "03_orca" / "job_01"
             expected_organized_root = workflow_root / "wf_local" / "03_orca"
             cfg = AppConfig(
-                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                runtime=RuntimeConfig(
+                    allowed_root=str(root / "runs"), organized_root=str(root / "organized")
+                ),
                 workflow_root=str(workflow_root),
                 paths=PathsConfig(orca_executable="/usr/bin/true"),
             )

@@ -19,7 +19,9 @@ def test_detect_completion_mode_skips_blank_and_comment_lines_before_route(tmp_p
     assert mode.route_line == "! NEB-TS IRC"
 
 
-def test_detect_completion_mode_defaults_to_opt_when_no_route_line_is_present(tmp_path: Path) -> None:
+def test_detect_completion_mode_defaults_to_opt_when_no_route_line_is_present(
+    tmp_path: Path,
+) -> None:
     inp = tmp_path / "rxn.inp"
     inp.write_text(
         "\n# comment only\n* xyz 0 1\nH 0 0 0\n*\n",

@@ -24,7 +24,9 @@ def test_attempt_resume_text_and_patch_action_helpers_cover_existing_and_missing
     assert attempt_resume._as_non_empty_text(123) is None
 
 
-def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(tmp_path: Path) -> None:
+def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(
+    tmp_path: Path,
+) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
     selected_inp = reaction_dir / "calc.inp"
@@ -86,7 +88,9 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
     ) == (False, "resume_source_input_not_found")
 
 
-def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_state(tmp_path: Path) -> None:
+def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_state(
+    tmp_path: Path,
+) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
     selected_inp = reaction_dir / "calc.inp"
@@ -96,7 +100,9 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
     source_inp.write_text("! Retry\n", encoding="utf-8")
     state = cast(RunState, {"attempts": [{"inp_path": str(source_inp), "patch_actions": "bad"}]})
 
-    with patch("orca_auto.orca.attempt_resume.rewrite_for_retry", return_value=["patch_one"]) as rewrite_mock:
+    with patch(
+        "orca_auto.orca.attempt_resume.rewrite_for_retry", return_value=["patch_one"]
+    ) as rewrite_mock:
         saved_paths: list[Path] = []
 
         def _save_state(reaction_dir_arg: Path, _state: RunState) -> Path:
@@ -129,7 +135,9 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
     assert saved_paths == [reaction_dir]
 
 
-def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_success(tmp_path: Path) -> None:
+def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_success(
+    tmp_path: Path,
+) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
     selected_inp = reaction_dir / "calc.inp"
@@ -144,7 +152,9 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         state=empty_state,
         execution_index=2,
         retries_used=1,
-        retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
+        retry_inp_path=lambda inp, retry_number: inp.with_name(
+            f"{inp.stem}.retry{retry_number:02d}.inp"
+        ),
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
         save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
@@ -163,7 +173,9 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
             state=empty_state,
             execution_index=2,
             retries_used=1,
-            retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
+            retry_inp_path=lambda inp, retry_number: inp.with_name(
+                f"{inp.stem}.retry{retry_number:02d}.inp"
+            ),
             retry_recipe_step=lambda retry_number: retry_number,
             to_resolved_local=lambda raw: Path(raw),
             save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
@@ -175,14 +187,18 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         retry_path.write_text("! Retry\n", encoding="utf-8")
         return True, "resume_recovered"
 
-    with patch("orca_auto.orca.attempt_resume.recover_missing_retry_input", side_effect=_recover_and_create):
+    with patch(
+        "orca_auto.orca.attempt_resume.recover_missing_retry_input", side_effect=_recover_and_create
+    ):
         current_inp, reason = attempt_resume.resolve_execution_input(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
             state=empty_state,
             execution_index=2,
             retries_used=1,
-            retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
+            retry_inp_path=lambda inp, retry_number: inp.with_name(
+                f"{inp.stem}.retry{retry_number:02d}.inp"
+            ),
             retry_recipe_step=lambda retry_number: retry_number,
             to_resolved_local=lambda raw: Path(raw),
             save_state=lambda _reaction_dir, _state: state_path(reaction_dir),

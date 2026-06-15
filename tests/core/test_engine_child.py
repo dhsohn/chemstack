@@ -151,9 +151,7 @@ def test_internal_engine_worker_child_builds_shutdown_signal_installer() -> None
     controller = child_execution.ChildWorkerShutdownController()
     callbacks: list[Any] = []
 
-    install = child.shutdown_signal_handler_installer(
-        lambda callback: callbacks.append(callback)
-    )
+    install = child.shutdown_signal_handler_installer(lambda callback: callbacks.append(callback))
     install(controller)
 
     assert controller.is_requested() is False
@@ -185,11 +183,14 @@ def test_internal_engine_worker_child_module_facade_keeps_patchable_exports() ->
     assert outcome_exit_code_fn(SimpleNamespace(exit_code=8)) == 8
 
     facade.run_worker_child_job = lambda **_kwargs: 5
-    assert facade.run_worker_child_job(
-        config_path="/tmp/cfg.yaml",
-        queue_root="/tmp/queue",
-        queue_id="queue-1",
-    ) == 5
+    assert (
+        facade.run_worker_child_job(
+            config_path="/tmp/cfg.yaml",
+            queue_root="/tmp/queue",
+            queue_id="queue-1",
+        )
+        == 5
+    )
 
 
 def test_run_engine_worker_child_job_requeues_and_marks_recovery_on_shutdown(
@@ -242,4 +243,7 @@ def test_outcome_exit_code_maps_terminal_statuses() -> None:
         engine_child.outcome_exit_code(SimpleNamespace(result=SimpleNamespace(status="cancelled")))
         == 0
     )
-    assert engine_child.outcome_exit_code(SimpleNamespace(result=SimpleNamespace(status="failed"))) == 1
+    assert (
+        engine_child.outcome_exit_code(SimpleNamespace(result=SimpleNamespace(status="failed")))
+        == 1
+    )

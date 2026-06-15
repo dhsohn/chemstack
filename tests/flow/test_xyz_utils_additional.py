@@ -69,7 +69,9 @@ def test_load_xyz_atom_sequence_raises_for_invalid_or_multiframe_input(tmp_path:
         xyz_utils.load_xyz_atom_sequence(multiframe)
 
 
-def test_choose_orca_geometry_frame_covers_invalid_single_highest_middle_and_first(tmp_path: Path) -> None:
+def test_choose_orca_geometry_frame_covers_invalid_single_highest_middle_and_first(
+    tmp_path: Path,
+) -> None:
     invalid = tmp_path / "invalid.xyz"
     invalid.write_text("bad\n", encoding="utf-8")
     ts_multiframe = tmp_path / "ts_multi.xyz"
@@ -101,25 +103,33 @@ def test_choose_orca_geometry_frame_covers_invalid_single_highest_middle_and_fir
     assert frame is None
     assert metadata["selection_reason"] == "ts_guess_requires_single_frame"
 
-    frame, metadata = xyz_utils.choose_orca_geometry_frame(energetic, candidate_kind="selected_path")
+    frame, metadata = xyz_utils.choose_orca_geometry_frame(
+        energetic, candidate_kind="selected_path"
+    )
     assert frame is not None
     assert frame.index == 2
     assert metadata["selection_reason"] == "highest_energy_frame"
     assert metadata["selected_frame_energy"] == -1.0
 
-    frame, metadata = xyz_utils.choose_orca_geometry_frame(no_energy, candidate_kind="selected_path")
+    frame, metadata = xyz_utils.choose_orca_geometry_frame(
+        no_energy, candidate_kind="selected_path"
+    )
     assert frame is not None
     assert frame.index == 2
     assert metadata["selection_reason"] == "middle_frame_fallback"
 
-    frame, metadata = xyz_utils.choose_orca_geometry_frame(multi_default, candidate_kind="optimized_geometry")
+    frame, metadata = xyz_utils.choose_orca_geometry_frame(
+        multi_default, candidate_kind="optimized_geometry"
+    )
     assert frame is not None
     assert frame.index == 1
     assert metadata["selection_reason"] == "first_frame"
     assert metadata["selected_frame_energy"] == -4.0
 
 
-def test_write_orca_ready_xyz_materializes_selected_frame_and_raises_on_invalid_source(tmp_path: Path) -> None:
+def test_write_orca_ready_xyz_materializes_selected_frame_and_raises_on_invalid_source(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "path.xyz"
     source.write_text(
         "1\nenergy: -3.0\nH 0 0 0\n1\nenergy: -1.0\nH 0.1 0 0\n",
@@ -149,9 +159,7 @@ def test_write_orca_ready_xyz_materializes_selected_frame_and_raises_on_invalid_
 def test_write_orca_ready_xyz_materializes_requested_multiframe_index(tmp_path: Path) -> None:
     source = tmp_path / "crest_conformers.xyz"
     source.write_text(
-        "1\nconf 1\nH 0 0 0\n"
-        "1\nconf 2\nH 0.2 0 0\n"
-        "1\nconf 3\nH 0.3 0 0\n",
+        "1\nconf 1\nH 0 0 0\n1\nconf 2\nH 0.2 0 0\n1\nconf 3\nH 0.3 0 0\n",
         encoding="utf-8",
     )
     target = tmp_path / "orca" / "conformer_guess.xyz"

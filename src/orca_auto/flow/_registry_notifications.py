@@ -297,7 +297,9 @@ def journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> s
             lines.append(f"<b>Reaction handoff counts</b>: {html_code(handoff_counts)}")
         failure_reasons = metadata.get("failure_reasons")
         if isinstance(failure_reasons, list):
-            joined = ",".join(normalize_text(item) for item in failure_reasons if normalize_text(item))
+            joined = ",".join(
+                normalize_text(item) for item in failure_reasons if normalize_text(item)
+            )
             if joined:
                 lines.append(f"<b>Failure reasons</b>: {html_code(joined)}")
         return "\n".join(lines)

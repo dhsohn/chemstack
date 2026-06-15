@@ -10,42 +10,46 @@ from orca_auto.orca.dft_index import DFTIndex
 from orca_auto.orca.dft_monitor import DFTMonitor
 from tests.engine_artifact_helpers import orca_artifact_payload
 
-_COMPLETED_OUT = "\n".join([
-    "! B3LYP def2-SVP Opt",
-    "* xyz 0 1",
-    "C 0.0 0.0 0.0",
-    "H 0.0 0.0 1.0",
-    "*",
-    "",
-    "CARTESIAN COORDINATES (ANGSTROEM)",
-    "----------------------------",
-    " C    0.000000    0.000000    0.000000",
-    " H    0.000000    0.000000    1.000000",
-    "",
-    "FINAL SINGLE POINT ENERGY      -100.123456789",
-    "",
-    "                             ****ORCA TERMINATED NORMALLY****",
-    "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
-])
+_COMPLETED_OUT = "\n".join(
+    [
+        "! B3LYP def2-SVP Opt",
+        "* xyz 0 1",
+        "C 0.0 0.0 0.0",
+        "H 0.0 0.0 1.0",
+        "*",
+        "",
+        "CARTESIAN COORDINATES (ANGSTROEM)",
+        "----------------------------",
+        " C    0.000000    0.000000    0.000000",
+        " H    0.000000    0.000000    1.000000",
+        "",
+        "FINAL SINGLE POINT ENERGY      -100.123456789",
+        "",
+        "                             ****ORCA TERMINATED NORMALLY****",
+        "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
+    ]
+)
 
-_RUNNING_OPT_OUT = "\n".join([
-    "! B3LYP def2-SVP Opt",
-    "* xyz 0 1",
-    "C 0.0 0.0 0.0",
-    "H 0.0 0.0 1.0",
-    "*",
-    "",
-    "CARTESIAN COORDINATES (ANGSTROEM)",
-    "----------------------------",
-    " C    0.000000    0.000000    0.000000",
-    " H    0.000000    0.000000    1.000000",
-    "",
-    "---------------------------------------------------",
-    "| Geometry Optimization Cycle   1                 |",
-    "---------------------------------------------------",
-    "",
-    "FINAL SINGLE POINT ENERGY      -100.100000000",
-])
+_RUNNING_OPT_OUT = "\n".join(
+    [
+        "! B3LYP def2-SVP Opt",
+        "* xyz 0 1",
+        "C 0.0 0.0 0.0",
+        "H 0.0 0.0 1.0",
+        "*",
+        "",
+        "CARTESIAN COORDINATES (ANGSTROEM)",
+        "----------------------------",
+        " C    0.000000    0.000000    0.000000",
+        " H    0.000000    0.000000    1.000000",
+        "",
+        "---------------------------------------------------",
+        "| Geometry Optimization Cycle   1                 |",
+        "---------------------------------------------------",
+        "",
+        "FINAL SINGLE POINT ENERGY      -100.100000000",
+    ]
+)
 
 
 def _make_index(tmp_path: Path) -> DFTIndex:
@@ -150,7 +154,9 @@ def test_running_calc_change_detected_even_if_mtime_moves_backward(tmp_path: Pat
     _write_orca_state(kb_dir, status="running")
 
     index = _make_index(tmp_path)
-    monitor = DFTMonitor(index, [str(kb_dir)], state_file=str(tmp_path / "automation" / "state.json"))
+    monitor = DFTMonitor(
+        index, [str(kb_dir)], state_file=str(tmp_path / "automation" / "state.json")
+    )
     monitor.scan()
 
     baseline_mtime = os.path.getmtime(out_file)

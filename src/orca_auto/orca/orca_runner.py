@@ -85,7 +85,9 @@ class OrcaRunner:
             try:
                 return_code = proc.wait()
             except WorkerShutdownInterrupt:
-                handle.write("\n[orca_auto] interrupted by worker shutdown; terminating ORCA process tree\n")
+                handle.write(
+                    "\n[orca_auto] interrupted by worker shutdown; terminating ORCA process tree\n"
+                )
                 handle.flush()
                 self._terminate_subprocess_tree(proc)
                 raise

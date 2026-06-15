@@ -46,9 +46,9 @@ def test_matching_tracked_job_dirs_matches_artifacts_and_deduplicates(
         load_state=lambda _job_dir: {"job_id": "state-job"},
         load_report_json=lambda _job_dir: {"run_id": "report-run"},
         load_organized_ref=load_organized_ref,
-        resolve_existing_job_dir=lambda value: Path(value).resolve()
-        if value and Path(value).exists()
-        else None,
+        resolve_existing_job_dir=lambda value: (
+            Path(value).resolve() if value and Path(value).exists() else None
+        ),
     )
 
     assert runtime_context.matching_tracked_job_dirs(tmp_path, "", deps=deps) == []

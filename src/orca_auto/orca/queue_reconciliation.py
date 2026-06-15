@@ -197,6 +197,7 @@ def _apply_state_terminal(
         entry,
         status=status,
         run_id=str(state.get("run_id", "")).strip() or None,
-        finished_at=str(final_dict.get("completed_at") or state.get("updated_at") or "").strip() or None,
+        finished_at=str(final_dict.get("completed_at") or state.get("updated_at") or "").strip()
+        or None,
         error=error,
     )

@@ -138,7 +138,9 @@ class TestRunInpSubmit(unittest.TestCase):
             root = Path(tmp)
             reaction_dir = root / "rxn"
             _write_inp(reaction_dir)
-            (reaction_dir / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction_dir / "rxn.out").write_text(
+                "****ORCA TERMINATED NORMALLY****\n", encoding="utf-8"
+            )
             mock_submit_to_queue.return_value = SimpleNamespace(
                 status="submitted",
                 reason="",
@@ -172,9 +174,7 @@ class TestRunInpSubmit(unittest.TestCase):
             reaction_dir = root / "rxn"
             _write_inp(reaction_dir)
 
-            submission = submit_reaction_dir_to_queue(
-                _make_args(root, reaction_dir, priority=3)
-            )
+            submission = submit_reaction_dir_to_queue(_make_args(root, reaction_dir, priority=3))
 
             entries = list_queue(root)
 
@@ -212,7 +212,9 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(tracking_records[0]["job_id"], entry.task_id)
             self.assertEqual(tracking_records[0]["status"], "queued")
             self.assertEqual(tracking_records[0]["original_run_dir"], str(reaction_dir.resolve()))
-            self.assertEqual(tracking_records[0]["selected_input_xyz"], str((reaction_dir / "rxn.inp").resolve()))
+            self.assertEqual(
+                tracking_records[0]["selected_input_xyz"], str((reaction_dir / "rxn.inp").resolve())
+            )
             self.assertEqual(result.worker_info.status, "inactive")
             self.assertIsNone(result.worker_info.pid)
             self.assertEqual(result.worker_info.log_file, metadata["worker_log"])

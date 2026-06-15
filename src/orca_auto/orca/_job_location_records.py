@@ -223,10 +223,7 @@ def _artifact_record_identity(
         or normalize_text(existing.job_id if existing else "")
         or _engine_artifacts.first_artifact_text(sources, "run_id")
     )
-    status = (
-        _engine_artifacts.first_artifact_text(sources, "status")
-        or "unknown"
-    )
+    status = _engine_artifacts.first_artifact_text(sources, "status") or "unknown"
     selected_inp = normalize_path_text(
         _engine_artifacts.first_artifact_value((report, state, organized_ref), "selected_inp")
     )
@@ -238,8 +235,8 @@ def _artifact_record_identity(
     )
     if not selected_input_xyz.lower().endswith(".xyz"):
         selected_input_xyz = derive_selected_input_xyz(selected_inp)
-    selected_input_xyz = selected_input_xyz or selected_inp or (
-        existing.selected_input_xyz if existing else ""
+    selected_input_xyz = (
+        selected_input_xyz or selected_inp or (existing.selected_input_xyz if existing else "")
     )
     return job_id, status, selected_input_xyz
 
@@ -302,10 +299,9 @@ def _artifact_dirs(
         or normalize_text(existing.original_run_dir if existing else "")
         or str(job_dir)
     )
-    organized_output_dir = (
-        _engine_artifacts.first_artifact_text(sources, "organized_output_dir")
-        or normalize_text(existing.organized_output_dir if existing else "")
-    )
+    organized_output_dir = _engine_artifacts.first_artifact_text(
+        sources, "organized_output_dir"
+    ) or normalize_text(existing.organized_output_dir if existing else "")
     return original_run_dir, organized_output_dir
 
 

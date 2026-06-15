@@ -25,7 +25,9 @@ def test_reserve_admission_slot_uses_crest_worker_identity() -> None:
         return "slot-1"
 
     assert queue_admission.reserve_admission_slot(_cfg(), reserve_slot_fn=reserve_slot) == "slot-1"
-    assert calls == [("/tmp/admission", 3, "orca_auto.flow.engines.crest.queue_worker", "orca_auto_crest")]
+    assert calls == [
+        ("/tmp/admission", 3, "orca_auto.flow.engines.crest.queue_worker", "orca_auto_crest")
+    ]
 
 
 def test_start_background_job_process_builds_crest_child_command(tmp_path: Path) -> None:

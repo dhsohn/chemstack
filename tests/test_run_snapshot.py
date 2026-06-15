@@ -116,7 +116,9 @@ def test_latest_out_path_prefers_final_result_when_resolvable(tmp_path: Path) ->
     assert resolved == final_out.resolve()
 
 
-def test_latest_out_path_uses_latest_valid_attempt_after_skipping_invalid_entries(tmp_path: Path) -> None:
+def test_latest_out_path_uses_latest_valid_attempt_after_skipping_invalid_entries(
+    tmp_path: Path,
+) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
     attempt_out = reaction_dir / "attempt.out"
@@ -345,7 +347,10 @@ def test_collect_run_snapshots_includes_untracked_state_when_index_is_incomplete
     snapshots = collect_run_snapshots(allowed_root)
 
     assert {snapshot.run_id for snapshot in snapshots} == {"run-tracked", "run-untracked"}
-    assert {snapshot.name for snapshot in snapshots} == {"project/rxn_tracked", "untracked/rxn_untracked"}
+    assert {snapshot.name for snapshot in snapshots} == {
+        "project/rxn_tracked",
+        "untracked/rxn_untracked",
+    }
 
 
 def test_sort_snapshots_by_started_handles_invalid_timestamps(tmp_path: Path) -> None:
@@ -361,7 +366,9 @@ def test_sort_snapshots_by_started_handles_invalid_timestamps(tmp_path: Path) ->
     assert [snapshot.name for snapshot in ordered] == ["earlier", "later", "invalid"]
 
 
-def test_sort_snapshots_by_completed_uses_updated_at_fallback_and_invalid_last(tmp_path: Path) -> None:
+def test_sort_snapshots_by_completed_uses_updated_at_fallback_and_invalid_last(
+    tmp_path: Path,
+) -> None:
     reaction_dir = tmp_path / "rxn"
     ordered = sort_snapshots_by_completed(
         [

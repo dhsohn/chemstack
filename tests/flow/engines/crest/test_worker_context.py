@@ -38,9 +38,7 @@ def test_build_execution_context_resolves_entry_metadata(tmp_path: Path) -> None
             "mode": "nci",
         }
     )
-    cfg = SimpleNamespace(
-        resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8)
-    )
+    cfg = SimpleNamespace(resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8))
 
     context = worker_context.build_execution_context(
         cfg,

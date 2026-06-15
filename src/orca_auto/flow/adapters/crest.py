@@ -10,10 +10,14 @@ from ..contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, to_w
 from ..contracts.xtb import WorkflowStageInput
 from . import _engine_adapter_helpers as _adapter_helpers
 
-_ACTIVE_PAYLOAD_STATUSES = frozenset({"queued", "running", "submitted", "cancel_requested", "retrying"})
+_ACTIVE_PAYLOAD_STATUSES = frozenset(
+    {"queued", "running", "submitted", "cancel_requested", "retrying"}
+)
 
 
-def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -> CrestArtifactContract:
+def load_crest_artifact_contract(
+    *, crest_index_root: str | Path, target: str
+) -> CrestArtifactContract:
     bundle = _adapter_helpers.load_contract_artifact_bundle(
         index_root=crest_index_root,
         target=target,
@@ -34,7 +38,9 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
     payload = fields.payload
 
     retained_paths = fields.payload_sequence("retained_conformer_paths")
-    retained_count = int(payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths))
+    retained_count = int(
+        payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths)
+    )
     status = fields.payload_record_text("status", "status", default="unknown")
     reason = _adapter_helpers.normalize_text(payload.get("reason"))
     job_id = fields.payload_record_text("job_id", "job_id")

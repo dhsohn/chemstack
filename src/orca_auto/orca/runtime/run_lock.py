@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 LOCK_FILE_NAME = RUN_LOCK_FILE_NAME
 
 
-def _run_lock_active_error(lock_pid: int, lock_info: Dict[str, Any], lock_path: Path) -> RuntimeError:
+def _run_lock_active_error(
+    lock_pid: int, lock_info: Dict[str, Any], lock_path: Path
+) -> RuntimeError:
     started_at = lock_info.get("started_at")
     started = started_at if isinstance(started_at, str) and started_at else "unknown"
     return RuntimeError(

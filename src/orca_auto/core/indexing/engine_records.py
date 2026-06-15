@@ -122,11 +122,14 @@ def build_job_location_record(
         existing,
         "resource_request",
     )
-    resource_actual_text = _resource_payload(
-        resource_actual,
-        existing,
-        "resource_actual",
-    ) or resource_request_text
+    resource_actual_text = (
+        _resource_payload(
+            resource_actual,
+            existing,
+            "resource_actual",
+        )
+        or resource_request_text
+    )
 
     organized_dir = _organized_output_dir(existing, organized_output_dir)
     latest_known_path = organized_dir or resolved_job_dir

@@ -119,10 +119,9 @@ def _last_successful_attempt_inp_path(
         if inp_path is None:
             continue
 
-        if (
-            _attempt_matches_final_out(attempt, final_out_path, reaction_dir)
-            or _attempt_is_successful(attempt)
-        ):
+        if _attempt_matches_final_out(
+            attempt, final_out_path, reaction_dir
+        ) or _attempt_is_successful(attempt):
             return inp_path
 
     return None

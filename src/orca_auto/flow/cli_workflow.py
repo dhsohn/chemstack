@@ -62,9 +62,9 @@ def _workflow_worker_options(args: Any) -> _WorkflowWorkerOptions:
             "orca_auto.yaml."
         )
 
-    worker_session_id = normalize_text(
-        getattr(args, "worker_session_id", "")
-    ) or timestamped_token("wf_worker")
+    worker_session_id = normalize_text(getattr(args, "worker_session_id", "")) or timestamped_token(
+        "wf_worker"
+    )
     return _WorkflowWorkerOptions(
         max_cycles=max_cycles,
         interval_seconds=interval_seconds,

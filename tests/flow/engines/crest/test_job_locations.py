@@ -130,7 +130,9 @@ def test_resolve_latest_job_dir_prefers_indexed_candidates_and_path_lookup(tmp_p
     )
 
     assert resolve_latest_job_dir(index_root, "job-123") == organized_dir.resolve()
-    assert resolve_latest_job_dir(index_root, str(original_dir.resolve())) == organized_dir.resolve()
+    assert (
+        resolve_latest_job_dir(index_root, str(original_dir.resolve())) == organized_dir.resolve()
+    )
 
 
 def test_resolve_latest_job_dir_falls_back_to_existing_target_directory(tmp_path: Path) -> None:

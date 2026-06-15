@@ -56,7 +56,9 @@ def _workflow_record_label(
     )
 
 
-def _workflow_record_aliases(record: Any, workflow_id: str, deps: ActivityListDeps) -> tuple[str, ...]:
+def _workflow_record_aliases(
+    record: Any, workflow_id: str, deps: ActivityListDeps
+) -> tuple[str, ...]:
     workspace_dir = normalize_text(record.workspace_dir)
     return deps._unique_texts(
         [

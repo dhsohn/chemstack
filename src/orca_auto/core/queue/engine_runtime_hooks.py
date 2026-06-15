@@ -74,18 +74,16 @@ def build_child_worker_hooks(
     before_shutdown_all_fn: Callable[[Any, int], Any] | None = None,
 ) -> PidFileChildProcessQueueWorkerHooks:
     on_worker_process_started = on_worker_process_started_fn or (
-        lambda worker, queue_root, entry, process, admission_token: (
-            attach_started_child_process(
-                engine=engine,
-                worker=worker,
-                queue_root=queue_root,
-                entry=entry,
-                process=process,
-                admission_token=admission_token,
-                activate_reserved_slot_fn=activate_reserved_slot_fn,
-                terminate_process_fn=terminate_process_fn,
-                mark_failed_fn=mark_failed_fn,
-            )
+        lambda worker, queue_root, entry, process, admission_token: attach_started_child_process(
+            engine=engine,
+            worker=worker,
+            queue_root=queue_root,
+            entry=entry,
+            process=process,
+            admission_token=admission_token,
+            activate_reserved_slot_fn=activate_reserved_slot_fn,
+            terminate_process_fn=terminate_process_fn,
+            mark_failed_fn=mark_failed_fn,
         )
     )
     shutdown_running_job = shutdown_running_job_fn or (

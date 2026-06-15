@@ -76,7 +76,9 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertFalse((reaction_dir / "run.lock").exists())
 
     @patch("orca_auto.orca.commands.run_inp.load_config")
-    def test_internal_run_holds_slot_during_execution_and_releases_after(self, mock_load_config: MagicMock) -> None:
+    def test_internal_run_holds_slot_during_execution_and_releases_after(
+        self, mock_load_config: MagicMock
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cfg = _make_cfg(tmp)
@@ -95,10 +97,13 @@ class TestRunInpAdmission(unittest.TestCase):
             )
             self.assertIsNotNone(token)
 
-            with patch("orca_auto.orca.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
-                os.environ,
-                {ADMISSION_TOKEN_ENV_VAR: token or ""},
-                clear=False,
+            with (
+                patch("orca_auto.orca.commands.run_inp.run_attempts", new=_fake_run_attempts),
+                patch.dict(
+                    os.environ,
+                    {ADMISSION_TOKEN_ENV_VAR: token or ""},
+                    clear=False,
+                ),
             ):
                 rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
@@ -156,14 +161,17 @@ class TestRunInpAdmission(unittest.TestCase):
                 observed_slots.append(slots[0])
                 return 0
 
-            with patch("orca_auto.orca.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
-                os.environ,
-                {
-                    ADMISSION_TOKEN_ENV_VAR: token or "",
-                    ADMISSION_APP_NAME_ENV_VAR: "orca_auto_orca",
-                    ADMISSION_TASK_ID_ENV_VAR: "task_meta_456",
-                },
-                clear=False,
+            with (
+                patch("orca_auto.orca.commands.run_inp.run_attempts", new=_fake_run_attempts),
+                patch.dict(
+                    os.environ,
+                    {
+                        ADMISSION_TOKEN_ENV_VAR: token or "",
+                        ADMISSION_APP_NAME_ENV_VAR: "orca_auto_orca",
+                        ADMISSION_TASK_ID_ENV_VAR: "task_meta_456",
+                    },
+                    clear=False,
+                ),
             ):
                 rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
@@ -188,7 +196,9 @@ class TestRunInpAdmission(unittest.TestCase):
             mock_load_config.return_value = cfg
             reaction_dir = root / "rxn_skip"
             _write_inp(reaction_dir)
-            (reaction_dir / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction_dir / "rxn.out").write_text(
+                "****ORCA TERMINATED NORMALLY****\n", encoding="utf-8"
+            )
 
             token = reserve_slot(
                 root, 1, queue_id="q_skip", source="queue_worker", state="reserved"

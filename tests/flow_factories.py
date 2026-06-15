@@ -41,4 +41,3 @@ def workflow_activity(
         "source": "orca_auto_flow" if engine == "workflow" else f"orca_auto_{engine}",
         "metadata": dict(metadata or {}),
     }
-

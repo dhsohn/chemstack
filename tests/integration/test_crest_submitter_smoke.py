@@ -40,10 +40,13 @@ def test_crest_submitter_roundtrip_smoke(
     assert queue_entries[0].queue_id == submission["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    assert process_one_crest_for_test(
-        crest_queue_cmd,
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-    ) == "processed"
+    assert (
+        process_one_crest_for_test(
+            crest_queue_cmd,
+            crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        )
+        == "processed"
+    )
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submission['queue_id']}" in worker_output
     assert f"job_id: {submission['job_id']}" in worker_output
@@ -70,7 +73,9 @@ def test_crest_submitter_roundtrip_smoke(
     assert _status(report_payload)["state"] == "completed"
     assert _engine_payload(report_payload)["mode"] == "standard"
     assert _engine_payload(report_payload)["retained_conformer_count"] == 2
-    assert sorted(Path(path).name for path in _engine_payload(report_payload)["retained_conformer_paths"]) == [
+    assert sorted(
+        Path(path).name for path in _engine_payload(report_payload)["retained_conformer_paths"]
+    ) == [
         "crest_best.xyz",
         "crest_conformers.xyz",
     ]

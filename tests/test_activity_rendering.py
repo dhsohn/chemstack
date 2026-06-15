@@ -10,9 +10,7 @@ def test_queue_elapsed_uses_restart_metadata_and_clamps_negative_durations() -> 
         "status": "completed",
         "submitted_at": "2026-05-20T00:00:00+00:00",
         "updated_at": "2026-05-20T00:00:05+00:00",
-        "metadata": {
-            "restart_summary": {"restarted_at": "2026-05-20T00:01:00+00:00"}
-        },
+        "metadata": {"restart_summary": {"restarted_at": "2026-05-20T00:01:00+00:00"}},
     }
 
     assert rendering._queue_elapsed_text(item) == "00:00:00"
@@ -23,10 +21,13 @@ def test_queue_elapsed_uses_restart_metadata_and_clamps_negative_durations() -> 
         "metadata": {"last_restarted_at": "2026-05-20T00:00:10Z"},
     }
 
-    assert rendering._queue_elapsed_text(
-        running,
-        now=datetime(2026, 5, 20, 0, 1, 15, tzinfo=timezone.utc),
-    ) == "00:01:05"
+    assert (
+        rendering._queue_elapsed_text(
+            running,
+            now=datetime(2026, 5, 20, 0, 1, 15, tzinfo=timezone.utc),
+        )
+        == "00:01:05"
+    )
 
 
 def test_queue_name_uses_workflow_workspace_for_generic_input_label() -> None:

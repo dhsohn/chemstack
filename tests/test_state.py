@@ -67,8 +67,15 @@ class TestState(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("orca_auto.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
-                "orca_auto.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=111
+            with (
+                patch(
+                    "orca_auto.orca.runtime.run_lock.process_lock.is_process_alive",
+                    return_value=True,
+                ),
+                patch(
+                    "orca_auto.orca.runtime.run_lock.process_lock.process_start_ticks",
+                    return_value=111,
+                ),
             ):
                 with self.assertRaises(RuntimeError):
                     with acquire_run_lock(reaction):
@@ -90,15 +97,23 @@ class TestState(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("orca_auto.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
-                "orca_auto.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=222
-            ), patch(
-                "orca_auto.orca.runtime.run_lock.current_process_lock_payload",
-                return_value={
-                    "pid": os.getpid(),
-                    "started_at": "2026-03-22T00:00:00+00:00",
-                    "process_start_ticks": 333,
-                },
+            with (
+                patch(
+                    "orca_auto.orca.runtime.run_lock.process_lock.is_process_alive",
+                    return_value=True,
+                ),
+                patch(
+                    "orca_auto.orca.runtime.run_lock.process_lock.process_start_ticks",
+                    return_value=222,
+                ),
+                patch(
+                    "orca_auto.orca.runtime.run_lock.current_process_lock_payload",
+                    return_value={
+                        "pid": os.getpid(),
+                        "started_at": "2026-03-22T00:00:00+00:00",
+                        "process_start_ticks": 333,
+                    },
+                ),
             ):
                 with acquire_run_lock(reaction):
                     payload = json.loads(lock_path.read_text(encoding="utf-8"))
@@ -174,7 +189,9 @@ class TestState(unittest.TestCase):
             self.assertEqual(written_report["engine"], "orca")
             self.assertEqual(written_report["engine_payload"]["run_id"], state["run_id"])
             self.assertEqual(written_report["status"]["state"], "created")
-            self.assertEqual(state_module.report_md_path(reaction).read_text(encoding="utf-8"), markdown)
+            self.assertEqual(
+                state_module.report_md_path(reaction).read_text(encoding="utf-8"), markdown
+            )
 
     def test_write_report_files_json_fields(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -252,7 +269,9 @@ class TestState(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             reaction = Path(td)
             lock_path = reaction / "run.lock"
-            lock_path.write_text(json.dumps({"pid": "invalid", "started_at": "x"}) + "\n", encoding="utf-8")
+            lock_path.write_text(
+                json.dumps({"pid": "invalid", "started_at": "x"}) + "\n", encoding="utf-8"
+            )
             with self.assertRaises(RuntimeError) as ctx:
                 with acquire_run_lock(reaction):
                     pass

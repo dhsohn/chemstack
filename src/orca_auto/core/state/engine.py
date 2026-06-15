@@ -354,10 +354,8 @@ def recovery_pending_payload(
             selected_xyz_path=normalize_text(selected_input_xyz),
         ),
         resources=EngineArtifactResources(
-            request=coerce_dict(resource_request)
-            or coerce_dict(existing_resources.get("request")),
-            actual=coerce_dict(resource_actual)
-            or coerce_dict(existing_resources.get("actual")),
+            request=coerce_dict(resource_request) or coerce_dict(existing_resources.get("request")),
+            actual=coerce_dict(resource_actual) or coerce_dict(existing_resources.get("actual")),
         ),
         timestamps=EngineArtifactTimestamps(
             created_at=normalize_text(existing_timestamps.get("created_at")) or now,

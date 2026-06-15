@@ -9,9 +9,7 @@ def _metric_requested(policy: Any) -> bool:
     return bool(
         policy.enabled
         and (
-            policy.comparison_atoms
-            or policy.excluded_atoms
-            or policy.max_distance_rmsd is not None
+            policy.comparison_atoms or policy.excluded_atoms or policy.max_distance_rmsd is not None
         )
     )
 
@@ -44,9 +42,7 @@ def _pair_metadata(
         "enabled": policy.enabled,
         "strategy": strategy,
         "pairing_score": round(score, 6),
-        "distance_fingerprint_rmsd": round(distance_rmsd, 6)
-        if distance_rmsd is not None
-        else None,
+        "distance_fingerprint_rmsd": round(distance_rmsd, 6) if distance_rmsd is not None else None,
         "rank_gap": rank_gap,
         "reactant_rank": int(reactant.rank),
         "product_rank": int(product.rank),

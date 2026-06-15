@@ -390,7 +390,10 @@ def test_mark_recovery_pending_preserves_crest_schema_fields(
     assert _engine_payload(payload)["mode"] == "standard"
     assert _engine_payload(payload)["molecule_key"] == "mol-1"
     assert _engine_payload(payload)["retained_conformer_count"] == 2
-    assert _engine_payload(payload)["retained_conformer_paths"] == ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"]
+    assert _engine_payload(payload)["retained_conformer_paths"] == [
+        "/tmp/conf-a.xyz",
+        "/tmp/conf-b.xyz",
+    ]
     assert "candidate_paths" not in _engine_payload(payload)
     assert "input_summary" not in _engine_payload(payload)
     assert _artifacts(payload)["manifest_path"] == str(manifest.resolve())

@@ -102,11 +102,16 @@ def test_load_state_keeps_latest_signature_for_duplicate_normalized_keys(
     tmp_path: Path,
 ) -> None:
     state_file = tmp_path / "state.json"
-    state_file.write_text(json.dumps({
-        "alias_a": {"mtime": 10.0, "size": 100},
-        "alias_b": {"mtime": 20.0, "size": 200},
-        "bad_payload": {"mtime": []},
-    }), encoding="utf-8")
+    state_file.write_text(
+        json.dumps(
+            {
+                "alias_a": {"mtime": 10.0, "size": 100},
+                "alias_b": {"mtime": 20.0, "size": 200},
+                "bad_payload": {"mtime": []},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     def normalize(path_text: object) -> str:
         if path_text in {"alias_a", "alias_b"}:
@@ -134,10 +139,13 @@ def test_load_state_skips_non_string_keys_from_loaded_payload(tmp_path: Path) ->
     state_file = tmp_path / "state.json"
     state_file.write_text("{}", encoding="utf-8")
 
-    with patch("orca_auto.orca.dft_monitor.json.load", return_value={
-        1: {"mtime": 1.0},
-        "good": {"mtime": 2.0},
-    }):
+    with patch(
+        "orca_auto.orca.dft_monitor.json.load",
+        return_value={
+            1: {"mtime": 1.0},
+            "good": {"mtime": 2.0},
+        },
+    ):
         state = _load_state(str(state_file))
 
     assert state == {}
@@ -195,9 +203,12 @@ def test_scan_records_parse_failure_for_changed_target(tmp_path: Path) -> None:
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="completed"),
-    ]):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="completed"),
+        ],
+    ):
         with patch("orca_auto.orca.dft_monitor.parse_orca_output", side_effect=ValueError("boom")):
             report = monitor.scan()
 
@@ -214,9 +225,12 @@ def test_scan_skips_targets_with_missing_file_signature(tmp_path: Path) -> None:
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=missing_file, run_state_status="completed"),
-    ]):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=missing_file, run_state_status="completed"),
+        ],
+    ):
         with patch("orca_auto.orca.dft_monitor.parse_orca_output") as parse_mock:
             report = monitor.scan()
 
@@ -233,11 +247,16 @@ def test_scan_suppresses_duplicate_canonical_target_after_parse_failure(tmp_path
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="completed"),
-        DiscoveredTarget(path=out_file, run_state_status="completed"),
-    ]):
-        with patch("orca_auto.orca.dft_monitor.parse_orca_output", side_effect=ValueError("boom")) as parse_mock:
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="completed"),
+            DiscoveredTarget(path=out_file, run_state_status="completed"),
+        ],
+    ):
+        with patch(
+            "orca_auto.orca.dft_monitor.parse_orca_output", side_effect=ValueError("boom")
+        ) as parse_mock:
             report = monitor.scan()
 
     assert len(report.failures) == 1
@@ -251,15 +270,21 @@ def test_scan_running_result_updates_cache_without_upsert(tmp_path: Path) -> Non
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="running"),
-    ]):
-        with patch("orca_auto.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
-            out_file,
-            status="completed",
-            opt_converged=False,
-            has_imaginary_freq=True,
-        )):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="running"),
+        ],
+    ):
+        with patch(
+            "orca_auto.orca.dft_monitor.parse_orca_output",
+            return_value=_parsed_result(
+                out_file,
+                status="completed",
+                opt_converged=False,
+                has_imaginary_freq=True,
+            ),
+        ):
             report = monitor.scan()
 
     canonical = _canonical_path_key(out_file)
@@ -277,13 +302,19 @@ def test_scan_failed_run_state_overrides_completed_parser_status(tmp_path: Path)
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="failed"),
-    ]):
-        with patch("orca_auto.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
-            out_file,
-            status="completed",
-        )):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="failed"),
+        ],
+    ):
+        with patch(
+            "orca_auto.orca.dft_monitor.parse_orca_output",
+            return_value=_parsed_result(
+                out_file,
+                status="completed",
+            ),
+        ):
             report = monitor.scan()
 
     assert len(report.new_results) == 1
@@ -298,26 +329,38 @@ def test_scan_detects_run_state_only_transition_without_file_change(tmp_path: Pa
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="running"),
-    ]):
-        with patch("orca_auto.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
-            out_file,
-            status="completed",
-        )):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="running"),
+        ],
+    ):
+        with patch(
+            "orca_auto.orca.dft_monitor.parse_orca_output",
+            return_value=_parsed_result(
+                out_file,
+                status="completed",
+            ),
+        ):
             running_report = monitor.scan()
 
     assert len(running_report.new_results) == 1
     assert running_report.new_results[0].status == "running"
     index.upsert_single.assert_not_called()
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="failed"),
-    ]):
-        with patch("orca_auto.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
-            out_file,
-            status="completed",
-        )):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="failed"),
+        ],
+    ):
+        with patch(
+            "orca_auto.orca.dft_monitor.parse_orca_output",
+            return_value=_parsed_result(
+                out_file,
+                status="completed",
+            ),
+        ):
             failed_report = monitor.scan()
 
     assert len(failed_report.new_results) == 1
@@ -331,9 +374,12 @@ def test_scan_seeds_baseline_without_parsing_on_first_run(tmp_path: Path) -> Non
     index = MagicMock()
     monitor = DFTMonitor(index, [str(tmp_path)], state_file=str(state_file))
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="completed"),
-    ]):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="completed"),
+        ],
+    ):
         with patch("orca_auto.orca.dft_monitor.parse_orca_output") as parse_mock:
             with patch("orca_auto.orca.dft_monitor._save_state") as save_mock:
                 report = monitor.scan()
@@ -360,9 +406,12 @@ def test_scan_removes_stale_paths_and_saves_state(tmp_path: Path) -> None:
         stale_canonical: (1.0, 1, ""),
     }
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="completed"),
-    ]):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="completed"),
+        ],
+    ):
         with patch("orca_auto.orca.dft_monitor.parse_orca_output") as parse_mock:
             with patch("orca_auto.orca.dft_monitor._save_state") as save_mock:
                 report = monitor.scan()
@@ -380,10 +429,15 @@ def test_scan_skips_completed_result_when_upsert_fails(tmp_path: Path) -> None:
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("orca_auto.orca.dft_monitor.discover_orca_targets", return_value=[
-        DiscoveredTarget(path=out_file, run_state_status="completed"),
-    ]):
-        with patch("orca_auto.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(out_file)):
+    with patch(
+        "orca_auto.orca.dft_monitor.discover_orca_targets",
+        return_value=[
+            DiscoveredTarget(path=out_file, run_state_status="completed"),
+        ],
+    ):
+        with patch(
+            "orca_auto.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(out_file)
+        ):
             report = monitor.scan()
 
     assert report.new_results == []

@@ -308,8 +308,12 @@ def test_process_one_runner_failure_marks_failed_and_writes_failure_artifacts(
     assert _status(report_payload)["reason"] == "runner_error:boom"
     assert _engine_payload(report_payload)["command"] == []
     assert _artifacts(report_payload)["manifest_path"] == str(manifest_path.resolve())
-    assert _artifacts(report_payload)["stdout_log"] == str((job.job_dir / "crest.stdout.log").resolve())
-    assert _artifacts(report_payload)["stderr_log"] == str((job.job_dir / "crest.stderr.log").resolve())
+    assert _artifacts(report_payload)["stdout_log"] == str(
+        (job.job_dir / "crest.stdout.log").resolve()
+    )
+    assert _artifacts(report_payload)["stderr_log"] == str(
+        (job.job_dir / "crest.stderr.log").resolve()
+    )
 
     record = get_job_location(queue_env.allowed_root, "job-failed")
     assert record is not None
@@ -436,7 +440,9 @@ def test_queue_worker_fill_slots_starts_multiple_child_processes(
         started_commands.append(command)
         return child_processes.pop(0)
 
-    def fake_activate_reserved_slot(root: Path | str, token: str, **kwargs: object) -> SimpleNamespace:
+    def fake_activate_reserved_slot(
+        root: Path | str, token: str, **kwargs: object
+    ) -> SimpleNamespace:
         activated_slots.append((Path(root), token, dict(kwargs)))
         return SimpleNamespace(token=token)
 
@@ -471,11 +477,15 @@ def test_queue_worker_shutdown_requeues_running_children(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     job = _enqueue_job(queue_env, task_id="pool-shutdown-001")
-    queue_root, entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
+    queue_root, entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail(
+        "expected dequeued entry"
+    )
     released: list[tuple[Path, str]] = []
     child = FakeChildProcess(6201, None)
 
-    monkeypatch.setattr(queue_cmd, "release_slot", lambda root, token: released.append((Path(root), token)))
+    monkeypatch.setattr(
+        queue_cmd, "release_slot", lambda root, token: released.append((Path(root), token))
+    )
 
     worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/orca_auto.yaml", max_concurrent=2)
     worker._shutdown_requested = True
@@ -507,17 +517,27 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
 ) -> None:
     orphan_job = _enqueue_job(queue_env, task_id="orphan-running")
     live_job = _enqueue_job(queue_env, task_id="live-running")
-    orphan_root, orphan_entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected orphan entry")
-    live_root, live_entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected live entry")
+    orphan_root, orphan_entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail(
+        "expected orphan entry"
+    )
+    live_root, live_entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail(
+        "expected live entry"
+    )
 
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
-    monkeypatch.setattr(queue_cmd, "list_slots", lambda root: [SimpleNamespace(queue_id=live_entry.queue_id)])
+    monkeypatch.setattr(
+        queue_cmd, "list_slots", lambda root: [SimpleNamespace(queue_id=live_entry.queue_id)]
+    )
 
     worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/orca_auto.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
-    orphan_updated = _find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
-    live_updated = _find_entry_by_target(list_queue(queue_env.allowed_root), live_job.entry.queue_id)
+    orphan_updated = _find_entry_by_target(
+        list_queue(queue_env.allowed_root), orphan_job.entry.queue_id
+    )
+    live_updated = _find_entry_by_target(
+        list_queue(queue_env.allowed_root), live_job.entry.queue_id
+    )
     assert orphan_root == live_root
     assert orphan_updated is not None
     assert live_updated is not None
@@ -535,7 +555,9 @@ def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     job = _enqueue_job(queue_env, task_id="orphan-cancelled")
-    queue_root, entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
+    queue_root, entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail(
+        "expected dequeued entry"
+    )
     request_cancel(queue_root, entry.queue_id)
 
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)

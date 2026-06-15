@@ -225,7 +225,12 @@ def test_try_reserve_admission_slot_uses_resolved_values(
 
     assert queue_cmd._try_reserve_admission_slot(cfg) == "slot-1"
     assert calls == [
-        (str(tmp_path / "resolved-admission"), 5, "orca_auto.flow.engines.xtb.queue_worker", "orca_auto_xtb")
+        (
+            str(tmp_path / "resolved-admission"),
+            5,
+            "orca_auto.flow.engines.xtb.queue_worker",
+            "orca_auto_xtb",
+        )
     ]
 
 
@@ -370,8 +375,7 @@ def test_terminal_summary_helpers_cover_status_reason_and_metadata(
     assert terminal_mod.terminal_status({}, {"status": "running"}, None, 1) == "failed"
     assert terminal_mod.terminal_reason({}, {}, None, status="completed", rc=None) == "completed"
     assert (
-        terminal_mod.terminal_reason({}, {}, None, status="failed", rc=17)
-        == "worker_exit_code_17"
+        terminal_mod.terminal_reason({}, {}, None, status="failed", rc=17) == "worker_exit_code_17"
     )
 
     terminal_mod.print_terminal_summary(summary)

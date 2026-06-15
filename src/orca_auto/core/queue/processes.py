@@ -100,7 +100,9 @@ def install_shutdown_signal_handlers(
         active_deps.signal_fn(active_deps.sigterm, _handle_signal)
         active_deps.signal_fn(active_deps.sigint, _handle_signal)
     except ValueError:
-        active_deps.logger.debug("shutdown signal handlers can only be installed from the main thread")
+        active_deps.logger.debug(
+            "shutdown signal handlers can only be installed from the main thread"
+        )
 
 
 def pid_is_alive(pid: int) -> bool:
@@ -141,7 +143,9 @@ def remove_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_wor
     process_utils.remove_file_silent(worker_pid_file_path(allowed_root, file_name))
 
 
-def read_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> int | None:
+def read_worker_pid_file(
+    allowed_root: Path | str, file_name: str = "queue_worker.pid"
+) -> int | None:
     return read_live_pid_file(worker_pid_file_path(allowed_root, file_name))
 
 

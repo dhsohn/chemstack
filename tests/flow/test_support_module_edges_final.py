@@ -109,9 +109,7 @@ def test_build_materialized_orca_stage_uses_candidate_source_frame_index(
 ) -> None:
     source_xyz = tmp_path / "crest_conformers.xyz"
     source_xyz.write_text(
-        "1\nconf 1\nH 0 0 0\n"
-        "1\nconf 2\nH 0.2 0 0\n"
-        "1\nconf 3\nH 0.3 0 0\n",
+        "1\nconf 1\nH 0 0 0\n1\nconf 2\nH 0.2 0 0\n1\nconf 3\nH 0.3 0 0\n",
         encoding="utf-8",
     )
     candidate = WorkflowStageInput(
@@ -147,10 +145,12 @@ def test_build_materialized_orca_stage_uses_candidate_source_frame_index(
     )
     assert stage.task is not None
     reaction_dir = Path(stage.task.payload["reaction_dir"])
-    source_payload = json.loads((reaction_dir / "source_candidate.json").read_text(encoding="utf-8"))
+    source_payload = json.loads(
+        (reaction_dir / "source_candidate.json").read_text(encoding="utf-8")
+    )
 
-    assert (reaction_dir / "conformer_guess.xyz").read_text(encoding="utf-8").startswith(
-        "1\nconf 2\n"
+    assert (
+        (reaction_dir / "conformer_guess.xyz").read_text(encoding="utf-8").startswith("1\nconf 2\n")
     )
     assert source_payload["geometry_materialization"]["requested_frame_index"] == 2
     assert source_payload["geometry_materialization"]["selected_frame_index"] == 2
@@ -189,17 +189,24 @@ def test_build_orca_enqueue_payload_includes_resource_override_flags() -> None:
     assert payload["max_memory_gb"] == 56
 
 
-def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_crest_and_xtb_adapter_helper_edges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert adapter_helpers.direct_dir_target("   ") is None
 
     class _BrokenPath:
         def expanduser(self) -> "_BrokenPath":
             raise OSError("bad")
 
-    assert adapter_helpers.direct_dir_target("/tmp/ignored", path_factory=lambda raw: _BrokenPath()) is None
+    assert (
+        adapter_helpers.direct_dir_target("/tmp/ignored", path_factory=lambda raw: _BrokenPath())
+        is None
+    )
 
     assert adapter_helpers.normalized_text_sequence("bad") == ()
-    assert adapter_helpers.normalized_text_sequence(["", "  ", "/tmp/conf.xyz"]) == ("/tmp/conf.xyz",)
+    assert adapter_helpers.normalized_text_sequence(["", "  ", "/tmp/conf.xyz"]) == (
+        "/tmp/conf.xyz",
+    )
 
     index_root = tmp_path / "crest_index"
     _write_json(
@@ -216,7 +223,9 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
     )
     (tmp_path / "crest_job").mkdir()
     with pytest.raises(FileNotFoundError, match="CREST artifact files not found"):
-        crest_adapter.load_crest_artifact_contract(crest_index_root=index_root, target="crest_missing_payload")
+        crest_adapter.load_crest_artifact_contract(
+            crest_index_root=index_root, target="crest_missing_payload"
+        )
 
     assert xtb_adapter._job_type_from_record(None, "fallback") == "fallback"
     assert adapter_helpers.load_json_dict(tmp_path / "missing_xtb.json") == {}
@@ -236,7 +245,9 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
     )
     (tmp_path / "xtb_job").mkdir()
     with pytest.raises(FileNotFoundError, match="xTB artifact files not found"):
-        xtb_adapter.load_xtb_artifact_contract(xtb_index_root=xtb_index, target="xtb_missing_payload")
+        xtb_adapter.load_xtb_artifact_contract(
+            xtb_index_root=xtb_index, target="xtb_missing_payload"
+        )
 
     contract = XtbArtifactContract(
         job_id="xtb_job",
@@ -267,20 +278,39 @@ def test_runtime_edge_branches_cover_normalize_invalid_stage_and_lease_paths(
 ) -> None:
     assert runtime._runtime_common.normalize_text(None) == ""
 
-    payload = {"metadata": {}, "stages": ["bad", {"status": "completed", "task": {"status": "completed"}}]}
+    payload = {
+        "metadata": {},
+        "stages": ["bad", {"status": "completed", "task": {"status": "completed"}}],
+    }
     monkeypatch.setattr(runtime, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(runtime, "workflow_has_active_downstream", lambda current_payload: False)
     assert runtime._workflow_needs_terminal_sync("/tmp/wf") is False
 
-    records = [SimpleNamespace(workflow_id="wf1", status="running", template_name="rxn", workspace_dir="/tmp/wf1", stage_count=1)]
+    records = [
+        SimpleNamespace(
+            workflow_id="wf1",
+            status="running",
+            template_name="rxn",
+            workspace_dir="/tmp/wf1",
+            stage_count=1,
+        )
+    ]
     state_calls: list[dict[str, Any]] = []
     journal_calls: list[dict[str, Any]] = []
     monkeypatch.setattr(runtime, "list_workflow_registry", lambda root: records)
     monkeypatch.setattr(runtime, "reindex_workflow_registry", lambda root: records)
-    monkeypatch.setattr(runtime, "advance_workflow", lambda **kwargs: {"workflow_id": "wf1", "status": "completed"})
+    monkeypatch.setattr(
+        runtime, "advance_workflow", lambda **kwargs: {"workflow_id": "wf1", "status": "completed"}
+    )
     monkeypatch.setattr(runtime, "_workflow_needs_terminal_sync", lambda workspace_dir: False)
-    monkeypatch.setattr(runtime, "write_workflow_worker_state", lambda root, **kwargs: state_calls.append(kwargs))
-    monkeypatch.setattr(runtime, "append_workflow_journal_event", lambda root, **kwargs: journal_calls.append(kwargs))
+    monkeypatch.setattr(
+        runtime, "write_workflow_worker_state", lambda root, **kwargs: state_calls.append(kwargs)
+    )
+    monkeypatch.setattr(
+        runtime,
+        "append_workflow_journal_event",
+        lambda root, **kwargs: journal_calls.append(kwargs),
+    )
     monkeypatch.setattr(runtime, "now_utc_iso", lambda: "2026-04-19T03:00:00+00:00")
 
     class _Stamp:
@@ -292,7 +322,9 @@ def test_runtime_edge_branches_cover_normalize_invalid_stage_and_lease_paths(
 
     fake_datetime = SimpleNamespace(now=lambda tz: _Stamp())
     monkeypatch.setattr(runtime_cycle, "datetime", fake_datetime)
-    result = runtime.advance_workflow_registry_once(workflow_root=tmp_path / "root_ok", lease_seconds=5)
+    result = runtime.advance_workflow_registry_once(
+        workflow_root=tmp_path / "root_ok", lease_seconds=5
+    )
     assert result["worker_session_id"].startswith("wf_worker")
     assert state_calls[0]["lease_expires_at"] == "lease-ok"
 
@@ -314,14 +346,18 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     monkeypatch.delenv("ORCA_AUTO_FLOW_NOTIFY_DISABLED", raising=False)
 
     sent: list[str] = []
-    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
+    monkeypatch.setattr(
+        registry_notifications, "journal_notification_enabled", lambda event_type: True
+    )
 
     class _TelegramTransport:
         def send_text(self, text: str, *, parse_mode: str | None = None) -> None:
             assert parse_mode == "HTML"
             sent.append(text)
 
-    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: _TelegramTransport())
+    monkeypatch.setattr(
+        registry_notifications, "telegram_transport_from_env", lambda: _TelegramTransport()
+    )
     workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent and "worker_started" in sent[0]
 
@@ -329,7 +365,9 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
         def send_text(self, text: str, *, parse_mode: str | None = None) -> None:
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: _BrokenTelegramTransport())
+    monkeypatch.setattr(
+        registry_notifications, "telegram_transport_from_env", lambda: _BrokenTelegramTransport()
+    )
     workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
 
     reg_path = registry_store._registry_path(tmp_path)
@@ -371,8 +409,12 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     assert registry.resolve_workflow_registry_record(tmp_path, str(workflow_file)) is record
 
 
-def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    task = WorkflowTask.from_raw(task_id=" t1 ", engine=" ", task_kind=" ", resource_request={"": 1, "cores": "bad"})
+def test_contract_submitter_common_state_and_xtb_contract_edges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task = WorkflowTask.from_raw(
+        task_id=" t1 ", engine=" ", task_kind=" ", resource_request={"": 1, "cores": "bad"}
+    )
     assert task.engine == "unknown"
     assert task.task_kind == "task"
     assert task.resource_request == {"cores": 0}
@@ -384,7 +426,14 @@ def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, 
     artifact = WorkflowArtifactRef(kind="kind", path="/tmp/x")
     assert artifact.to_dict()["metadata"] == {}
 
-    crest_contract = CrestArtifactContract(job_id="job", mode="nci", status="done", reason="ok", job_dir="/tmp/job", latest_known_path="/tmp/job")
+    crest_contract = CrestArtifactContract(
+        job_id="job",
+        mode="nci",
+        status="done",
+        reason="ok",
+        job_dir="/tmp/job",
+        latest_known_path="/tmp/job",
+    )
     assert crest_contract.to_dict()["resource_request"] == {}
     rows = to_workflow_stage_inputs(
         CrestArtifactContract(
@@ -401,7 +450,14 @@ def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, 
     assert len(rows) == 1
     assert rows[0].artifact_path == "/tmp/conf.xyz"
 
-    orca_contract = OrcaArtifactContract(run_id="run", status="done", reason="ok", state_status="done", reaction_dir="/tmp/r", latest_known_path="/tmp/r")
+    orca_contract = OrcaArtifactContract(
+        run_id="run",
+        status="done",
+        reason="ok",
+        state_status="done",
+        reaction_dir="/tmp/r",
+        latest_known_path="/tmp/r",
+    )
     assert orca_contract.to_dict()["final_result"] == {}
 
     candidate = XtbCandidateArtifact.from_raw({"path": "/tmp/cand.xyz", "score": "bad"})
@@ -431,7 +487,11 @@ def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, 
     monkeypatch.setattr(
         state,
         "Path",
-        lambda raw: SimpleNamespace(expanduser=lambda: SimpleNamespace(resolve=lambda: (_ for _ in ()).throw(OSError("bad")))),
+        lambda raw: SimpleNamespace(
+            expanduser=lambda: SimpleNamespace(
+                resolve=lambda: (_ for _ in ()).throw(OSError("bad"))
+            )
+        ),
     )
     with pytest.raises(FileNotFoundError):
         state.resolve_workflow_workspace(target="wf1", workflow_root=None)
@@ -439,7 +499,9 @@ def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, 
     assert state.iter_workflow_workspaces(tmp_path / "missing_root") == []
 
 
-def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     class _Pattern:
         def search(self, text: str) -> object:
             class _Match:
@@ -462,7 +524,13 @@ def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.Monkey
         def read_text(self, encoding: str = "utf-8", errors: str = "ignore") -> str:
             raise OSError("boom")
 
-    monkeypatch.setattr(xyz_utils, "Path", lambda raw: SimpleNamespace(expanduser=lambda: SimpleNamespace(resolve=lambda: _BrokenResolved())))
+    monkeypatch.setattr(
+        xyz_utils,
+        "Path",
+        lambda raw: SimpleNamespace(
+            expanduser=lambda: SimpleNamespace(resolve=lambda: _BrokenResolved())
+        ),
+    )
     assert xyz_utils.load_xyz_frames("/tmp/x.xyz") == ()
     monkeypatch.undo()
 

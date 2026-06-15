@@ -16,7 +16,6 @@ from orca_auto.orca.molecule_key import (
 
 
 class TestUserTag(unittest.TestCase):
-
     def test_finds_tag(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "rxn.inp"
@@ -43,7 +42,6 @@ class TestUserTag(unittest.TestCase):
 
 
 class TestParseFormulaFromInp(unittest.TestCase):
-
     def test_inline_xyz(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "rxn.inp"
@@ -72,7 +70,6 @@ class TestParseFormulaFromInp(unittest.TestCase):
 
 
 class TestParseXyzFile(unittest.TestCase):
-
     def test_standard_xyz(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             xyz = Path(td) / "mol.xyz"
@@ -86,7 +83,6 @@ class TestParseXyzFile(unittest.TestCase):
 
 
 class TestHillFormula(unittest.TestCase):
-
     def test_carbon_first(self) -> None:
         self.assertEqual(_atoms_to_hill_formula(["O", "H", "H", "C"]), "CH2O")
 
@@ -108,7 +104,6 @@ class TestHillFormula(unittest.TestCase):
 
 
 class TestSanitizeKey(unittest.TestCase):
-
     def test_safe_string(self) -> None:
         self.assertEqual(_sanitize_key("C8H10O2"), "C8H10O2")
 
@@ -126,7 +121,6 @@ class TestSanitizeKey(unittest.TestCase):
 
 
 class TestDirectoryNameFallback(unittest.TestCase):
-
     def test_uses_parent_name(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = Path(td) / "Int1_DMSO"
@@ -137,7 +131,6 @@ class TestDirectoryNameFallback(unittest.TestCase):
 
 
 class TestResolveMoleculeKey(unittest.TestCase):
-
     def test_tag_takes_priority(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "rxn.inp"

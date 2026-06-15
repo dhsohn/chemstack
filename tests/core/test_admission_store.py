@@ -105,38 +105,47 @@ def test_normalize_work_dir_handles_none_blank_and_resolve_failure(
 def test_slot_owner_alive_handles_dead_pid_and_missing_start_ticks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert store._slot_owner_alive(
-        store.AdmissionSlot(
-            token="slot",
-            owner_pid=0,
-            process_start_ticks=1,
-            source="test",
-            acquired_at="2026-04-19T00:00:00+00:00",
+    assert (
+        store._slot_owner_alive(
+            store.AdmissionSlot(
+                token="slot",
+                owner_pid=0,
+                process_start_ticks=1,
+                source="test",
+                acquired_at="2026-04-19T00:00:00+00:00",
+            )
         )
-    ) is False
+        is False
+    )
 
     monkeypatch.setattr(store.os, "kill", lambda pid, sig: None)
     monkeypatch.setattr(store, "_process_start_ticks", lambda pid: None)
 
-    assert store._slot_owner_alive(
-        store.AdmissionSlot(
-            token="slot",
-            owner_pid=4242,
-            process_start_ticks=None,
-            source="test",
-            acquired_at="2026-04-19T00:00:00+00:00",
+    assert (
+        store._slot_owner_alive(
+            store.AdmissionSlot(
+                token="slot",
+                owner_pid=4242,
+                process_start_ticks=None,
+                source="test",
+                acquired_at="2026-04-19T00:00:00+00:00",
+            )
         )
-    ) is True
+        is True
+    )
 
-    assert store._slot_owner_alive(
-        store.AdmissionSlot(
-            token="slot",
-            owner_pid=4242,
-            process_start_ticks=777,
-            source="test",
-            acquired_at="2026-04-19T00:00:00+00:00",
+    assert (
+        store._slot_owner_alive(
+            store.AdmissionSlot(
+                token="slot",
+                owner_pid=4242,
+                process_start_ticks=777,
+                source="test",
+                acquired_at="2026-04-19T00:00:00+00:00",
+            )
         )
-    ) is False
+        is False
+    )
 
 
 def test_slot_owner_alive_treats_permission_denied_as_live(
@@ -213,7 +222,9 @@ def test_process_start_ticks_parses_valid_stat(monkeypatch: pytest.MonkeyPatch) 
     assert store._process_start_ticks(1234) == 20
 
 
-def test_normalize_work_dir_handles_none_and_oserror_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_normalize_work_dir_handles_none_and_oserror_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_resolve(self: Path) -> Path:
         raise OSError("cannot resolve")
 

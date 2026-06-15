@@ -188,7 +188,9 @@ def cmd_service_status(args: argparse.Namespace, *, deps: ServiceCliDeps | None 
         emit_error(exc)
         return 1
     if bool(getattr(args, "json", False)):
-        print(json.dumps(_service_status_payload(target_user, statuses), ensure_ascii=True, indent=2))
+        print(
+            json.dumps(_service_status_payload(target_user, statuses), ensure_ascii=True, indent=2)
+        )
     else:
         _print_service_status(target_user, statuses)
     return 1 if any(status.active == "failed" for status in statuses) else 0

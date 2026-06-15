@@ -51,13 +51,18 @@ def _write_xyz(path: Path, labels: tuple[str, ...]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_build_command_includes_manifest_flags(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_build_command_includes_manifest_flags(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     cfg = _cfg(tmp_path)
     job_dir = tmp_path / "job"
     job_dir.mkdir()
     selected_xyz = job_dir / "input.xyz"
     _write_xyz(selected_xyz, ("conf_a",))
-    monkeypatch.setattr("orca_auto.flow.engines.crest.runner._resolve_crest_executable", lambda _cfg: "/usr/bin/crest")
+    monkeypatch.setattr(
+        "orca_auto.flow.engines.crest.runner._resolve_crest_executable",
+        lambda _cfg: "/usr/bin/crest",
+    )
 
     command = _build_command(
         cfg,
@@ -179,7 +184,9 @@ def test_start_crest_job_passes_expected_subprocess_options(
         popen_calls["kwargs"] = kwargs
         return _FakeProcess()
 
-    monkeypatch.setattr("orca_auto.flow.engines.crest.runner._resolve_crest_executable", lambda _cfg: "/opt/crest")
+    monkeypatch.setattr(
+        "orca_auto.flow.engines.crest.runner._resolve_crest_executable", lambda _cfg: "/opt/crest"
+    )
     monkeypatch.setattr("orca_auto.flow.engines.crest.runner.subprocess.Popen", fake_popen)
 
     running = start_crest_job(cfg, job_dir=job_dir, selected_xyz=selected_xyz)

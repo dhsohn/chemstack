@@ -159,7 +159,9 @@ def test_cmd_run_dir_allows_resource_overrides_for_workflow_directories(
     calls: list[tuple[str, int | None, int | None]] = []
 
     def _fake_workflow_run_dir(args: Any) -> int:
-        calls.append(("workflow", getattr(args, "max_cores", None), getattr(args, "max_memory_gb", None)))
+        calls.append(
+            ("workflow", getattr(args, "max_cores", None), getattr(args, "max_memory_gb", None))
+        )
         return 42
 
     monkeypatch.setattr(cli_run_dir, "cmd_workflow_run_dir", _fake_workflow_run_dir)

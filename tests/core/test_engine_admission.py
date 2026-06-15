@@ -167,9 +167,7 @@ def test_attach_started_process_metadata_updates_identity_and_running_record(
         mark_entry_failed_and_release_fn=lambda *args, **kwargs: None,
         mark_failed_fn=lambda *args, **kwargs: None,
         cfg=cfg,
-        upsert_running_job_record_fn=lambda cfg_obj, current: running.append(
-            (cfg_obj, current)
-        ),
+        upsert_running_job_record_fn=lambda cfg_obj, current: running.append((cfg_obj, current)),
     )
 
     assert updated == [

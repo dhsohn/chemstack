@@ -107,7 +107,9 @@ def _original_run_dir(record: Any) -> Path | None:
         return None
 
 
-def _snapshot_name(allowed_root: Path, reaction_dir: Path, *, original_run_dir: Path | None = None) -> str:
+def _snapshot_name(
+    allowed_root: Path, reaction_dir: Path, *, original_run_dir: Path | None = None
+) -> str:
     for candidate in (original_run_dir, reaction_dir):
         if candidate is None:
             continue

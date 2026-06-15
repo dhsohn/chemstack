@@ -14,7 +14,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertIsInstance(result.status, AnalyzerStatus)
         self.assertEqual(result.status, AnalyzerStatus.COMPLETED)
 
@@ -29,7 +31,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="ts", require_irc=True, route_line="! OptTS IRC"))
+            result = analyze_output(
+                out, CompletionMode(kind="ts", require_irc=True, route_line="! OptTS IRC")
+            )
         self.assertEqual(result.status, "completed")
 
     def test_ts_small_file_avoids_full_rescan(self) -> None:
@@ -44,8 +48,13 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            with patch("orca_auto.orca.out_analyzer._scan_ts_full_for_imag_count", side_effect=AssertionError("full scan called")):
-                result = analyze_output(out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS"))
+            with patch(
+                "orca_auto.orca.out_analyzer._scan_ts_full_for_imag_count",
+                side_effect=AssertionError("full scan called"),
+            ):
+                result = analyze_output(
+                    out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS")
+                )
         self.assertEqual(result.status, AnalyzerStatus.COMPLETED)
 
     def test_completed_ts_with_irc_marker_outside_tail_window(self) -> None:
@@ -61,7 +70,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="ts", require_irc=True, route_line="! OptTS IRC"))
+            result = analyze_output(
+                out, CompletionMode(kind="ts", require_irc=True, route_line="! OptTS IRC")
+            )
         self.assertEqual(result.status, "completed")
         self.assertTrue(result.markers["irc_marker_found"])
 
@@ -80,24 +91,37 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS"))
+            result = analyze_output(
+                out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS")
+            )
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.markers["imaginary_frequency_count"], 1)
 
     def test_ts_not_found(self) -> None:
-        payload = "\n".join(["****ORCA TERMINATED NORMALLY****", "TOTAL RUN TIME: 0 days 0 hours 1 minutes 0 seconds"])
+        payload = "\n".join(
+            [
+                "****ORCA TERMINATED NORMALLY****",
+                "TOTAL RUN TIME: 0 days 0 hours 1 minutes 0 seconds",
+            ]
+        )
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS"))
+            result = analyze_output(
+                out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS")
+            )
         self.assertEqual(result.status, "ts_not_found")
 
     def test_multiplicity_impossible(self) -> None:
-        payload = "Error : multiplicity (1) is odd and number of electrons (235) is odd -> impossible"
+        payload = (
+            "Error : multiplicity (1) is odd and number of electrons (235) is odd -> impossible"
+        )
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "error_multiplicity_impossible")
 
     def test_scfgrad_abort(self) -> None:
@@ -105,7 +129,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "error_scfgrad_abort")
 
     def test_scf_not_converged(self) -> None:
@@ -113,7 +139,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "error_scf")
         self.assertEqual(result.reason, "scf_not_converged")
 
@@ -122,7 +150,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "error_disk_io")
         self.assertEqual(result.reason, "disk_write_failed")
 
@@ -130,14 +160,18 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text("", encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "incomplete")
         self.assertEqual(result.reason, "run_incomplete")
 
     def test_missing_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "nonexistent.out"
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "incomplete")
         self.assertEqual(result.reason, "output_missing")
 
@@ -146,7 +180,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "unknown_failure")
         self.assertEqual(result.reason, "error_termination")
 
@@ -155,7 +191,9 @@ class TestOutAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "a.out"
             out.write_text(payload, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.reason, "normal_termination")
         self.assertTrue(result.markers["total_run_time_seen"])

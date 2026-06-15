@@ -249,13 +249,16 @@ def test_internal_engine_queue_worker_deps_builder_maps_callbacks(tmp_path: Path
     assert deps.default_config_path() == ""
     assert deps.reconcile_orphaned_child_queue_entries("root") is None
     assert deps.start_background_job_process_fn is not None
-    assert deps.start_background_job_process_fn(
-        config_path="/tmp/config.yaml",
-        queue_root=tmp_path,
-        entry=SimpleNamespace(queue_id="queue-1"),
-        admission_root=tmp_path,
-        admission_token="slot-1",
-    ) == "job-process"
+    assert (
+        deps.start_background_job_process_fn(
+            config_path="/tmp/config.yaml",
+            queue_root=tmp_path,
+            entry=SimpleNamespace(queue_id="queue-1"),
+            admission_root=tmp_path,
+            admission_token="slot-1",
+        )
+        == "job-process"
+    )
     assert deps.find_queue_entry is not None
     assert deps.find_queue_entry(tmp_path, "queue-1") == "entry"
     assert calls == ["release", "start_job", "find_entry"]
@@ -869,13 +872,16 @@ def test_internal_engine_queue_module_preserves_worker_facade_contract(
     assert module.queue_worker_deps().dequeue_next_entry(cfg) == (tmp_path, entry)
     assert module.queue_worker_hooks() is not None
     assert module.try_reserve_admission_slot(cfg) == "slot-1"
-    assert module.start_background_job_process(
-        config_path="/tmp/config.yaml",
-        queue_root=tmp_path,
-        entry=entry,
-        admission_root=tmp_path / "admission",
-        admission_token="slot-1",
-    ) == "process"
+    assert (
+        module.start_background_job_process(
+            config_path="/tmp/config.yaml",
+            queue_root=tmp_path,
+            entry=entry,
+            admission_root=tmp_path / "admission",
+            admission_token="slot-1",
+        )
+        == "process"
+    )
     assert module.config_path_for_worker(SimpleNamespace(config="/tmp/config.yaml")) == (
         "/tmp/config.yaml"
     )
@@ -989,13 +995,16 @@ def test_internal_engine_queue_module_create_from_definition_uses_queue_contract
     assert module.queue_roots(cfg) == (queue_root,)
     assert module.dequeue_next_entry(cfg) == (queue_root, entry)
     assert module.try_reserve_admission_slot(cfg) == "slot-1"
-    assert module.start_background_job_process(
-        config_path="/tmp/config.yaml",
-        queue_root=queue_root,
-        entry=entry,
-        admission_root=tmp_path / "admission",
-        admission_token="slot-1",
-    ) == "process"
+    assert (
+        module.start_background_job_process(
+            config_path="/tmp/config.yaml",
+            queue_root=queue_root,
+            entry=entry,
+            admission_root=tmp_path / "admission",
+            admission_token="slot-1",
+        )
+        == "process"
+    )
     assert started_commands == [["worker", "queue-1"]]
     assert module.config_path_for_worker(SimpleNamespace(config="")) == "/tmp/default.yaml"
 

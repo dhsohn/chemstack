@@ -125,8 +125,7 @@ def _run_dir_option_kwargs(
     spec: _RunDirWorkflowCreationSpec,
 ) -> dict[str, Any]:
     return {
-        kwarg_name: getattr(options, option_attr)
-        for kwarg_name, option_attr in spec.option_kwargs
+        kwarg_name: getattr(options, option_attr) for kwarg_name, option_attr in spec.option_kwargs
     }
 
 
@@ -135,8 +134,7 @@ def _run_dir_manifest_kwargs(
     spec: _RunDirWorkflowCreationSpec,
 ) -> dict[str, Any]:
     return {
-        kwarg_name: getattr(config, config_attr)
-        for kwarg_name, config_attr in spec.manifest_kwargs
+        kwarg_name: getattr(config, config_attr) for kwarg_name, config_attr in spec.manifest_kwargs
     }
 
 

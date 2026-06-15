@@ -135,9 +135,13 @@ def test_internal_engine_admission_uses_engine_identity() -> None:
         calls.append((root, limit, source, app_name))
         return "slot-1"
 
-    token = InternalEngineSpec(engine="demo-engine").admission().reserve_admission_slot(
-        cfg,
-        reserve_slot_fn=reserve_slot,
+    token = (
+        InternalEngineSpec(engine="demo-engine")
+        .admission()
+        .reserve_admission_slot(
+            cfg,
+            reserve_slot_fn=reserve_slot,
+        )
     )
 
     assert token == "slot-1"
@@ -228,30 +232,26 @@ def test_internal_engine_queue_worker_facade_uses_late_bound_bindings(
 
     deps = build_late_bound_internal_engine_queue_worker_deps(
         InternalEngineQueueWorkerFacadeBindings(
-            release_slot=lambda: (lambda *_args: None),
+            release_slot=lambda: lambda *_args: None,
             reserve_slot=lambda: reserve_slot_fn,
             start_background_process=lambda: start_background_process,
-            build_worker_child_command=lambda: (
-                lambda **kwargs: ["worker", kwargs["queue_id"]]
-            ),
+            build_worker_child_command=lambda: lambda **kwargs: ["worker", kwargs["queue_id"]],
             config_path_for_worker=lambda: (
-                lambda args, *, default_config_path_fn: (
-                    args.config or default_config_path_fn()
-                )
+                lambda args, *, default_config_path_fn: args.config or default_config_path_fn()
             ),
-            default_config_path=lambda: (lambda: "/tmp/default.yaml"),
-            activate_reserved_slot=lambda: (lambda *_args, **_kwargs: object()),
-            terminate_process=lambda: (lambda _process: None),
-            mark_failed=lambda: (lambda *_args, **_kwargs: None),
-            handle_worker_start_error=lambda: (lambda *_args, **_kwargs: None),
-            finalize_completed_job=lambda: (lambda *_args, **_kwargs: None),
-            finalize_child_exit=lambda: (lambda *_args, **_kwargs: None),
-            reconcile_worker_state=lambda: (lambda *_args, **_kwargs: None),
-            list_queue=lambda: (lambda _root: []),
-            list_slots=lambda: (lambda _root: []),
-            reconcile_stale_slots=lambda: (lambda _root: None),
-            mark_cancelled=lambda: (lambda *_args, **_kwargs: None),
-            requeue_running_entry=lambda: (lambda *_args, **_kwargs: None),
+            default_config_path=lambda: lambda: "/tmp/default.yaml",
+            activate_reserved_slot=lambda: lambda *_args, **_kwargs: object(),
+            terminate_process=lambda: lambda _process: None,
+            mark_failed=lambda: lambda *_args, **_kwargs: None,
+            handle_worker_start_error=lambda: lambda *_args, **_kwargs: None,
+            finalize_completed_job=lambda: lambda *_args, **_kwargs: None,
+            finalize_child_exit=lambda: lambda *_args, **_kwargs: None,
+            reconcile_worker_state=lambda: lambda *_args, **_kwargs: None,
+            list_queue=lambda: lambda _root: [],
+            list_slots=lambda: lambda _root: [],
+            reconcile_stale_slots=lambda: lambda _root: None,
+            mark_cancelled=lambda: lambda *_args, **_kwargs: None,
+            requeue_running_entry=lambda: lambda *_args, **_kwargs: None,
         ),
         time_module=SimpleNamespace(sleep=lambda _seconds: None),
     )
@@ -308,9 +308,7 @@ def test_internal_engine_queue_worker_facade_finalizes_child_exit(
         deps=_facade_deps(
             find_queue_entry=lambda _root, _queue_id: current_entry,
             mark_cancelled=lambda *_args, **_kwargs: None,
-            requeue_running_entry=lambda root, queue_id: requeued.append(
-                (root, queue_id)
-            ),
+            requeue_running_entry=lambda root, queue_id: requeued.append((root, queue_id)),
             mark_failed=lambda *_args, **_kwargs: None,
             mark_recovery_pending=lambda cfg_obj, entry_obj, *, reason: recovery.append(
                 (cfg_obj, entry_obj, reason)
@@ -359,9 +357,7 @@ def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
             reconcile_stale_slots=lambda _root: None,
             reconcile_orphaned_child_queue_entries=reconcile_orphaned_child_queue_entries,
             mark_cancelled=lambda *_args, **_kwargs: None,
-            requeue_running_entry=lambda root, queue_id: requeued.append(
-                (root, queue_id)
-            ),
+            requeue_running_entry=lambda root, queue_id: requeued.append((root, queue_id)),
             mark_failed=lambda *_args, **_kwargs: None,
             mark_recovery_pending=lambda cfg_obj, entry_obj, *, reason: recovery.append(
                 (cfg_obj, entry_obj, reason)

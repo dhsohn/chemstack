@@ -66,7 +66,9 @@ def test_resolved_path_text_handles_blank_and_resolve_failure(tmp_path: Path) ->
         assert run_cleanup._resolved_path_text(original) == original
 
 
-def test_clear_terminal_run_states_clears_tracked_and_untracked_terminal_states(tmp_path: Path) -> None:
+def test_clear_terminal_run_states_clears_tracked_and_untracked_terminal_states(
+    tmp_path: Path,
+) -> None:
     allowed_root = tmp_path / "orca_runs"
     organized_dir = tmp_path / "organized" / "project" / "rxn_tracked"
     untracked_dir = allowed_root / "untracked" / "rxn_failed"
@@ -107,12 +109,22 @@ def test_clear_terminal_run_states_clears_tracked_and_untracked_terminal_states(
     assert state_path(running_dir).exists()
 
 
-def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error(tmp_path: Path) -> None:
+def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error(
+    tmp_path: Path,
+) -> None:
     allowed_root = tmp_path / "orca_runs"
-    missing_snapshot = _snapshot(allowed_root / "missing", run_id="run_missing", name="missing", status="completed")
-    failed_snapshot = _snapshot(allowed_root / "failed", run_id="run_failed", name="failed", status="failed")
-    success_snapshot = _snapshot(allowed_root / "success", run_id="run_success", name="success", status="completed")
-    running_snapshot = _snapshot(allowed_root / "running", run_id="run_running", name="running", status="running")
+    missing_snapshot = _snapshot(
+        allowed_root / "missing", run_id="run_missing", name="missing", status="completed"
+    )
+    failed_snapshot = _snapshot(
+        allowed_root / "failed", run_id="run_failed", name="failed", status="failed"
+    )
+    success_snapshot = _snapshot(
+        allowed_root / "success", run_id="run_success", name="success", status="completed"
+    )
+    running_snapshot = _snapshot(
+        allowed_root / "running", run_id="run_running", name="running", status="running"
+    )
 
     failed_state = state_path(failed_snapshot.reaction_dir)
     success_state = state_path(success_snapshot.reaction_dir)
@@ -128,13 +140,17 @@ def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error
             raise OSError("cannot remove")
         return original_unlink(self, *args, **kwargs)
 
-    with patch(
-        "orca_auto.orca.run_cleanup.collect_run_snapshots",
-        return_value=[missing_snapshot, failed_snapshot, success_snapshot, running_snapshot],
-    ), patch(
-        "pathlib.Path.unlink",
-        new=fake_unlink,
-    ), patch("orca_auto.orca.run_cleanup.logger.warning") as warning:
+    with (
+        patch(
+            "orca_auto.orca.run_cleanup.collect_run_snapshots",
+            return_value=[missing_snapshot, failed_snapshot, success_snapshot, running_snapshot],
+        ),
+        patch(
+            "pathlib.Path.unlink",
+            new=fake_unlink,
+        ),
+        patch("orca_auto.orca.run_cleanup.logger.warning") as warning,
+    ):
         cleared = run_cleanup.clear_terminal_run_states(allowed_root)
 
     assert cleared == 1
@@ -148,8 +164,11 @@ def test_clear_terminal_entries_reports_queue_and_run_state_counts(tmp_path: Pat
     allowed_root = tmp_path / "orca_runs"
     allowed_root.mkdir()
 
-    with patch("orca_auto.orca.run_cleanup.clear_terminal", return_value=2), patch(
-        "orca_auto.orca.run_cleanup.clear_terminal_run_states",
-        return_value=3,
+    with (
+        patch("orca_auto.orca.run_cleanup.clear_terminal", return_value=2),
+        patch(
+            "orca_auto.orca.run_cleanup.clear_terminal_run_states",
+            return_value=3,
+        ),
     ):
         assert run_cleanup.clear_terminal_entries(allowed_root) == (2, 3)

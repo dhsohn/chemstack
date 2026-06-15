@@ -7,7 +7,9 @@ from orca_auto.flow import runtime_admission
 
 
 def test_submission_admission_limit_returns_none_for_unreadable_config(tmp_path: Path) -> None:
-    assert runtime_admission.submission_admission_limit_from_config(tmp_path / "missing.yaml") is None
+    assert (
+        runtime_admission.submission_admission_limit_from_config(tmp_path / "missing.yaml") is None
+    )
 
 
 def test_submission_admission_root_for_internal_engine_requires_workflow_root(

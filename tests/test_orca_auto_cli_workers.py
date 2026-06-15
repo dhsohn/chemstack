@@ -634,13 +634,10 @@ def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
         app="orca",
         args=argparse.Namespace(auto_organize=False, no_auto_organize=True),
     ) == ["--engine", "orca", "--no-auto-organize"]
-    assert (
-        worker_specs._engine_worker_tail_argv(
-            app="xtb",
-            args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
-        )
-        == ["--engine", "xtb"]
-    )
+    assert worker_specs._engine_worker_tail_argv(
+        app="xtb",
+        args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
+    ) == ["--engine", "xtb"]
 
     spec = worker_specs._workflow_worker_spec(
         workflow_root="/tmp/workflows",

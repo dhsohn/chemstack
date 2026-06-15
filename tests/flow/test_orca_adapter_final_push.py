@@ -116,9 +116,7 @@ def test_resolve_job_dir_and_record_organized_dir_skip_oserror_candidates(
     )
     _patch_resolve_for_names(monkeypatch, valid_dir, {"bad_latest"})
 
-    resolved_dir, resolved_record = _orca_local_lookup.resolve_job_dir_impl(
-        tmp_path, "job_refresh"
-    )
+    resolved_dir, resolved_record = _orca_local_lookup.resolve_job_dir_impl(tmp_path, "job_refresh")
 
     assert resolved_record is record
     assert resolved_dir == valid_dir.resolve()

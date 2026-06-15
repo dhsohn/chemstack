@@ -56,7 +56,10 @@ def test_to_reaction_relative_path_handles_invalid_and_relative_values(tmp_path:
     assert organize_index.to_reaction_relative_path(None, reaction_dir) == ""
     assert organize_index.to_reaction_relative_path("   ", reaction_dir) == ""
     assert organize_index.to_reaction_relative_path("./calc.out", reaction_dir) == "calc.out"
-    assert organize_index.to_reaction_relative_path("nested/calc.out", reaction_dir) == "nested/calc.out"
+    assert (
+        organize_index.to_reaction_relative_path("nested/calc.out", reaction_dir)
+        == "nested/calc.out"
+    )
 
 
 def test_to_reaction_relative_path_handles_absolute_paths(tmp_path: Path) -> None:
@@ -143,7 +146,10 @@ def test_rebuild_index_falls_back_to_first_inp_when_metadata_missing(tmp_path: P
         },
     )
 
-    with patch("orca_auto.orca.result_organizer_planning.resolve_organize_metadata", return_value=(None, "other", "unknown")):
+    with patch(
+        "orca_auto.orca.result_organizer_planning.resolve_organize_metadata",
+        return_value=(None, "other", "unknown"),
+    ):
         assert organize_index.rebuild_index(organized_root) == 1
 
     record = organize_index.load_index(organized_root)["run_fallback"]
@@ -159,12 +165,18 @@ def test_append_failed_rollback_writes_jsonl_and_respects_lock(tmp_path: Path) -
     lock_path.write_text("{}", encoding="utf-8")
 
     with patch("orca_auto.orca.organize_index.logger.warning") as warning:
-        organize_index.append_failed_rollback(organized_root, {"run_id": "run_1", "reason": "rollback_failed"})
+        organize_index.append_failed_rollback(
+            organized_root, {"run_id": "run_1", "reason": "rollback_failed"}
+        )
 
     warning.assert_not_called()
-    failed_rollbacks = organize_index.index_dir(organized_root) / organize_index.FAILED_ROLLBACKS_FILE_NAME
+    failed_rollbacks = (
+        organize_index.index_dir(organized_root) / organize_index.FAILED_ROLLBACKS_FILE_NAME
+    )
     lines = failed_rollbacks.read_text(encoding="utf-8").splitlines()
-    assert [json.loads(line) for line in lines] == [{"run_id": "run_1", "reason": "rollback_failed"}]
+    assert [json.loads(line) for line in lines] == [
+        {"run_id": "run_1", "reason": "rollback_failed"}
+    ]
 
 
 def test_append_record_warns_without_lock_and_appends_jsonl(tmp_path: Path) -> None:
@@ -180,7 +192,10 @@ def test_append_record_warns_without_lock_and_appends_jsonl(tmp_path: Path) -> N
 
 def test_index_lock_timeout_error_mentions_path_and_timeout(tmp_path: Path) -> None:
     error = organize_index._index_lock_timeout_error(tmp_path / "index.lock", 12)
-    assert str(error) == f"Index lock acquisition timed out after 12s. Lock file: {tmp_path / 'index.lock'}"
+    assert (
+        str(error)
+        == f"Index lock acquisition timed out after 12s. Lock file: {tmp_path / 'index.lock'}"
+    )
 
 
 def test_acquire_index_lock_passes_expected_payload_and_callbacks(tmp_path: Path) -> None:
@@ -192,14 +207,23 @@ def test_acquire_index_lock_passes_expected_payload_and_callbacks(tmp_path: Path
         captured.update(kwargs)
         yield
 
-    with patch("orca_auto.orca.organize_index.process_lock.current_process_start_ticks", return_value=321), patch(
-        "orca_auto.orca.organize_index.process_lock.acquire_file_lock",
-        side_effect=_fake_acquire_file_lock,
+    with (
+        patch(
+            "orca_auto.orca.organize_index.process_lock.current_process_start_ticks",
+            return_value=321,
+        ),
+        patch(
+            "orca_auto.orca.organize_index.process_lock.acquire_file_lock",
+            side_effect=_fake_acquire_file_lock,
+        ),
     ):
         with organize_index.acquire_index_lock(organized_root, timeout_seconds=7):
             pass
 
-    assert captured["lock_path"] == organize_index.index_dir(organized_root) / organize_index.LOCK_FILE_NAME
+    assert (
+        captured["lock_path"]
+        == organize_index.index_dir(organized_root) / organize_index.LOCK_FILE_NAME
+    )
     assert captured["timeout_seconds"] == 7
     assert captured["timeout_error_builder"] is organize_index._index_lock_timeout_error
     lock_payload = cast(dict[str, Any], captured["lock_payload_obj"])
@@ -218,9 +242,15 @@ def test_acquire_index_lock_omits_process_ticks_when_unavailable(tmp_path: Path)
         captured.update(kwargs)
         yield
 
-    with patch("orca_auto.orca.organize_index.process_lock.current_process_start_ticks", return_value=None), patch(
-        "orca_auto.orca.organize_index.process_lock.acquire_file_lock",
-        side_effect=_fake_acquire_file_lock,
+    with (
+        patch(
+            "orca_auto.orca.organize_index.process_lock.current_process_start_ticks",
+            return_value=None,
+        ),
+        patch(
+            "orca_auto.orca.organize_index.process_lock.acquire_file_lock",
+            side_effect=_fake_acquire_file_lock,
+        ),
     ):
         with organize_index.acquire_index_lock(organized_root):
             pass

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-NORMAL_TERMINATION_NEEDLES: tuple[str, ...] = (
-    "ORCA TERMINATED NORMALLY",
-)
+NORMAL_TERMINATION_NEEDLES: tuple[str, ...] = ("ORCA TERMINATED NORMALLY",)
 
 ERROR_TERMINATION_NEEDLES: tuple[str, ...] = (
     "ORCA FINISHED BY ERROR TERMINATION",

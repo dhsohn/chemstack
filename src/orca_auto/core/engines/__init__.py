@@ -57,6 +57,7 @@ def __getattr__(name: str) -> Any:
     module = import_module(module_name, __name__)
     return getattr(module, attr_name)
 
+
 __all__ = [
     "ENGINE_ARTIFACT_SCHEMA_VERSION",
     "EngineArtifactSchema",

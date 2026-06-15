@@ -160,10 +160,13 @@ def _run_submitted_crest_stage(
     smoke_workspace: Any,
     capsys: Any,
 ) -> None:
-    assert process_one_crest_for_test(
-        crest_queue_cmd,
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-    ) == "processed"
+    assert (
+        process_one_crest_for_test(
+            crest_queue_cmd,
+            crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        )
+        == "processed"
+    )
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submitted_metadata['queue_id']}" in worker_output
     assert f"job_id: {submitted_metadata['child_job_id']}" in worker_output

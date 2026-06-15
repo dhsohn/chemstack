@@ -17,11 +17,14 @@ def _cfg(allowed_root: Path, *, workflow_root: Path | None = None) -> SimpleName
 
 
 def test_load_yaml_job_manifest_handles_missing_invalid_and_mapping(tmp_path: Path) -> None:
-    assert run_dir.load_yaml_job_manifest(
-        tmp_path,
-        "manifest.yaml",
-        invalid_message="invalid {path}",
-    ) == {}
+    assert (
+        run_dir.load_yaml_job_manifest(
+            tmp_path,
+            "manifest.yaml",
+            invalid_message="invalid {path}",
+        )
+        == {}
+    )
 
     with pytest.raises(ValueError, match="missing"):
         run_dir.load_yaml_job_manifest(
@@ -63,7 +66,9 @@ def test_resolve_engine_job_dir_uses_workflow_internal_allowed_root(tmp_path: Pa
     )
 
     assert resolved == job_dir.resolve()
-    assert seen == [(str(job_dir), str((workflow_root / "run-1" / "02_xtb").resolve()), "Job directory")]
+    assert seen == [
+        (str(job_dir), str((workflow_root / "run-1" / "02_xtb").resolve()), "Job directory")
+    ]
 
 
 def test_resolve_engine_job_dir_rejects_path_outside_workflow_root(tmp_path: Path) -> None:

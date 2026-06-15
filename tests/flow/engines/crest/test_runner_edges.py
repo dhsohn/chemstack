@@ -184,7 +184,10 @@ def test_build_command_omits_unsupported_gfn_and_solvent_model(
     job_dir.mkdir()
     selected_xyz = job_dir / "input.xyz"
     _write_xyz(selected_xyz, ("conf_a",))
-    monkeypatch.setattr("orca_auto.flow.engines.crest.runner._resolve_crest_executable", lambda _cfg: "/usr/bin/crest")
+    monkeypatch.setattr(
+        "orca_auto.flow.engines.crest.runner._resolve_crest_executable",
+        lambda _cfg: "/usr/bin/crest",
+    )
 
     command = _build_command(
         cfg,
@@ -215,7 +218,10 @@ def test_build_command_omits_solvent_flag_when_solvent_is_blank(
     job_dir.mkdir()
     selected_xyz = job_dir / "input.xyz"
     _write_xyz(selected_xyz, ("conf_a",))
-    monkeypatch.setattr("orca_auto.flow.engines.crest.runner._resolve_crest_executable", lambda _cfg: "/usr/bin/crest")
+    monkeypatch.setattr(
+        "orca_auto.flow.engines.crest.runner._resolve_crest_executable",
+        lambda _cfg: "/usr/bin/crest",
+    )
 
     command = _build_command(
         cfg,

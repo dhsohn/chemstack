@@ -51,7 +51,9 @@ def _validate_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
 
     runtime_paths = _workflow_runtime_paths(cfg, reaction_dir)
     if runtime_paths is not None:
-        return validate_job_dir(reaction_dir_raw, str(runtime_paths["allowed_root"]), label="Job directory")
+        return validate_job_dir(
+            reaction_dir_raw, str(runtime_paths["allowed_root"]), label="Job directory"
+        )
 
     allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
     if not is_subpath(reaction_dir, allowed_root):
@@ -68,9 +70,7 @@ def _validate_root_scan_dir(cfg: AppConfig, root_raw: str) -> Path:
 
     allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
     if root != allowed_root:
-        raise ValueError(
-            f"--root must exactly match allowed_root: {allowed_root}. got={root}"
-        )
+        raise ValueError(f"--root must exactly match allowed_root: {allowed_root}. got={root}")
     return root
 
 

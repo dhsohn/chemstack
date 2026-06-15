@@ -9,23 +9,25 @@ from pathlib import Path
 from orca_auto.orca.dft_index import DFTIndex
 from tests.engine_artifact_helpers import orca_artifact_payload
 
-_COMPLETED_OUT = "\n".join([
-    "! B3LYP def2-SVP Opt",
-    "* xyz 0 1",
-    "C 0.0 0.0 0.0",
-    "H 0.0 0.0 1.0",
-    "*",
-    "",
-    "CARTESIAN COORDINATES (ANGSTROEM)",
-    "----------------------------",
-    " C    0.000000    0.000000    0.000000",
-    " H    0.000000    0.000000    1.000000",
-    "",
-    "FINAL SINGLE POINT ENERGY      -100.123456789",
-    "",
-    "                             ****ORCA TERMINATED NORMALLY****",
-    "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
-])
+_COMPLETED_OUT = "\n".join(
+    [
+        "! B3LYP def2-SVP Opt",
+        "* xyz 0 1",
+        "C 0.0 0.0 0.0",
+        "H 0.0 0.0 1.0",
+        "*",
+        "",
+        "CARTESIAN COORDINATES (ANGSTROEM)",
+        "----------------------------",
+        " C    0.000000    0.000000    0.000000",
+        " H    0.000000    0.000000    1.000000",
+        "",
+        "FINAL SINGLE POINT ENERGY      -100.123456789",
+        "",
+        "                             ****ORCA TERMINATED NORMALLY****",
+        "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
+    ]
+)
 
 
 def _write_orca_state(job_dir: Path, *, status: str) -> None:

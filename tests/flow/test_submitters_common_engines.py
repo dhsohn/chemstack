@@ -121,7 +121,10 @@ def test_engine_runtime_paths_reads_runtime_allowed_root(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    assert engine_runtime.engine_runtime_paths(str(config_path))["allowed_root"] == allowed_root.resolve()
+    assert (
+        engine_runtime.engine_runtime_paths(str(config_path))["allowed_root"]
+        == allowed_root.resolve()
+    )
 
 
 def test_engine_runtime_paths_requires_runtime_allowed_root_alias_case(tmp_path: Path) -> None:
@@ -225,9 +228,10 @@ def test_engine_runtime_paths_derives_internal_engine_roots_from_workflow_root(
         "organized_root": workflow_root.resolve(),
         "admission_root": admission_root.resolve(),
     }
-    assert engine_runtime.engine_runtime_paths(str(config_path), engine="crest")[
-        "allowed_root"
-    ] == workflow_root.resolve()
+    assert (
+        engine_runtime.engine_runtime_paths(str(config_path), engine="crest")["allowed_root"]
+        == workflow_root.resolve()
+    )
 
 
 @pytest.mark.parametrize(

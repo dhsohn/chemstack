@@ -25,7 +25,9 @@ def test_reserve_admission_slot_uses_xtb_worker_identity() -> None:
         return "slot-1"
 
     assert queue_admission.reserve_admission_slot(_cfg(), reserve_slot_fn=reserve_slot) == "slot-1"
-    assert calls == [("/tmp/admission", 2, "orca_auto.flow.engines.xtb.queue_worker", "orca_auto_xtb")]
+    assert calls == [
+        ("/tmp/admission", 2, "orca_auto.flow.engines.xtb.queue_worker", "orca_auto_xtb")
+    ]
 
 
 def test_start_background_job_process_builds_xtb_child_command(tmp_path: Path) -> None:

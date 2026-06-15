@@ -174,9 +174,7 @@ def test_run_internal_engine_worker_entry_passes_worker_options(
             cfg=cfg_obj,
             entry=entry_obj,
         ),
-        check_shutdown=lambda context, options: calls.append(
-            ("check", options.worker_job_pid)
-        ),
+        check_shutdown=lambda context, options: calls.append(("check", options.worker_job_pid)),
         mark_running=lambda cfg_obj, context, options: calls.append(
             ("mark", options.worker_job_pid)
         ),
@@ -268,9 +266,7 @@ def test_run_internal_engine_worker_entry_with_hooks_builds_adapter(tmp_path: Pa
             cfg=cfg_obj,
             entry=entry_obj,
         ),
-        mark_running=lambda _cfg, _context, options: calls.append(
-            ("mark", options.emit_output)
-        ),
+        mark_running=lambda _cfg, _context, options: calls.append(("mark", options.emit_output)),
         run_job=run_job,
         finalize_entry=finalize_entry,
         build_outcome=build_outcome,
@@ -327,9 +323,7 @@ def test_run_internal_engine_worker_entry_with_spec_builds_adapter(tmp_path: Pat
             cfg=cfg_obj,
             entry=entry_obj,
         ),
-        mark_running=lambda _cfg, _context, options: calls.append(
-            ("mark", options.worker_job_pid)
-        ),
+        mark_running=lambda _cfg, _context, options: calls.append(("mark", options.worker_job_pid)),
         run_job=run_job,
         finalize_entry=finalize_entry,
         build_outcome=build_outcome,
@@ -369,22 +363,20 @@ def test_run_internal_engine_worker_entry_with_spec_options_builds_options(
 
     spec = engine_execution.InternalEngineWorkerExecutionSpec(
         build_context=lambda _cfg, current_entry: SimpleNamespace(entry=current_entry),
-        mark_running=lambda _cfg, _context, options: calls.append(
-            ("mark", options.worker_job_pid)
-        ),
+        mark_running=lambda _cfg, _context, options: calls.append(("mark", options.worker_job_pid)),
         run_job=lambda _cfg, _context, _queue_root, options: (
-            options.register_running_job(running_process)
-            if options.register_running_job is not None
-            else None
-        )
-        or {
-            "should_cancel": None
-            if options.should_cancel is None
-            else options.should_cancel(),
-            "shutdown_requested": None
-            if options.shutdown_requested is None
-            else options.shutdown_requested(),
-        },
+            (
+                options.register_running_job(running_process)
+                if options.register_running_job is not None
+                else None
+            )
+            or {
+                "should_cancel": None if options.should_cancel is None else options.should_cancel(),
+                "shutdown_requested": None
+                if options.shutdown_requested is None
+                else options.shutdown_requested(),
+            }
+        ),
         finalize_entry=lambda _cfg, _context, result, _queue_root, options: {
             **result,
             "emit_output": options.emit_output,

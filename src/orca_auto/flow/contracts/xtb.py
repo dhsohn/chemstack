@@ -108,9 +108,7 @@ class XtbDownstreamPolicy:
             if (text := normalize_text(item, none="None"))
         )
         filtered_kinds = tuple(
-            text
-            for item in (allowed_kinds or ())
-            if (text := normalize_text(item, none="None"))
+            text for item in (allowed_kinds or ()) if (text := normalize_text(item, none="None"))
         )
         return cls(
             preferred_kinds=kinds or cls().preferred_kinds,

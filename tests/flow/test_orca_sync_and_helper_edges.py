@@ -30,25 +30,42 @@ def test_reaction_orca_source_candidate_path_uses_metadata_then_artifacts() -> N
         )
         == "/tmp/from-artifact.xyz"
     )
-    assert reaction_orca_source_candidate_path_impl(
-        {"input_artifacts": ["skip", {"kind": "xtb_candidate", "path": ""}]}
-    ) == ""
+    assert (
+        reaction_orca_source_candidate_path_impl(
+            {"input_artifacts": ["skip", {"kind": "xtb_candidate", "path": ""}]}
+        )
+        == ""
+    )
 
 
 def test_clear_reaction_xtb_handoff_error_only_clears_recovering_xtb_cases() -> None:
     payload: dict[str, Any] = {
         "metadata": {"workflow_error": {"scope": "different_scope"}},
-        "stages": [{"status": "completed", "task": {"engine": "xtb"}, "metadata": {"reaction_handoff_status": "failed"}}],
+        "stages": [
+            {
+                "status": "completed",
+                "task": {"engine": "xtb"},
+                "metadata": {"reaction_handoff_status": "failed"},
+            }
+        ],
     }
     clear_reaction_xtb_handoff_error_if_recovering_impl(payload)
     assert payload["metadata"]["workflow_error"] == {"scope": "different_scope"}
 
     recovering_payload: dict[str, Any] = {
         "metadata": {"workflow_error": {"scope": "reaction_ts_search_xtb_handoff"}},
-        "stages": [{"status": "completed", "task": {"engine": "orca"}, "metadata": {"reaction_handoff_status": "retrying"}}],
+        "stages": [
+            {
+                "status": "completed",
+                "task": {"engine": "orca"},
+                "metadata": {"reaction_handoff_status": "retrying"},
+            }
+        ],
     }
     clear_reaction_xtb_handoff_error_if_recovering_impl(recovering_payload)
-    assert recovering_payload["metadata"]["workflow_error"] == {"scope": "reaction_ts_search_xtb_handoff"}
+    assert recovering_payload["metadata"]["workflow_error"] == {
+        "scope": "reaction_ts_search_xtb_handoff"
+    }
 
     clear_reaction_xtb_handoff_error_if_recovering_impl({"metadata": None, "stages": []})
 
@@ -249,12 +266,7 @@ def test_sync_orca_stage_waiting_for_slot_stays_planned() -> None:
 def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca_root(
     tmp_path: Path,
 ) -> None:
-    reaction_dir = (
-        tmp_path
-        / "wf_local"
-        / "03_orca"
-        / "job_01"
-    )
+    reaction_dir = tmp_path / "wf_local" / "03_orca" / "job_01"
     stage: dict[str, object] = {
         "status": "planned",
         "metadata": {},
@@ -306,6 +318,4 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
     )
 
     assert load_calls[0]["orca_allowed_root"] == Path("/tmp/orca_allowed")
-    assert load_calls[0]["orca_organized_root"] == (
-        tmp_path / "wf_local" / "03_orca"
-    ).resolve()
+    assert load_calls[0]["orca_organized_root"] == (tmp_path / "wf_local" / "03_orca").resolve()

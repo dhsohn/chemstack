@@ -158,9 +158,10 @@ def test_find_organized_record_and_dir_resolution_support_file_targets(tmp_path:
     )
 
     assert found == record
-    assert _orca_local_lookup.organized_dir_from_record_impl(
-        organized_root, found
-    ) == organized_dir.resolve()
+    assert (
+        _orca_local_lookup.organized_dir_from_record_impl(organized_root, found)
+        == organized_dir.resolve()
+    )
     assert (
         _orca_local_lookup.organized_dir_from_record_impl(
             organized_root,

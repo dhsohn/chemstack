@@ -111,7 +111,11 @@ class TestBuildMessage:
     def test_includes_dft_and_failure_sections(self) -> None:
         report = ScanReport(
             new_results=_sample_report().new_results,
-            failures=[ParseFailure(path="job/calc.out", error="bad encoding", error_type="UnicodeDecodeError")],
+            failures=[
+                ParseFailure(
+                    path="job/calc.out", error="bad encoding", error_type="UnicodeDecodeError"
+                )
+            ],
             scanned_files=1,
         )
         message = format_monitor_message(report)

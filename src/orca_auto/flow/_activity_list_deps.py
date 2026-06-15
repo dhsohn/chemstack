@@ -30,9 +30,7 @@ class ActivityListDeps:
     _timestamp_metadata: Callable[..., dict[str, str]]
     _unique_texts: Callable[..., tuple[str, ...]]
     _orca_records: Callable[..., list[ActivityRecord]]
-    _resolved_activity_sources_for_request: Callable[
-        [ActivitySourceRequest], Any
-    ]
+    _resolved_activity_sources_for_request: Callable[[ActivitySourceRequest], Any]
 
 
 __all__ = ["ActivityListDeps", "ActivityListProvider"]

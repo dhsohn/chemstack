@@ -291,7 +291,9 @@ def crest_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     return job_dir
 
 
-def wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -> list[AdmissionSlot]:
+def wait_for_active_slots(
+    root: Path, *, expected: int, timeout: float = 5.0
+) -> list[AdmissionSlot]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         slots = list_slots(root)

@@ -181,9 +181,7 @@ def build_worker_execution_dependencies_from_groups(
     )
 
 
-def _worker_process_factory_callbacks() -> (
-    _worker_dependencies.WorkerProcessDependencyCallbacks
-):
+def _worker_process_factory_callbacks() -> _worker_dependencies.WorkerProcessDependencyCallbacks:
     return _worker_dependencies.build_worker_process_dependency_callbacks(
         terminate_process=terminate_process_group,
         wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,

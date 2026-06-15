@@ -83,4 +83,3 @@ def test_workflow_worker_module_main_uses_dedicated_parser(monkeypatch) -> None:
     assert args.workflow_root == "/tmp/workflows"
     assert args.orca_auto_config == "/tmp/orca_auto.yaml"
     assert args.once is True
-

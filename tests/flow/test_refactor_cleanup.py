@@ -83,9 +83,7 @@ def test_stage_dep_fallbacks_cover_registry_names() -> None:
     provider = dep_builders._LazyOrchestrationDeps(None)
     fallback_names = set(dep_builders._stage_dep_fallbacks(None, provider))
     registry_names = {
-        dep_name
-        for group in _ORCHESTRATION_STAGE_DEP_REGISTRY
-        for dep_name in group.dep_names
+        dep_name for group in _ORCHESTRATION_STAGE_DEP_REGISTRY for dep_name in group.dep_names
     }
 
     assert fallback_names == registry_names
@@ -104,8 +102,7 @@ def test_runtime_facade_keeps_advance_helpers_available() -> None:
     assert runtime.WorkflowAdvanceDeps is runtime_advance.WorkflowAdvanceDeps
     assert runtime.WorkflowAdvanceOutcome is runtime_advance.WorkflowAdvanceOutcome
     assert (
-        runtime._advance_workflow_record_outcome
-        is runtime_advance.advance_workflow_record_outcome
+        runtime._advance_workflow_record_outcome is runtime_advance.advance_workflow_record_outcome
     )
     assert runtime._advanced_workflow_outcome is runtime_advance.advanced_workflow_outcome
 

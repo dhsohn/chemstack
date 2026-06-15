@@ -120,5 +120,3 @@ def restore_tracking_after_rollback(
         resource_request=requested,
         resource_actual=requested,
     )
-
-

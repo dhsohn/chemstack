@@ -198,8 +198,7 @@ def append_failed_rollback(organized_root: Path, entry: Dict[str, Any]) -> None:
 
 def _index_lock_timeout_error(lock_path: Path, timeout_seconds: int) -> RuntimeError:
     return RuntimeError(
-        f"Index lock acquisition timed out after {timeout_seconds}s. "
-        f"Lock file: {lock_path}"
+        f"Index lock acquisition timed out after {timeout_seconds}s. Lock file: {lock_path}"
     )
 
 

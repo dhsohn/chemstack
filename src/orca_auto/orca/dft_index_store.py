@@ -198,4 +198,3 @@ class DFTIndexStore:
             stats["top_formulas"] = {row["formula"]: row["cnt"] for row in cursor}
 
         return stats
-

@@ -54,11 +54,11 @@ class DFTIndexScanner:
         to_index = {
             path: payload
             for path, payload in discovered.items()
-            if existing.get(path) != (
+            if existing.get(path)
+            != (
                 payload[0],
                 payload[1] or "",
             )
         }
         to_remove = set(existing) - set(discovered)
         return to_index, to_remove
-

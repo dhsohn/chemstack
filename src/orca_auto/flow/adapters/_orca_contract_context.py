@@ -43,9 +43,7 @@ def resolve_roots(
         deps.path_type(orca_allowed_root).expanduser().resolve() if orca_allowed_root else None
     )
     organized = (
-        deps.path_type(orca_organized_root).expanduser().resolve()
-        if orca_organized_root
-        else None
+        deps.path_type(orca_organized_root).expanduser().resolve() if orca_organized_root else None
     )
     return LoadRoots(allowed=allowed, organized=organized)
 

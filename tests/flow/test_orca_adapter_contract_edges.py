@@ -374,7 +374,9 @@ def test_load_orca_artifact_contract_returns_sparse_contract_when_nothing_resolv
         "tracked_artifact_context_impl",
         lambda **kwargs: (None, None, {}, {}, {}),
     )
-    monkeypatch.setattr(_orca_local_lookup, "resolve_job_dir_impl", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(
+        _orca_local_lookup, "resolve_job_dir_impl", lambda *_args, **_kwargs: (None, None)
+    )
 
     contract = orca_adapter.load_orca_artifact_contract(
         target="  missing-target  ",

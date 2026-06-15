@@ -123,8 +123,12 @@ def test_xtb_select_downstream_inputs_breaks_after_max_candidates() -> None:
         selected_input_xyz="/tmp/input.xyz",
         selected_candidate_paths=(),
         candidate_details=(
-            XtbCandidateArtifact(rank=1, kind="path", path="/tmp/first.xyz", selected=True, score=-1.0),
-            XtbCandidateArtifact(rank=2, kind="path", path="/tmp/second.xyz", selected=False, score=-0.5),
+            XtbCandidateArtifact(
+                rank=1, kind="path", path="/tmp/first.xyz", selected=True, score=-1.0
+            ),
+            XtbCandidateArtifact(
+                rank=2, kind="path", path="/tmp/second.xyz", selected=False, score=-0.5
+            ),
         ),
     )
     policy = XtbDownstreamPolicy(
@@ -150,11 +154,17 @@ def test_xtb_select_downstream_inputs_breaks_after_max_candidates() -> None:
         selected_input_xyz="/tmp/input.xyz",
         selected_candidate_paths=(),
         candidate_details=(
-            XtbCandidateArtifact(rank=1, kind="ts_guess", path="/tmp/d1.xyz", selected=True, score=-1.0),
-            XtbCandidateArtifact(rank=2, kind="ts_guess", path="/tmp/d2.xyz", selected=True, score=-2.0),
+            XtbCandidateArtifact(
+                rank=1, kind="ts_guess", path="/tmp/d1.xyz", selected=True, score=-1.0
+            ),
+            XtbCandidateArtifact(
+                rank=2, kind="ts_guess", path="/tmp/d2.xyz", selected=True, score=-2.0
+            ),
         ),
     )
-    detail_rows = xtb_adapter.select_xtb_downstream_inputs(detail_contract, policy=policy, require_geometry=False)
+    detail_rows = xtb_adapter.select_xtb_downstream_inputs(
+        detail_contract, policy=policy, require_geometry=False
+    )
     assert len(detail_rows) == 1
     assert detail_rows[0].artifact_path == "/tmp/d1.xyz"
 
@@ -164,7 +174,9 @@ def test_registry_notification_and_resolution_remaining_edges(
     tmp_path: Path,
 ) -> None:
     sent: list[str] = []
-    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: False)
+    monkeypatch.setattr(
+        registry_notifications, "journal_notification_enabled", lambda event_type: False
+    )
     monkeypatch.setattr(
         registry_notifications,
         "telegram_transport_from_env",
@@ -173,7 +185,9 @@ def test_registry_notification_and_resolution_remaining_edges(
     workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent == []
 
-    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
+    monkeypatch.setattr(
+        registry_notifications, "journal_notification_enabled", lambda event_type: True
+    )
     monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: None)
     workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent == []
@@ -246,33 +260,52 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
         yield
 
     monkeypatch.setattr(cli_workflow, "file_lock", _lock)
-    monkeypatch.setattr(cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/lock"))
+    monkeypatch.setattr(
+        cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/lock")
+    )
     monkeypatch.setattr(cli_workflow, "write_workflow_worker_state", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli_workflow, "append_workflow_journal_event", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli_workflow, "advance_workflow_registry_once", lambda **kwargs: {"cycle_started_at": "t", "worker_session_id": "s", "discovered_count": 0, "advanced_count": 0, "skipped_count": 0, "failed_count": 0, "workflow_results": []})
-    monkeypatch.setattr(cli_workflow, "_emit_worker_payload", lambda payload, json_mode, single_cycle: None)
+    monkeypatch.setattr(
+        cli_workflow,
+        "advance_workflow_registry_once",
+        lambda **kwargs: {
+            "cycle_started_at": "t",
+            "worker_session_id": "s",
+            "discovered_count": 0,
+            "advanced_count": 0,
+            "skipped_count": 0,
+            "failed_count": 0,
+            "workflow_results": [],
+        },
+    )
+    monkeypatch.setattr(
+        cli_workflow, "_emit_worker_payload", lambda payload, json_mode, single_cycle: None
+    )
     monkeypatch.setattr(cli_workflow, "now_utc_iso", lambda: "2026-04-19T00:00:00+00:00")
     monkeypatch.setattr(cli_workflow.time, "sleep", lambda seconds: slept.append(seconds))
-    assert cli_workflow.cmd_workflow_worker(
-        SimpleNamespace(
-            once=False,
-            max_cycles=2,
-            interval_seconds=0.1,
-            lock_timeout_seconds=1.0,
-            refresh_registry=False,
-            refresh_each_cycle=False,
-            service_mode=False,
-            json=False,
-            workflow_root="/tmp/wf",
-            worker_session_id="worker_1",
-            lease_seconds=1.0,
-            no_submit=False,
-            crest_config=None,
-            xtb_config=None,
-            orca_config=None,
-            orca_repo_root=None,
+    assert (
+        cli_workflow.cmd_workflow_worker(
+            SimpleNamespace(
+                once=False,
+                max_cycles=2,
+                interval_seconds=0.1,
+                lock_timeout_seconds=1.0,
+                refresh_registry=False,
+                refresh_each_cycle=False,
+                service_mode=False,
+                json=False,
+                workflow_root="/tmp/wf",
+                worker_session_id="worker_1",
+                lease_seconds=1.0,
+                no_submit=False,
+                crest_config=None,
+                xtb_config=None,
+                orca_config=None,
+                orca_repo_root=None,
+            )
         )
-    ) == 0
+        == 0
+    )
     assert slept == [0.1]
 
     assert normalize_text(None, none="None") == "None"
@@ -306,7 +339,9 @@ def test_load_orca_artifact_contract_falls_back_to_plain_target_when_no_path_res
         "tracked_artifact_context_impl",
         lambda **kwargs: (None, None, {}, {}, {}),
     )
-    monkeypatch.setattr(_orca_local_lookup, "resolve_job_dir_impl", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(
+        _orca_local_lookup, "resolve_job_dir_impl", lambda *_args, **_kwargs: (None, None)
+    )
     monkeypatch.setattr(
         _orca_local_lookup,
         "find_queue_entry_impl",

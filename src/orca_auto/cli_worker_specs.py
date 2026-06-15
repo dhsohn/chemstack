@@ -237,8 +237,7 @@ def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     _validate_engine_worker_config(engine_apps, config_path)
 
     specs = [
-        _engine_worker_spec(app=app, config_path=str(config_path), args=args)
-        for app in engine_apps
+        _engine_worker_spec(app=app, config_path=str(config_path), args=args) for app in engine_apps
     ]
     _add_workflow_worker_spec(
         specs,

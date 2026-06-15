@@ -165,8 +165,6 @@ def engine_run_dir_queued_recorder_from_callbacks(
     return record_queued
 
 
-
-
 def load_yaml_job_manifest(
     job_dir: Path,
     filename: str,

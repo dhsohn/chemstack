@@ -17,7 +17,9 @@ def _install_deterministic_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     time_counter = count(1)
 
     monkeypatch.setattr(store, "file_lock", lambda *_args, **_kwargs: nullcontext())
-    monkeypatch.setattr(store, "timestamped_token", lambda prefix: f"{prefix}_{next(token_counter):04d}")
+    monkeypatch.setattr(
+        store, "timestamped_token", lambda prefix: f"{prefix}_{next(token_counter):04d}"
+    )
     monkeypatch.setattr(
         store,
         "now_utc_iso",
@@ -400,10 +402,24 @@ def test_clear_terminal_removes_terminal_entries_and_can_keep_latest(
     _queue_file(tmp_path).write_text(
         json.dumps(
             [
-                _entry("q-running", status=QueueStatus.RUNNING, started_at="2026-04-19T00:00:01+00:00"),
-                _entry("q-done-old", status=QueueStatus.COMPLETED, finished_at="2026-04-19T00:00:02+00:00"),
-                _entry("q-cancel-mid", status=QueueStatus.CANCELLED, finished_at="2026-04-19T00:00:03+00:00"),
-                _entry("q-failed-new", status=QueueStatus.FAILED, finished_at="2026-04-19T00:00:04+00:00"),
+                _entry(
+                    "q-running", status=QueueStatus.RUNNING, started_at="2026-04-19T00:00:01+00:00"
+                ),
+                _entry(
+                    "q-done-old",
+                    status=QueueStatus.COMPLETED,
+                    finished_at="2026-04-19T00:00:02+00:00",
+                ),
+                _entry(
+                    "q-cancel-mid",
+                    status=QueueStatus.CANCELLED,
+                    finished_at="2026-04-19T00:00:03+00:00",
+                ),
+                _entry(
+                    "q-failed-new",
+                    status=QueueStatus.FAILED,
+                    finished_at="2026-04-19T00:00:04+00:00",
+                ),
             ],
             indent=2,
         ),

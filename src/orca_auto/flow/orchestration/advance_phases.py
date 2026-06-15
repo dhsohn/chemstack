@@ -144,9 +144,7 @@ def _append_reaction_orca_phase(
     )
 
 
-def _orca_stage_count(
-    payload: dict[str, Any], *, deps: OrchestrationDeps | None = None
-) -> int:
+def _orca_stage_count(payload: dict[str, Any], *, deps: OrchestrationDeps | None = None) -> int:
     o = _orchestration_context(deps)
     return sum(
         1

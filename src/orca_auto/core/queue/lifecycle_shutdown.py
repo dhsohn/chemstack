@@ -101,9 +101,7 @@ def finalize_child_worker_exit(
             elif shutdown_requested:
                 requeue_running_entry_fn(root, queue_id)
                 recovery_entry = (
-                    recovery_entry_fn(current, job)
-                    if recovery_entry_fn is not None
-                    else current
+                    recovery_entry_fn(current, job) if recovery_entry_fn is not None else current
                 )
                 mark_recovery_pending_fn(cfg, recovery_entry, reason="worker_shutdown")
             elif fail_unexpected_exit and mark_failed_fn is not None:

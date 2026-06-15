@@ -57,7 +57,9 @@ def _write_xyz(path: Path, *, comment: str = "comment") -> None:
     )
 
 
-def test_workflow_file_helpers_and_resolution_support_direct_and_root_targets(tmp_path: Path) -> None:
+def test_workflow_file_helpers_and_resolution_support_direct_and_root_targets(
+    tmp_path: Path,
+) -> None:
     workflow_root = tmp_path / "workflow_root"
     workspace = workflow_root_dir(workflow_root) / "wf_003"
     payload = {"workflow_id": "wf_003", "status": "queued", "metadata": {"tag": "sample"}}
@@ -69,11 +71,17 @@ def test_workflow_file_helpers_and_resolution_support_direct_and_root_targets(tm
     assert workflow_file_path(workspace) == workspace.resolve() / WORKFLOW_FILE_NAME
     assert workflow_lock_path(workspace) == workspace.resolve() / WORKFLOW_LOCK_NAME
     assert load_workflow_payload(workspace) == payload
-    assert resolve_workflow_workspace(target=str(workspace / WORKFLOW_FILE_NAME)) == workspace.resolve()
-    assert resolve_workflow_workspace(
-        target=f"{workspace.name}/{WORKFLOW_FILE_NAME}",
-        workflow_root=workflow_root,
-    ) == workspace.resolve()
+    assert (
+        resolve_workflow_workspace(target=str(workspace / WORKFLOW_FILE_NAME))
+        == workspace.resolve()
+    )
+    assert (
+        resolve_workflow_workspace(
+            target=f"{workspace.name}/{WORKFLOW_FILE_NAME}",
+            workflow_root=workflow_root,
+        )
+        == workspace.resolve()
+    )
 
     with pytest.raises(ValueError, match="workflow target is required"):
         resolve_workflow_workspace(target="   ", workflow_root=workflow_root)
@@ -98,7 +106,9 @@ def test_resolve_workflow_workspace_rejects_targets_outside_workflow_root(
         resolve_workflow_workspace(target=resolved_target, workflow_root=workflow_root)
 
 
-def test_iter_workflow_runtime_workspaces_filters_engine_without_creating_missing_roots(tmp_path: Path) -> None:
+def test_iter_workflow_runtime_workspaces_filters_engine_without_creating_missing_roots(
+    tmp_path: Path,
+) -> None:
     workflow_root = tmp_path / "workflow_root"
     conformer_workspace = workflow_root / "wf_conformer"
     reaction_workspace = workflow_root / "wf_reaction"
@@ -150,7 +160,9 @@ def test_iter_workflow_workspaces_and_list_summaries_skip_invalid_payloads(tmp_p
     non_dict_workspace = workflows_dir / "wf_002"
     invalid_json_workspace = workflows_dir / "wf_001"
 
-    write_workflow_payload(valid_workspace, {"workflow_id": "wf_003", "status": "completed", "metadata": {}})
+    write_workflow_payload(
+        valid_workspace, {"workflow_id": "wf_003", "status": "completed", "metadata": {}}
+    )
     _write_json(non_dict_workspace / WORKFLOW_FILE_NAME, ["not", "a", "mapping"])
     _write_text(invalid_json_workspace / WORKFLOW_FILE_NAME, "{broken json")
     (workflows_dir / "ignored_dir").mkdir(parents=True, exist_ok=True)
@@ -173,9 +185,29 @@ def test_iter_workflow_workspaces_and_list_summaries_skip_invalid_payloads(tmp_p
     [
         ({"metadata": {"downstream_reaction_workflow": {"status": "queued"}}}, True),
         ({"metadata": {"downstream_reaction_workflow": {"final_child_sync_pending": "yes"}}}, True),
-        ({"metadata": {"downstream_reaction_workflow": {"latest_stage": {"status": "running"}}}}, True),
-        ({"metadata": {"downstream_reaction_workflow": {"latest_stage": {"task_status": "submitted"}}}}, True),
-        ({"metadata": {"downstream_reaction_workflow": {"status": "completed", "latest_stage": {"task_status": "done"}}}}, False),
+        (
+            {"metadata": {"downstream_reaction_workflow": {"latest_stage": {"status": "running"}}}},
+            True,
+        ),
+        (
+            {
+                "metadata": {
+                    "downstream_reaction_workflow": {"latest_stage": {"task_status": "submitted"}}
+                }
+            },
+            True,
+        ),
+        (
+            {
+                "metadata": {
+                    "downstream_reaction_workflow": {
+                        "status": "completed",
+                        "latest_stage": {"task_status": "done"},
+                    }
+                }
+            },
+            False,
+        ),
         ({"metadata": {"downstream_reaction_workflow": "skip-me"}}, False),
     ],
 )
@@ -282,7 +314,10 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
 
     for xyz_path in (selected_xyz, source_xyz, reactant_xyz, product_xyz, optimized_xyz):
         _write_xyz(xyz_path)
-    _write_text(selected_inp, "! opt\n",)
+    _write_text(
+        selected_inp,
+        "! opt\n",
+    )
     _write_text(report_json, '{"status": "ok"}\n')
     _write_text(last_out, "normal termination\n")
     reaction_dir.mkdir(parents=True, exist_ok=True)
@@ -290,7 +325,9 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
     organized_output_dir.mkdir(parents=True, exist_ok=True)
     downstream_latest.mkdir(parents=True, exist_ok=True)
     downstream_organized.mkdir(parents=True, exist_ok=True)
-    write_workflow_payload(downstream_workspace, {"workflow_id": "child_wf", "status": "running", "metadata": {}})
+    write_workflow_payload(
+        downstream_workspace, {"workflow_id": "child_wf", "status": "running", "metadata": {}}
+    )
 
     payload = {
         "workflow_id": "wf_parent",
@@ -304,8 +341,18 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
             "submission_summary": {"submitted": 1},
             "request": {
                 "source_artifacts": [
-                    {"kind": "source_xyz", "path": "inputs/source.xyz", "selected": 1, "metadata": {"role": "seed"}},
-                    {"kind": "source_xyz", "path": "inputs/source.xyz", "selected": 0, "metadata": {"role": "duplicate"}},
+                    {
+                        "kind": "source_xyz",
+                        "path": "inputs/source.xyz",
+                        "selected": 1,
+                        "metadata": {"role": "seed"},
+                    },
+                    {
+                        "kind": "source_xyz",
+                        "path": "inputs/source.xyz",
+                        "selected": 0,
+                        "metadata": {"role": "duplicate"},
+                    },
                 ]
             },
             "precomplex_handoff": {
@@ -368,8 +415,18 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
                     "completed_at": "2026-04-19T12:05:00Z",
                 },
                 "input_artifacts": [
-                    {"kind": "candidate_xyz", "path": "inputs/selected.xyz", "selected": True, "metadata": {"rank": 1}},
-                    {"kind": "candidate_xyz", "path": "inputs/selected.xyz", "selected": False, "metadata": {"rank": 9}},
+                    {
+                        "kind": "candidate_xyz",
+                        "path": "inputs/selected.xyz",
+                        "selected": True,
+                        "metadata": {"rank": 1},
+                    },
+                    {
+                        "kind": "candidate_xyz",
+                        "path": "inputs/selected.xyz",
+                        "selected": False,
+                        "metadata": {"rank": 9},
+                    },
                 ],
                 "output_artifacts": [
                     {"kind": "report", "path": "outputs/report.json", "selected": False},
@@ -448,7 +505,9 @@ def test_load_crest_artifact_contract_uses_state_and_index_fallbacks_for_resourc
     )
 
     contract = load_crest_artifact_contract(crest_index_root=index_root, target="crest_job_01")
-    stage_inputs = select_crest_downstream_inputs(contract, policy=CrestDownstreamPolicy.build(max_candidates=0))
+    stage_inputs = select_crest_downstream_inputs(
+        contract, policy=CrestDownstreamPolicy.build(max_candidates=0)
+    )
 
     assert contract.job_id == "crest_job_01"
     assert contract.mode == "screen"
@@ -547,10 +606,14 @@ def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: 
         load_crest_artifact_contract(crest_index_root=index_root, target="crest_wrong_app")
 
 
-def test_load_crest_artifact_contract_remaps_stale_paths_to_organized_outputs(tmp_path: Path) -> None:
+def test_load_crest_artifact_contract_remaps_stale_paths_to_organized_outputs(
+    tmp_path: Path,
+) -> None:
     index_root = tmp_path / "crest_index"
     original_dir = tmp_path / "crest_runs" / "crest_job_organized"
-    organized_dir = tmp_path / "crest_outputs" / "standard" / "mol-organized" / "crest_job_organized"
+    organized_dir = (
+        tmp_path / "crest_outputs" / "standard" / "mol-organized" / "crest_job_organized"
+    )
     stale_selected_input = original_dir / "input.xyz"
     stale_conformer_one = original_dir / "crest_conformers.xyz"
     stale_conformer_two = original_dir / "crest_best.xyz"
@@ -598,8 +661,12 @@ def test_load_crest_artifact_contract_remaps_stale_paths_to_organized_outputs(tm
         ],
     )
 
-    contract = load_crest_artifact_contract(crest_index_root=index_root, target="crest_job_organized")
-    stage_inputs = select_crest_downstream_inputs(contract, policy=CrestDownstreamPolicy.build(max_candidates=2))
+    contract = load_crest_artifact_contract(
+        crest_index_root=index_root, target="crest_job_organized"
+    )
+    stage_inputs = select_crest_downstream_inputs(
+        contract, policy=CrestDownstreamPolicy.build(max_candidates=2)
+    )
 
     assert contract.job_dir == str(organized_dir.resolve())
     assert contract.selected_input_xyz == str(organized_selected_input.resolve())
@@ -635,7 +702,10 @@ def test_crest_artifact_helpers_cover_empty_missing_and_oserror_paths(
 
     assert roots == (job_dir.resolve(),)
     assert adapter_helpers.resolve_artifact_path("", roots=roots) == ""
-    assert adapter_helpers.resolve_artifact_path("bad-path", roots=roots, path_factory=path_factory) == "bad-path"
+    assert (
+        adapter_helpers.resolve_artifact_path("bad-path", roots=roots, path_factory=path_factory)
+        == "bad-path"
+    )
     assert adapter_helpers.resolve_artifact_path(str(tmp_path / "missing.xyz"), roots=roots) == str(
         (tmp_path / "missing.xyz").resolve()
     )

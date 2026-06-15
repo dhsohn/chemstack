@@ -188,7 +188,6 @@ class TestInpRewriter(unittest.TestCase):
         self.assertIn("no_previous_xyz_file_found", actions)
         self.assertIn("no_geometry_file_found", actions)
 
-
     def test_find_block_range_does_not_mutate_lines(self) -> None:
         """_find_block_range must not append 'end' to the shared lines list.
 

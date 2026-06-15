@@ -65,7 +65,9 @@ class InternalEngineQueueModule:
     ) -> InternalEngineQueueModule:
         queue_functions = definition.queue_functions
         if queue_functions is None:
-            raise ValueError("EngineDefinition.queue_functions is required for queue module support")
+            raise ValueError(
+                "EngineDefinition.queue_functions is required for queue module support"
+            )
         worker_pid_file_name = (
             queue_functions.worker_pid_file_name or definition.worker_pid_file_name
         )

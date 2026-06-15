@@ -19,8 +19,12 @@ def _install_workflow_io(
     saved_payloads: list[dict[str, Any]],
     sync_calls: list[dict[str, Any]],
 ) -> None:
-    monkeypatch.setattr(orca_submitter, "resolve_workflow_workspace", lambda target, workflow_root: workspace_dir)
-    monkeypatch.setattr(orca_submitter, "load_workflow_payload", lambda current_workspace_dir: payload)
+    monkeypatch.setattr(
+        orca_submitter, "resolve_workflow_workspace", lambda target, workflow_root: workspace_dir
+    )
+    monkeypatch.setattr(
+        orca_submitter, "load_workflow_payload", lambda current_workspace_dir: payload
+    )
     monkeypatch.setattr(
         orca_submitter,
         "write_workflow_payload",
@@ -110,7 +114,11 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/skip", "priority": 2, "submitter": "external_cli"},
+                    "enqueue_payload": {
+                        "reaction_dir": "/tmp/skip",
+                        "priority": 2,
+                        "submitter": "external_cli",
+                    },
                 },
             },
             {
@@ -118,7 +126,11 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/fail", "priority": "6", "submitter": "orca_auto_orca"},
+                    "enqueue_payload": {
+                        "reaction_dir": "/tmp/fail",
+                        "priority": "6",
+                        "submitter": "orca_auto_orca",
+                    },
                 },
             },
         ],
@@ -235,7 +247,11 @@ def test_submit_reaction_ts_search_workflow_sets_queued_when_only_submitted(
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/success", "priority": 4, "submitter": "orca_auto_orca"},
+                    "enqueue_payload": {
+                        "reaction_dir": "/tmp/success",
+                        "priority": 4,
+                        "submitter": "orca_auto_orca",
+                    },
                 },
             }
         ],
@@ -317,7 +333,10 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
                 "task": {
                     "status": "submitted",
                     "payload": {"reaction_dir": "/tmp/cancel_fail"},
-                    "enqueue_payload": {"reaction_dir": "/tmp/cancel_fail", "submitter": "orca_auto_orca"},
+                    "enqueue_payload": {
+                        "reaction_dir": "/tmp/cancel_fail",
+                        "submitter": "orca_auto_orca",
+                    },
                 },
             },
         ],
@@ -414,7 +433,11 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
         "failed_count": 2,
         "stage_results": [
             {"stage_id": "terminal_stage", "status": "skipped", "reason": "already_terminal"},
-            {"stage_id": "missing_target_stage", "status": "cancel_failed", "reason": "missing_cancel_target"},
+            {
+                "stage_id": "missing_target_stage",
+                "status": "cancel_failed",
+                "reason": "missing_cancel_target",
+            },
             {"stage_id": "cancel_fail_stage", "status": "cancel_failed", "returncode": 5},
         ],
         "updated_at": "2026-04-19T01:22:00+00:00",

@@ -3,6 +3,7 @@
 Extracted from config.py to reduce its size while keeping dataclasses
 and ``load_config()`` in the main module.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,9 +29,7 @@ def _validate_config(cfg: Any) -> None:
                 f"{label} must be a Linux path (Windows paths are not supported): {path_val!r}"
             )
         if not Path(path_val).is_absolute():
-            raise ValueError(
-                f"{label} must be an absolute Linux path: {path_val!r}"
-            )
+            raise ValueError(f"{label} must be an absolute Linux path: {path_val!r}")
     if cfg.paths.orca_executable.lower().endswith(".exe"):
         raise ValueError(
             f"orca_executable must point to Linux ORCA binary, not Windows executable: {cfg.paths.orca_executable!r}"
@@ -57,9 +56,7 @@ def _validate_config(cfg: Any) -> None:
             "Create the directory or update the config."
         )
     if not allowed_root.is_dir():
-        raise ValueError(
-            f"allowed_root is not a directory: {cfg.runtime.allowed_root!r}"
-        )
+        raise ValueError(f"allowed_root is not a directory: {cfg.runtime.allowed_root!r}")
 
     ar = Path(cfg.runtime.allowed_root).resolve()
     org = Path(cfg.runtime.organized_root).resolve()

@@ -9,10 +9,17 @@ import orca_auto.core.utils.process_tracking as process_tracking
 
 
 def test_current_process_lock_payload_omits_ticks_when_unavailable() -> None:
-    with patch("orca_auto.core.utils.process_tracking.os.getpid", return_value=4321), patch(
-        "orca_auto.core.utils.process_tracking.now_utc_iso",
-        return_value="2026-03-22T00:00:00+00:00",
-    ), patch("orca_auto.core.utils.process_tracking.process_lock.current_process_start_ticks", return_value=None):
+    with (
+        patch("orca_auto.core.utils.process_tracking.os.getpid", return_value=4321),
+        patch(
+            "orca_auto.core.utils.process_tracking.now_utc_iso",
+            return_value="2026-03-22T00:00:00+00:00",
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.current_process_start_ticks",
+            return_value=None,
+        ),
+    ):
         payload = process_tracking.current_process_lock_payload()
 
     assert payload == {
@@ -25,22 +32,37 @@ def test_active_run_lock_pid_covers_invalid_dead_reuse_and_logger_paths(tmp_path
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
 
-    with patch("orca_auto.core.utils.process_tracking.process_lock.parse_lock_info", return_value={"pid": "bad"}):
+    with patch(
+        "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
+        return_value={"pid": "bad"},
+    ):
         assert process_tracking.active_run_lock_pid(reaction_dir) is None
 
-    with patch("orca_auto.core.utils.process_tracking.process_lock.parse_lock_info", return_value={"pid": 123}), patch(
-        "orca_auto.core.utils.process_tracking.process_lock.is_process_alive",
-        return_value=False,
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
+            return_value={"pid": 123},
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive",
+            return_value=False,
+        ),
     ):
         assert process_tracking.active_run_lock_pid(reaction_dir) is None
 
     on_pid_reuse = Mock()
-    with patch(
-        "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
-        return_value={"pid": 456, "process_start_ticks": 111},
-    ), patch("orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True), patch(
-        "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
-        return_value=None,
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
+            return_value={"pid": 456, "process_start_ticks": 111},
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
+            return_value=None,
+        ),
     ):
         assert (
             process_tracking.active_run_lock_pid(
@@ -52,24 +74,38 @@ def test_active_run_lock_pid_covers_invalid_dead_reuse_and_logger_paths(tmp_path
     on_pid_reuse.assert_called_once_with(456, 111, None)
 
     logger = Mock(spec=logging.Logger)
-    with patch(
-        "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
-        return_value={"pid": 789, "process_start_ticks": 111},
-    ), patch("orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True), patch(
-        "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
-        return_value=222,
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
+            return_value={"pid": 789, "process_start_ticks": 111},
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
+            return_value=222,
+        ),
     ):
         assert process_tracking.active_run_lock_pid(reaction_dir, logger=logger) is None
     logger.info.assert_called_once()
 
-    with patch("orca_auto.core.utils.process_tracking.process_lock.parse_lock_info", return_value={"pid": 654}), patch(
-        "orca_auto.core.utils.process_tracking.process_lock.is_process_alive",
-        return_value=True,
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.parse_lock_info",
+            return_value={"pid": 654},
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive",
+            return_value=True,
+        ),
     ):
         assert process_tracking.active_run_lock_pid(reaction_dir) == 654
 
 
-def test_read_pid_file_covers_missing_invalid_dead_unlink_failure_and_live_pid(tmp_path: Path) -> None:
+def test_read_pid_file_covers_missing_invalid_dead_unlink_failure_and_live_pid(
+    tmp_path: Path,
+) -> None:
     missing = tmp_path / "missing.pid"
     assert process_tracking.read_pid_file(missing) is None
 
@@ -84,31 +120,49 @@ def test_read_pid_file_covers_missing_invalid_dead_unlink_failure_and_live_pid(t
 
     stale = tmp_path / "stale.pid"
     stale.write_text("999", encoding="utf-8")
-    with patch("orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=False), patch(
-        "pathlib.Path.unlink",
-        autospec=True,
-        side_effect=OSError("boom"),
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive",
+            return_value=False,
+        ),
+        patch(
+            "pathlib.Path.unlink",
+            autospec=True,
+            side_effect=OSError("boom"),
+        ),
     ):
         assert process_tracking.read_pid_file(stale) is None
 
     live = tmp_path / "live.pid"
     live.write_text("321", encoding="utf-8")
-    with patch("orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True):
+    with patch(
+        "orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True
+    ):
         assert process_tracking.read_pid_file(live) == 321
 
     json_live = tmp_path / "json-live.pid"
     json_live.write_text(json.dumps({"pid": 654, "process_start_ticks": 111}), encoding="utf-8")
-    with patch("orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True), patch(
-        "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
-        return_value=111,
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
+            return_value=111,
+        ),
     ):
         assert process_tracking.read_pid_file(json_live) == 654
 
     reused = tmp_path / "reused.pid"
     reused.write_text(json.dumps({"pid": 654, "process_start_ticks": 111}), encoding="utf-8")
-    with patch("orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True), patch(
-        "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
-        return_value=222,
+    with (
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.is_process_alive", return_value=True
+        ),
+        patch(
+            "orca_auto.core.utils.process_tracking.process_lock.process_start_ticks",
+            return_value=222,
+        ),
     ):
         assert process_tracking.read_pid_file(reused) is None
     assert not reused.exists()

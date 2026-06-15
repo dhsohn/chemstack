@@ -149,11 +149,7 @@ def test_execute_queue_entry_marks_runner_errors_failed(
     monkeypatch.setattr(queue_cmd, "notify_job_started", lambda *args, **kwargs: True)
     monkeypatch.setattr(queue_cmd, "notify_job_finished", lambda *args, **kwargs: True)
 
-    outcome = queue_cmd._execute_queue_entry(
-        cfg,
-        queue_root=queue_root,
-        entry=entry
-    )
+    outcome = queue_cmd._execute_queue_entry(cfg, queue_root=queue_root, entry=entry)
 
     assert outcome.result.status == "failed"
     assert outcome.result.reason == "runner_error:boom"
@@ -446,11 +442,7 @@ def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(
 
     monkeypatch.setattr(queue_cmd, "notify_job_finished", fake_notify_job_finished)
 
-    outcome = queue_cmd._execute_queue_entry(
-        cfg,
-        queue_root=queue_root,
-        entry=entry
-    )
+    outcome = queue_cmd._execute_queue_entry(cfg, queue_root=queue_root, entry=entry)
 
     assert outcome.result.status == "completed"
     assert outcome.organized_output_dir == ""

@@ -78,7 +78,11 @@ class DFTIndex:
         total = self._store.count()
         logger.info(
             "dft_index_complete: indexed=%d skipped=%d removed=%d failed=%d total=%d",
-            indexed, len(discovered) - len(to_index), removed, failed, total,
+            indexed,
+            len(discovered) - len(to_index),
+            removed,
+            failed,
+            total,
         )
         return {
             "indexed": indexed,

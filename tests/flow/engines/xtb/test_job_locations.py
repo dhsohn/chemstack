@@ -165,7 +165,9 @@ def test_build_job_location_record_defaults_reaction_key_and_actual_resources(
     assert record.resource_actual == {"max_cores": 1, "max_memory_gb": 1}
 
 
-def test_resolve_latest_job_dir_prefers_indexed_candidates_and_direct_lookup(tmp_path: Path) -> None:
+def test_resolve_latest_job_dir_prefers_indexed_candidates_and_direct_lookup(
+    tmp_path: Path,
+) -> None:
     index_root = tmp_path / "allowed"
     original_dir = tmp_path / "runs" / "job-123"
     organized_dir = tmp_path / "organized" / "rxn-1" / "job-123"
@@ -191,7 +193,9 @@ def test_resolve_latest_job_dir_prefers_indexed_candidates_and_direct_lookup(tmp
     )
 
     assert resolve_latest_job_dir(index_root, "job-123") == organized_dir.resolve()
-    assert resolve_latest_job_dir(index_root, str(original_dir.resolve())) == organized_dir.resolve()
+    assert (
+        resolve_latest_job_dir(index_root, str(original_dir.resolve())) == organized_dir.resolve()
+    )
 
 
 def test_resolve_latest_job_dir_falls_back_to_existing_target_directory(tmp_path: Path) -> None:

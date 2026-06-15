@@ -8,17 +8,27 @@ def test_workflow_status_helpers_cover_terminal_attention_and_current_stage_sele
     assert workflow_status.workflow_status_is_active("running") is True
     assert workflow_status.workflow_status_needs_attention("submission_failed") is True
     assert workflow_status.workflow_status_is_terminal("cancel_failed") is True
-    assert workflow_status.workflow_stage_is_terminal(
-        {"status": "submission_failed", "task_status": "submission_failed"}
-    ) is True
-    assert workflow_status.workflow_stage_is_terminal(
-        {"status": "submission_failed", "task_status": "running"}
-    ) is False
+    assert (
+        workflow_status.workflow_stage_is_terminal(
+            {"status": "submission_failed", "task_status": "submission_failed"}
+        )
+        is True
+    )
+    assert (
+        workflow_status.workflow_stage_is_terminal(
+            {"status": "submission_failed", "task_status": "running"}
+        )
+        is False
+    )
     assert workflow_status.select_current_stage([]) == {}
     assert workflow_status.select_current_stage(
         [
             "not-a-stage",
-            {"stage_id": "submit", "status": "submission_failed", "task_status": "submission_failed"},
+            {
+                "stage_id": "submit",
+                "status": "submission_failed",
+                "task_status": "submission_failed",
+            },
             {"stage_id": "xtb", "status": "running", "task_status": "running"},
         ]
     ) == {"stage_id": "xtb", "status": "running", "task_status": "running"}

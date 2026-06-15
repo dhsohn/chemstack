@@ -152,9 +152,7 @@ def _needs_organized_refresh(
     report: dict[str, Any],
 ) -> bool:
     return organized_dir is not None and (
-        current_dir is None
-        or not current_dir.exists()
-        or (not state and not report)
+        current_dir is None or not current_dir.exists() or (not state and not report)
     )
 
 

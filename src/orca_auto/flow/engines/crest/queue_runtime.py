@@ -86,6 +86,7 @@ _ENGINE_SPEC = InternalEngineSpec(
     worker_pid_file_name=WORKER_PID_FILE,
 )
 
+
 def _queue_worker_deps() -> Any:
     return _queue_module.queue_worker_deps()
 
@@ -109,9 +110,7 @@ def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
             list_queue=lambda: list_queue,
             list_slots=lambda: list_slots,
             reconcile_stale_slots=lambda: reconcile_stale_slots,
-            reconcile_orphaned_child_queue_entries=lambda: (
-                reconcile_orphaned_child_queue_entries
-            ),
+            reconcile_orphaned_child_queue_entries=lambda: reconcile_orphaned_child_queue_entries,
             mark_cancelled=lambda: mark_cancelled,
             requeue_running_entry=lambda: requeue_running_entry,
             mark_recovery_pending=lambda: _mark_recovery_pending_entry,

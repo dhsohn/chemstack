@@ -15,7 +15,9 @@ from orca_auto.orca.types import RunState
 
 
 class TestAttemptResume(unittest.TestCase):
-    def test_recover_missing_retry_input_uses_selected_input_when_last_attempt_matches_current(self) -> None:
+    def test_recover_missing_retry_input_uses_selected_input_when_last_attempt_matches_current(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction_dir = Path(td)
             selected_inp = reaction_dir / "rxn.inp"
@@ -30,7 +32,10 @@ class TestAttemptResume(unittest.TestCase):
                 }
             )
 
-            with patch("orca_auto.orca.attempt_resume.rewrite_for_retry", return_value=["route_add_tightscf_slowconv"]):
+            with patch(
+                "orca_auto.orca.attempt_resume.rewrite_for_retry",
+                return_value=["route_add_tightscf_slowconv"],
+            ):
                 recovered, reason = recover_missing_retry_input(
                     reaction_dir=reaction_dir,
                     state=state,
@@ -44,7 +49,9 @@ class TestAttemptResume(unittest.TestCase):
 
         self.assertTrue(recovered)
         self.assertEqual(reason, "resume_recovered")
-        self.assertIn("resume_recreated_missing_input:rxn.retry01.inp", state["attempts"][-1]["patch_actions"])
+        self.assertIn(
+            "resume_recreated_missing_input:rxn.retry01.inp", state["attempts"][-1]["patch_actions"]
+        )
         self.assertIn("resume_route_add_tightscf_slowconv", state["attempts"][-1]["patch_actions"])
 
     def test_resolve_execution_input_reports_missing_first_input_without_recovery(self) -> None:
@@ -59,7 +66,9 @@ class TestAttemptResume(unittest.TestCase):
                 state=state,
                 execution_index=1,
                 retries_used=0,
-                retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
+                retry_inp_path=lambda inp, retry_number: inp.with_name(
+                    f"{inp.stem}.retry{retry_number:02d}.inp"
+                ),
                 retry_recipe_step=lambda retry_number: retry_number,
                 to_resolved_local=lambda raw: Path(raw),
                 save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
@@ -68,7 +77,9 @@ class TestAttemptResume(unittest.TestCase):
         self.assertIsNone(current_inp)
         self.assertEqual(reason, "missing_input_for_attempt_1")
 
-    def test_resolve_execution_input_reports_no_output_when_recovery_does_not_create_file(self) -> None:
+    def test_resolve_execution_input_reports_no_output_when_recovery_does_not_create_file(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction_dir = Path(td)
             selected_inp = reaction_dir / "rxn.inp"
@@ -83,7 +94,9 @@ class TestAttemptResume(unittest.TestCase):
                     state=state,
                     execution_index=2,
                     retries_used=1,
-                    retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
+                    retry_inp_path=lambda inp, retry_number: inp.with_name(
+                        f"{inp.stem}.retry{retry_number:02d}.inp"
+                    ),
                     retry_recipe_step=lambda retry_number: retry_number,
                     to_resolved_local=lambda raw: Path(raw),
                     save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
@@ -119,7 +132,9 @@ class TestAttemptResume(unittest.TestCase):
                 state=state,
                 resumed=True,
                 max_retries=2,
-                last_out_path_from_state=lambda current_state: current_state["attempts"][-1].get("out_path"),
+                last_out_path_from_state=lambda current_state: current_state["attempts"][-1].get(
+                    "out_path"
+                ),
                 exit_with_result=_exit_with_result,
                 emit=lambda _payload: None,
             )

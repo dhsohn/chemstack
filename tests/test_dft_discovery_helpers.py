@@ -36,16 +36,22 @@ def test_discover_orca_targets_routes_by_path_policy(tmp_path: Path) -> None:
         patch.object(discovery, "_discover_orca_outputs_targets", return_value=[]) as outputs_mock,
         patch.object(discovery, "_discover_orca_runs_targets", return_value=[]) as runs_mock,
     ):
-        assert discovery.discover_orca_targets(
-            outputs_root,
-            max_bytes=111,
-            recent_completed_window_minutes=15,
-        ) == []
-        assert discovery.discover_orca_targets(
-            runs_root,
-            max_bytes=222,
-            recent_completed_window_minutes=30,
-        ) == []
+        assert (
+            discovery.discover_orca_targets(
+                outputs_root,
+                max_bytes=111,
+                recent_completed_window_minutes=15,
+            )
+            == []
+        )
+        assert (
+            discovery.discover_orca_targets(
+                runs_root,
+                max_bytes=222,
+                recent_completed_window_minutes=30,
+            )
+            == []
+        )
 
     outputs_mock.assert_called_once_with(
         kb_path=outputs_root,
@@ -72,11 +78,14 @@ def test_discover_helpers_cover_non_dict_state_and_missing_outputs(tmp_path: Pat
         encoding="utf-8",
     )
 
-    assert discovery._discover_orca_outputs_targets(
-        kb_path=outputs_root,
-        max_bytes=1024,
-        recent_completed_window_minutes=60,
-    ) == []
+    assert (
+        discovery._discover_orca_outputs_targets(
+            kb_path=outputs_root,
+            max_bytes=1024,
+            recent_completed_window_minutes=60,
+        )
+        == []
+    )
 
     runs_root = tmp_path / "orca_runs"
     runs_root.mkdir()
@@ -86,12 +95,17 @@ def test_discover_helpers_cover_non_dict_state_and_missing_outputs(tmp_path: Pat
 
     runs_missing = runs_root / "missing_out"
     runs_missing.mkdir()
-    (runs_missing / "job_state.json").write_text(json.dumps(_state_payload(status="running")), encoding="utf-8")
+    (runs_missing / "job_state.json").write_text(
+        json.dumps(_state_payload(status="running")), encoding="utf-8"
+    )
 
-    assert discovery._discover_orca_runs_targets(
-        kb_path=runs_root,
-        max_bytes=1024,
-    ) == []
+    assert (
+        discovery._discover_orca_runs_targets(
+            kb_path=runs_root,
+            max_bytes=1024,
+        )
+        == []
+    )
 
 
 def test_find_latest_out_in_dir_handles_non_dir_stat_errors_and_latest_selection(

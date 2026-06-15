@@ -87,7 +87,9 @@ def test_validate_job_dir_rejects_outside_root(tmp_path: Path) -> None:
     job_dir = tmp_path / "job-1"
     job_dir.mkdir()
 
-    with pytest.raises(ValueError, match=r"Job directory must be under allowed root: .*got=.*job-1"):
+    with pytest.raises(
+        ValueError, match=r"Job directory must be under allowed root: .*got=.*job-1"
+    ):
         validate_job_dir(str(job_dir), str(allowed_root))
 
 
@@ -109,7 +111,10 @@ def test_resolve_artifact_path_relative_and_absolute_and_missing(tmp_path: Path)
     absolute_candidate.write_text("absolute", encoding="utf-8")
 
     assert resolve_artifact_path("runs/run-1/result.json", base_dir) == relative_candidate.resolve()
-    assert resolve_artifact_path("nested/path/output.json", basename_dir) == basename_candidate.resolve()
+    assert (
+        resolve_artifact_path("nested/path/output.json", basename_dir)
+        == basename_candidate.resolve()
+    )
     assert resolve_artifact_path(str(absolute_candidate), base_dir) == absolute_candidate.resolve()
     assert resolve_artifact_path("missing.json", base_dir) is None
     assert resolve_artifact_path("   ", base_dir) is None

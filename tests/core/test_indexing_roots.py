@@ -98,7 +98,9 @@ def test_index_root_for_path_prefers_matching_workflow_runtime_root(
     workflow_root = tmp_path / "workflows"
     engine_root = workflow_root / "wf-1" / "02_xtb"
 
-    def fake_paths_from_path(path: str, *, workflow_root: str, engine: str) -> dict[str, Path] | None:
+    def fake_paths_from_path(
+        path: str, *, workflow_root: str, engine: str
+    ) -> dict[str, Path] | None:
         if path.endswith("job"):
             return {"allowed_root": engine_root}
         return None
@@ -114,9 +116,10 @@ def test_index_root_for_path_prefers_matching_workflow_runtime_root(
     assert roots.index_root_for_path(cfg, "", str(tmp_path / "job"), engine="xtb") == (
         engine_root.resolve()
     )
-    assert roots.index_root_for_path(cfg, str(tmp_path / "other"), engine="xtb") == (
-        tmp_path / "fallback"
-    ).resolve()
+    assert (
+        roots.index_root_for_path(cfg, str(tmp_path / "other"), engine="xtb")
+        == (tmp_path / "fallback").resolve()
+    )
 
 
 def test_load_job_artifacts_for_cfg_skips_roots_without_resolved_job_dir(

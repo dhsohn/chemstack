@@ -53,9 +53,7 @@ def test_resolve_xtb_executable_uses_configured_and_path_lookup(
     not_executable.write_text("#!/bin/sh\n", encoding="utf-8")
     not_executable.chmod(0o644)
     with pytest.raises(ValueError, match="Configured xTB executable is not executable"):
-        runner_mod._resolve_xtb_executable(
-            _cfg(tmp_path, xtb_executable=str(not_executable))
-        )
+        runner_mod._resolve_xtb_executable(_cfg(tmp_path, xtb_executable=str(not_executable)))
 
     monkeypatch.setattr(
         engine_runner.shutil,

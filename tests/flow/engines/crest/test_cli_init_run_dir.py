@@ -287,10 +287,13 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     assert submission["status"] == "submitted"
     assert submission["job_id"] == "crest-e2e-001"
 
-    assert process_one_crest_for_test(
-        queue_cmd,
-        queue_cmd.load_config(str(config_path)),
-    ) == "processed"
+    assert (
+        process_one_crest_for_test(
+            queue_cmd,
+            queue_cmd.load_config(str(config_path)),
+        )
+        == "processed"
+    )
     worker_output = capsys.readouterr().out
     assert "organized_output_dir:" not in worker_output
     assert "queue_id:" in worker_output

@@ -71,9 +71,7 @@ def _completed_reaction_crest_contracts(
     reactant_contract = o.stages._completed_crest_stage(
         roles["reactant"], crest_config=crest_config
     )
-    product_contract = o.stages._completed_crest_stage(
-        roles["product"], crest_config=crest_config
-    )
+    product_contract = o.stages._completed_crest_stage(roles["product"], crest_config=crest_config)
     if reactant_contract is None or product_contract is None:
         return None
     return reactant_contract, product_contract

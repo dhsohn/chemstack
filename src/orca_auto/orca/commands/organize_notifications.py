@@ -94,8 +94,7 @@ def _skip_section(
         return None
 
     skip_lines = [
-        f"\u23ed {escape_html_fn(skip.reaction_dir)}\n"
-        f"   \U0001f4ac {escape_html_fn(skip.reason)}"
+        f"\u23ed {escape_html_fn(skip.reaction_dir)}\n   \U0001f4ac {escape_html_fn(skip.reason)}"
         for skip in skips[:_ORGANIZE_SKIP_LIMIT]
     ]
     skip_header = f"\u23ed <b>Skipped</b>  ({skipped_count})"

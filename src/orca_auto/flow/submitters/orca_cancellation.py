@@ -396,4 +396,6 @@ def cancel_reaction_ts_search_workflow(
         payload=payload,
         deps=deps,
     )
-    return cancellation_workflow_result(payload=payload, workspace_dir=workspace_dir, buckets=buckets)
+    return cancellation_workflow_result(
+        payload=payload, workspace_dir=workspace_dir, buckets=buckets
+    )

@@ -294,9 +294,7 @@ def test_cancel_target_uses_direct_queue_adapter(
         "config=/tmp/orca.yaml",
         f"target={target}",
     ]
-    assert result["stdout"] == (
-        f"status: {expected_status}\nqueue_id: q_123\njob_id: orca_job_123"
-    )
+    assert result["stdout"] == (f"status: {expected_status}\nqueue_id: q_123\njob_id: orca_job_123")
 
 
 def test_cancel_target_reports_missing_and_empty_targets(
@@ -315,7 +313,7 @@ def test_cancel_target_reports_missing_and_empty_targets(
         "load_config",
         lambda _config_path: SimpleNamespace(
             runtime=SimpleNamespace(allowed_root=str(allowed_root))
-        )
+        ),
     )
     monkeypatch.setattr(queue_adapter, "list_queue", lambda _root: [])
 

@@ -32,7 +32,9 @@ def test_emit_worker_payload_formats_text_and_json(capsys) -> None:
     cli_workflow._emit_worker_payload(payload, json_mode=False, single_cycle=False)
     stdout = capsys.readouterr().out
     assert "cycle_started_at: 2026-04-19T17:00:00+00:00 worker_session_id=worker_1" in stdout
-    assert "- wf_1 template=reaction_ts_search previous=planned status=running advanced=yes" in stdout
+    assert (
+        "- wf_1 template=reaction_ts_search previous=planned status=running advanced=yes" in stdout
+    )
     assert "reason=submitted" in stdout
 
     cli_workflow._emit_worker_payload(payload, json_mode=True, single_cycle=True)
@@ -76,11 +78,21 @@ def test_cmd_workflow_worker_handles_negative_cycles_and_lock_timeout(monkeypatc
         yield
 
     monkeypatch.setattr(cli_workflow, "file_lock", raising_lock)
-    monkeypatch.setattr(cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock"))
+    monkeypatch.setattr(
+        cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock")
+    )
     monkeypatch.setattr(cli_workflow, "now_utc_iso", lambda: "2026-04-19T17:20:00+00:00")
     monkeypatch.setattr(cli_workflow, "timestamped_token", lambda prefix: "wf_worker_01")
-    monkeypatch.setattr(cli_workflow, "write_workflow_worker_state", lambda workflow_root, **kwargs: writes.append(kwargs))
-    monkeypatch.setattr(cli_workflow, "append_workflow_journal_event", lambda workflow_root, **kwargs: events.append(kwargs))
+    monkeypatch.setattr(
+        cli_workflow,
+        "write_workflow_worker_state",
+        lambda workflow_root, **kwargs: writes.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cli_workflow,
+        "append_workflow_journal_event",
+        lambda workflow_root, **kwargs: events.append(kwargs),
+    )
 
     args.max_cycles = 0
     result = cli_workflow.cmd_workflow_worker(args)
@@ -100,11 +112,21 @@ def test_cmd_workflow_worker_single_cycle_and_keyboard_interrupt(monkeypatch, ca
         yield
 
     monkeypatch.setattr(cli_workflow, "file_lock", fake_lock)
-    monkeypatch.setattr(cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock"))
+    monkeypatch.setattr(
+        cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock")
+    )
     monkeypatch.setattr(cli_workflow, "now_utc_iso", lambda: "2026-04-19T17:30:00+00:00")
     monkeypatch.setattr(cli_workflow, "timestamped_token", lambda prefix: "wf_worker_02")
-    monkeypatch.setattr(cli_workflow, "write_workflow_worker_state", lambda workflow_root, **kwargs: writes.append(kwargs))
-    monkeypatch.setattr(cli_workflow, "append_workflow_journal_event", lambda workflow_root, **kwargs: events.append(kwargs))
+    monkeypatch.setattr(
+        cli_workflow,
+        "write_workflow_worker_state",
+        lambda workflow_root, **kwargs: writes.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cli_workflow,
+        "append_workflow_journal_event",
+        lambda workflow_root, **kwargs: events.append(kwargs),
+    )
     monkeypatch.setattr(
         cli_workflow,
         "advance_workflow_registry_once",

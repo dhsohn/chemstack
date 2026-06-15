@@ -40,10 +40,13 @@ def test_xtb_submitter_roundtrip_smoke(
     assert queue_entries[0].queue_id == submission["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    assert process_one_xtb_for_test(
-        xtb_queue_cmd,
-        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
-    ) == "processed"
+    assert (
+        process_one_xtb_for_test(
+            xtb_queue_cmd,
+            xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
+        )
+        == "processed"
+    )
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submission['queue_id']}" in worker_output
     assert f"job_id: {submission['job_id']}" in worker_output
@@ -80,7 +83,9 @@ def test_xtb_submitter_roundtrip_smoke(
     assert contract.job_type == "opt"
     assert contract.organized_output_dir == ""
     assert contract.selected_candidate_paths == (str((artifact_dir / "xtbopt.xyz").resolve()),)
-    assert contract.analysis_summary["canonical_result_path"] == str((artifact_dir / "xtbopt.xyz").resolve())
+    assert contract.analysis_summary["canonical_result_path"] == str(
+        (artifact_dir / "xtbopt.xyz").resolve()
+    )
 
     queue_entries_after = list_queue(smoke_workspace.xtb_allowed_root)
     assert len(queue_entries_after) == 1

@@ -284,9 +284,7 @@ def cmd_organize(
     resolved_organized_root_fn: Callable[[AppConfig, str | Path], Path] | None = None,
     resolve_scope_fn: Callable[..., tuple[list[OrganizePlan], list[SkipReason]] | None]
     | None = None,
-    build_dry_run_summary_fn: Callable[
-        [list[OrganizePlan], list[SkipReason]], Dict[str, Any]
-    ]
+    build_dry_run_summary_fn: Callable[[list[OrganizePlan], list[SkipReason]], Dict[str, Any]]
     | None = None,
     cmd_apply_fn: Callable[[list[OrganizePlan], list[SkipReason], Path, AppConfig], int]
     | None = None,

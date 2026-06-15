@@ -131,7 +131,10 @@ def test_build_command_emits_single_step_gfn_variants(
     job_dir.mkdir()
     selected_xyz = job_dir / "input.xyz"
     _write_xyz(selected_xyz)
-    monkeypatch.setattr("orca_auto.flow.engines.crest.runner._resolve_crest_executable", lambda _cfg: "/usr/bin/crest")
+    monkeypatch.setattr(
+        "orca_auto.flow.engines.crest.runner._resolve_crest_executable",
+        lambda _cfg: "/usr/bin/crest",
+    )
 
     command = _build_command(
         cfg,

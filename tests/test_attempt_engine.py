@@ -289,7 +289,9 @@ class TestAttemptEngine(unittest.TestCase):
         self.assertIn('%moinp "rxn.gbw"', resume_text)
         self.assertIn("MORead", resume_text)
         self.assertEqual(saved["attempts"][0]["inp_path"], str(resume_inp))
-        self.assertIn("resume_checkpoint_restart_from_rxn.gbw", saved["attempts"][0]["patch_actions"])
+        self.assertIn(
+            "resume_checkpoint_restart_from_rxn.gbw", saved["attempts"][0]["patch_actions"]
+        )
         self.assertIn("resume_geometry_restart_from_rxn.xyz", saved["attempts"][0]["patch_actions"])
 
 

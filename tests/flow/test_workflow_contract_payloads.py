@@ -32,9 +32,7 @@ def test_workflow_plan_to_dict_preserves_nested_stage_task_and_artifact_payloads
                 metadata={"input_role": "reactant"},
             ),
         ),
-        output_artifacts=(
-            WorkflowArtifactRef(kind="crest_conformers", path="/tmp/crest.xyz"),
-        ),
+        output_artifacts=(WorkflowArtifactRef(kind="crest_conformers", path="/tmp/crest.xyz"),),
         task=task,
         metadata={"input_role": "reactant"},
     )

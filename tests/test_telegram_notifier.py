@@ -207,7 +207,9 @@ class TestSendMessage:
         fake_transport.send_text.assert_called_once_with("hello", parse_mode="HTML")
 
     @patch("orca_auto.orca.telegram_notifier.build_telegram_transport")
-    def test_long_message_is_split_without_oversized_chunks(self, mock_build_transport: MagicMock) -> None:
+    def test_long_message_is_split_without_oversized_chunks(
+        self, mock_build_transport: MagicMock
+    ) -> None:
         fake_transport = MagicMock()
         fake_transport.send_text.return_value = SimpleNamespace(
             sent=True,
@@ -228,7 +230,9 @@ class TestSendMessage:
         assert all(call.kwargs["parse_mode"] == "HTML" for call in calls)
 
     @patch("orca_auto.orca.telegram_notifier.build_telegram_transport")
-    def test_html_failure_retries_chunk_as_plain_text(self, mock_build_transport: MagicMock) -> None:
+    def test_html_failure_retries_chunk_as_plain_text(
+        self, mock_build_transport: MagicMock
+    ) -> None:
         fake_transport = MagicMock()
         fake_transport.send_text.side_effect = [
             SimpleNamespace(
@@ -268,7 +272,9 @@ class TestSendMessage:
         assert send_message(_enabled_config(), "hello") is False
 
     @patch("orca_auto.orca.telegram_notifier.build_telegram_transport")
-    def test_custom_timeout_flows_through_shared_transport(self, mock_build_transport: MagicMock) -> None:
+    def test_custom_timeout_flows_through_shared_transport(
+        self, mock_build_transport: MagicMock
+    ) -> None:
         fake_transport = MagicMock()
         fake_transport.send_text.return_value = SimpleNamespace(
             sent=True,

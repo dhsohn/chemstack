@@ -93,9 +93,7 @@ class OrganizeApplyDependencies:
     move: OrganizeApplyMoveDeps
     tracking: OrganizeApplyTrackingDeps
     notifications: OrganizeApplyNotificationDeps
-    extensions: OrganizeApplyExtensionDeps = field(
-        default_factory=OrganizeApplyExtensionDeps
-    )
+    extensions: OrganizeApplyExtensionDeps = field(default_factory=OrganizeApplyExtensionDeps)
 
     _PASSTHROUGH_TARGETS: ClassVar[Mapping[str, str]] = _ORGANIZE_APPLY_DEP_TARGETS
 
@@ -294,12 +292,8 @@ def _call_bookkeep_successful_move(
     deps: OrganizeApplyDependencies,
 ) -> _PlanApplyResult:
     if deps.bookkeep_successful_move is not None:
-        return deps.bookkeep_successful_move(
-            cfg, organized_root=organized_root, plan=plan
-        )
-    return _bookkeep_successful_move(
-        cfg, organized_root=organized_root, plan=plan, deps=deps
-    )
+        return deps.bookkeep_successful_move(cfg, organized_root=organized_root, plan=plan)
+    return _bookkeep_successful_move(cfg, organized_root=organized_root, plan=plan, deps=deps)
 
 
 def _call_rollback_after_apply_failure(
@@ -334,9 +328,5 @@ def _call_apply_one_organize_plan(
     deps: OrganizeApplyDependencies,
 ) -> _PlanApplyResult:
     if deps.apply_one_organize_plan is not None:
-        return deps.apply_one_organize_plan(
-            cfg, organized_root=organized_root, plan=plan
-        )
-    return _apply_one_organize_plan(
-        cfg, organized_root=organized_root, plan=plan, deps=deps
-    )
+        return deps.apply_one_organize_plan(cfg, organized_root=organized_root, plan=plan)
+    return _apply_one_organize_plan(cfg, organized_root=organized_root, plan=plan, deps=deps)

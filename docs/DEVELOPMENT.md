@@ -88,10 +88,13 @@ bash scripts/clean_artifacts.sh
 ## Quality Gates
 
 - `scripts/check.sh` is the shared local and CI entrypoint. It creates or
-  repairs `.venv`, installs `.[dev]`, then runs `ruff`, `mypy`, and pytest with
-  the coverage gate.
+  repairs `.venv`, installs `.[dev]`, then runs `ruff check`,
+  `ruff format --check`, `mypy`, and pytest with the coverage gate.
 - Ruff explicitly enables import sorting (`I`) and Bugbear (`B`) alongside the
   default Pyflakes/pycodestyle safety rules.
+- `ruff format` is the canonical formatter and is gated via
+  `ruff format --check`. Line length (`line-length = 100`) is shaped by the
+  formatter, so `E501` is intentionally left out of the lint `select`.
 - Mypy remains broadly non-strict at `[tool.mypy]`; strict-style options are
   intentionally scoped to override-listed modules that have already been
   hardened. Expand that override list only when the full check still passes, and

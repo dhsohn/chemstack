@@ -37,7 +37,9 @@ exit 0
     path.chmod(0o755)
 
 
-def _submit_manual_jobs(smoke_workspace: Any, xtb_opt_job: Path, crest_job: Path) -> tuple[Any, Any]:
+def _submit_manual_jobs(
+    smoke_workspace: Any, xtb_opt_job: Path, crest_job: Path
+) -> tuple[Any, Any]:
     return (
         xtb_submitter.submit_job_dir(
             job_dir=str(xtb_opt_job),
@@ -52,7 +54,9 @@ def _submit_manual_jobs(smoke_workspace: Any, xtb_opt_job: Path, crest_job: Path
     )
 
 
-def _start_xtb_worker_thread(smoke_workspace: Any) -> tuple[threading.Thread, list[str], list[BaseException]]:
+def _start_xtb_worker_thread(
+    smoke_workspace: Any,
+) -> tuple[threading.Thread, list[str], list[BaseException]]:
     xtb_outcomes: list[str] = []
     xtb_errors: list[BaseException] = []
 
@@ -88,9 +92,7 @@ def test_xtb_and_crest_share_single_admission_slot(
     capsys: Any,
 ) -> None:
     _write_slow_fake_xtb(smoke_workspace.fake_xtb)
-    xtb_submission, crest_submission = _submit_manual_jobs(
-        smoke_workspace, xtb_opt_job, crest_job
-    )
+    xtb_submission, crest_submission = _submit_manual_jobs(smoke_workspace, xtb_opt_job, crest_job)
 
     assert xtb_submission["status"] == "submitted"
     assert crest_submission["status"] == "submitted"
@@ -103,10 +105,13 @@ def test_xtb_and_crest_share_single_admission_slot(
     assert slots[0].app_name == "orca_auto_xtb"
     assert slots[0].source == "orca_auto.flow.engines.xtb.queue_worker"
 
-    assert process_one_crest_for_test(
-        crest_queue_cmd,
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-    ) == "blocked"
+    assert (
+        process_one_crest_for_test(
+            crest_queue_cmd,
+            crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        )
+        == "blocked"
+    )
     assert active_slot_count(smoke_workspace.admission_root) == 1
     assert len(list_slots(smoke_workspace.admission_root)) == 1
     assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "pending"
@@ -123,10 +128,13 @@ def test_xtb_and_crest_share_single_admission_slot(
     assert list_slots(smoke_workspace.admission_root) == []
     _assert_job_record(smoke_workspace.xtb_allowed_root, xtb_submission["job_id"], xtb_opt_job)
 
-    assert process_one_crest_for_test(
-        crest_queue_cmd,
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-    ) == "processed"
+    assert (
+        process_one_crest_for_test(
+            crest_queue_cmd,
+            crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        )
+        == "processed"
+    )
     crest_stdout = capsys.readouterr().out
     assert f"queue_id: {crest_submission['queue_id']}" in crest_stdout
     assert f"job_id: {crest_submission['job_id']}" in crest_stdout

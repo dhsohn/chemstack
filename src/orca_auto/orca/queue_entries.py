@@ -195,14 +195,10 @@ def queue_entry_matches_target(entry: QueueEntry, target: str) -> bool:
     return bool(resolved_target and resolved_target in aliases)
 
 
-def find_active_entry(
-    entries: Sequence[_QueueEntryT], reaction_dir: str
-) -> _QueueEntryT | None:
+def find_active_entry(entries: Sequence[_QueueEntryT], reaction_dir: str) -> _QueueEntryT | None:
     return _core_queue.find_entry_by_key(
         entries,
         reaction_dir,
         key_fn=queue_entry_reaction_dir,
         statuses=ACTIVE_STATUSES,
     )
-
-

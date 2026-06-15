@@ -125,7 +125,9 @@ def _write_crest_state(
     )
 
 
-def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_target(tmp_path: Path) -> None:
+def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_target(
+    tmp_path: Path,
+) -> None:
     job_dir = tmp_path / "xtb_direct"
     selected_input_xyz = job_dir / "input.xyz"
     ts_guess = job_dir / "ts_guess.xyz"
@@ -145,7 +147,13 @@ def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_ta
             "reaction_key": "rxn-1",
             "analysis_summary": {"best_score": -0.5},
             "candidate_details": [
-                {"rank": 2, "kind": "optimized_geometry", "path": str(optimized), "selected": False, "score": "-1.2"},
+                {
+                    "rank": 2,
+                    "kind": "optimized_geometry",
+                    "path": str(optimized),
+                    "selected": False,
+                    "score": "-1.2",
+                },
                 {
                     "rank": "1",
                     "kind": "ts_guess",
@@ -186,7 +194,9 @@ def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_ta
     assert stage_inputs[0].metadata == {"source": "scan"}
 
 
-def test_load_xtb_artifact_contract_preserves_selected_candidate_paths_without_details(tmp_path: Path) -> None:
+def test_load_xtb_artifact_contract_preserves_selected_candidate_paths_without_details(
+    tmp_path: Path,
+) -> None:
     index_root = tmp_path / "xtb_index"
     job_dir = tmp_path / "xtb_job_fallback"
     selected_input_xyz = job_dir / "input.xyz"
@@ -267,7 +277,9 @@ def test_load_xtb_artifact_contract_ignores_malformed_candidate_details(
     assert contract.candidate_details == ()
 
 
-def test_select_xtb_downstream_inputs_ignores_selected_paths_when_details_are_empty(tmp_path: Path) -> None:
+def test_select_xtb_downstream_inputs_ignores_selected_paths_when_details_are_empty(
+    tmp_path: Path,
+) -> None:
     invalid_candidate = tmp_path / "candidate.txt"
     valid_candidate = tmp_path / "candidate.xyz"
 
@@ -356,7 +368,9 @@ def test_load_crest_artifact_contract_and_select_retained_conformers(tmp_path: P
     assert contract.resource_request == {"max_cores": 2}
     assert contract.resource_actual == {"max_cores": 2}
 
-    stage_inputs = select_crest_downstream_inputs(contract, policy=CrestDownstreamPolicy.build(max_candidates=2))
+    stage_inputs = select_crest_downstream_inputs(
+        contract, policy=CrestDownstreamPolicy.build(max_candidates=2)
+    )
 
     assert len(stage_inputs) == 2
     assert stage_inputs[0].artifact_path == str(conformer_one)
@@ -368,7 +382,9 @@ def test_load_crest_artifact_contract_and_select_retained_conformers(tmp_path: P
     assert stage_inputs[1].selected is False
 
 
-def test_load_crest_artifact_contract_prefers_active_state_over_stale_report(tmp_path: Path) -> None:
+def test_load_crest_artifact_contract_prefers_active_state_over_stale_report(
+    tmp_path: Path,
+) -> None:
     job_dir = tmp_path / "crest_active_state"
     old_conformer = job_dir / "old_conf.xyz"
     active_input = job_dir / "active_input.xyz"
@@ -502,7 +518,9 @@ def test_select_crest_downstream_inputs_splits_multiframe_retained_ensemble(tmp_
     )
 
     contract = load_crest_artifact_contract(crest_index_root=tmp_path, target=str(job_dir))
-    stage_inputs = select_crest_downstream_inputs(contract, policy=CrestDownstreamPolicy.build(max_candidates=2))
+    stage_inputs = select_crest_downstream_inputs(
+        contract, policy=CrestDownstreamPolicy.build(max_candidates=2)
+    )
 
     assert len(stage_inputs) == 2
     assert [item.rank for item in stage_inputs] == [1, 2]

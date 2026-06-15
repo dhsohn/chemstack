@@ -59,6 +59,9 @@ fi
 echo "[check] Ruff"
 "$VENV_PY" -m ruff check .
 
+echo "[check] Ruff format"
+"$VENV_PY" -m ruff format --check .
+
 echo "[check] mypy"
 "$VENV_PY" -m mypy
 

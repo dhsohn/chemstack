@@ -208,12 +208,8 @@ def build_late_bound_internal_engine_queue_worker_facade_callbacks(
     return InternalEngineQueueWorkerFacadeCallbacks(
         release_slot=lambda root, token: bindings.release_slot()(root, token),
         reserve_slot=lambda *args, **kwargs: bindings.reserve_slot()(*args, **kwargs),
-        start_background_process=lambda command: bindings.start_background_process()(
-            command
-        ),
-        build_worker_child_command=lambda **kwargs: bindings.build_worker_child_command()(
-            **kwargs
-        ),
+        start_background_process=lambda command: bindings.start_background_process()(command),
+        build_worker_child_command=lambda **kwargs: bindings.build_worker_child_command()(**kwargs),
         config_path_for_worker=_late_config_path_for_worker(
             bindings.config_path_for_worker,
         ),
@@ -233,19 +229,18 @@ def build_late_bound_internal_engine_queue_worker_facade_callbacks(
                 exc,
             )
         ),
-        finalize_completed_job=lambda worker, queue_id, job, rc: (
-            bindings.finalize_completed_job()(worker, queue_id, job, rc)
+        finalize_completed_job=lambda worker, queue_id, job, rc: bindings.finalize_completed_job()(
+            worker, queue_id, job, rc
         ),
-        finalize_child_exit=lambda worker, job, *, rc: (
-            bindings.finalize_child_exit()(worker, job, rc=rc)
+        finalize_child_exit=lambda worker, job, *, rc: bindings.finalize_child_exit()(
+            worker, job, rc=rc
         ),
         reconcile_worker_state=lambda worker: bindings.reconcile_worker_state()(worker),
         list_queue=lambda root: bindings.list_queue()(root),
         list_slots=lambda root: bindings.list_slots()(root),
         reconcile_stale_slots=lambda root: bindings.reconcile_stale_slots()(root),
         reconcile_orphaned_child_queue_entries=(
-            _late_optional(bindings.reconcile_orphaned_child_queue_entries)
-            or _noop_callback
+            _late_optional(bindings.reconcile_orphaned_child_queue_entries) or _noop_callback
         ),
         mark_cancelled=lambda *args, **kwargs: bindings.mark_cancelled()(
             *args,
@@ -255,9 +250,7 @@ def build_late_bound_internal_engine_queue_worker_facade_callbacks(
             *args,
             **kwargs,
         ),
-        mark_recovery_pending=(
-            _late_optional(bindings.mark_recovery_pending) or _noop_callback
-        ),
+        mark_recovery_pending=(_late_optional(bindings.mark_recovery_pending) or _noop_callback),
         try_reserve_admission_slot=_late_optional(bindings.try_reserve_admission_slot),
         start_background_job_process=_late_optional(bindings.start_background_job_process),
         find_queue_entry=_late_optional(bindings.find_queue_entry),
@@ -327,9 +320,7 @@ def build_internal_engine_queue_worker_deps(
         list_queue=callbacks.list_queue,
         list_slots=callbacks.list_slots,
         reconcile_stale_slots=callbacks.reconcile_stale_slots,
-        reconcile_orphaned_child_queue_entries=(
-            callbacks.reconcile_orphaned_child_queue_entries
-        ),
+        reconcile_orphaned_child_queue_entries=(callbacks.reconcile_orphaned_child_queue_entries),
         mark_cancelled=callbacks.mark_cancelled,
         requeue_running_entry=callbacks.requeue_running_entry,
         mark_recovery_pending=callbacks.mark_recovery_pending,
@@ -378,12 +369,10 @@ class InternalEngineQueueWorkerDepsResolver:
             time_module=self.deps.time_module,
             release_slot_fn=self.deps.release_slot,
             start_background_job_process_fn=(
-                self.deps.start_background_job_process_fn
-                or start_background_job_process_fn
+                self.deps.start_background_job_process_fn or start_background_job_process_fn
             ),
             try_reserve_admission_slot_fn=(
-                self.deps.try_reserve_admission_slot
-                or try_reserve_admission_slot_fn
+                self.deps.try_reserve_admission_slot or try_reserve_admission_slot_fn
             ),
         )
 

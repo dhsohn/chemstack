@@ -99,9 +99,7 @@ def test_enqueue_overwrites_worker_log_metadata_with_safe_queue_log(tmp_path: Pa
     )
 
     metadata = queue_adapter.queue_entry_metadata(entry)
-    assert metadata["worker_log"] == str(
-        (tmp_path / "logs" / f"{entry.queue_id}.log").resolve()
-    )
+    assert metadata["worker_log"] == str((tmp_path / "logs" / f"{entry.queue_id}.log").resolve())
 
 
 def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed_and_failed(
@@ -279,15 +277,17 @@ def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path)
 
 
 def test_queue_entry_accessors_read_common_fields_from_metadata(tmp_path: Path) -> None:
-    entry = queue_entries.entry_from_json_payload({
-        "queue_id": "q_meta",
-        "status": "PENDING",
-        "priority": 7,
-        "metadata": {
-            "reaction_dir": str(tmp_path / "rxn"),
-            "force": True,
-        },
-    })
+    entry = queue_entries.entry_from_json_payload(
+        {
+            "queue_id": "q_meta",
+            "status": "PENDING",
+            "priority": 7,
+            "metadata": {
+                "reaction_dir": str(tmp_path / "rxn"),
+                "force": True,
+            },
+        }
+    )
 
     assert queue_adapter.queue_entry_id(entry) == "q_meta"
     assert queue_adapter.queue_entry_task_id(entry) == "q_meta"
@@ -350,9 +350,24 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
     _save_entries(
         root,
         [
-            _entry("q_done", str(completed_dir), QueueStatus.RUNNING.value, started_at="2026-03-10T00:10:00+00:00"),
-            _entry("q_fail", str(failed_dir), QueueStatus.RUNNING.value, started_at="2026-03-10T00:20:00+00:00"),
-            _entry("q_requeue", str(pending_dir), QueueStatus.RUNNING.value, started_at="2026-03-10T00:30:00+00:00"),
+            _entry(
+                "q_done",
+                str(completed_dir),
+                QueueStatus.RUNNING.value,
+                started_at="2026-03-10T00:10:00+00:00",
+            ),
+            _entry(
+                "q_fail",
+                str(failed_dir),
+                QueueStatus.RUNNING.value,
+                started_at="2026-03-10T00:20:00+00:00",
+            ),
+            _entry(
+                "q_requeue",
+                str(pending_dir),
+                QueueStatus.RUNNING.value,
+                started_at="2026-03-10T00:30:00+00:00",
+            ),
         ],
     )
 
@@ -376,15 +391,20 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
             }
         return None
 
-    with patch("orca_auto.orca.queue_orphans.read_worker_pid", return_value=None), patch(
-        "orca_auto.orca.queue_orphans.active_lock_pid",
-        return_value=None,
-    ), patch(
-        "orca_auto.orca.queue_orphans.load_state",
-        side_effect=_load_state,
-    ), patch(
-        "orca_auto.orca.queue_orphans.terminal_report_data",
-        return_value=None,
+    with (
+        patch("orca_auto.orca.queue_orphans.read_worker_pid", return_value=None),
+        patch(
+            "orca_auto.orca.queue_orphans.active_lock_pid",
+            return_value=None,
+        ),
+        patch(
+            "orca_auto.orca.queue_orphans.load_state",
+            side_effect=_load_state,
+        ),
+        patch(
+            "orca_auto.orca.queue_orphans.terminal_report_data",
+            return_value=None,
+        ),
     ):
         changed = queue_orphans.reconcile_orphaned_running_entries(root)
 
@@ -398,7 +418,9 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
     assert entries["q_requeue"].started_at == ""
 
 
-def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tmp_path: Path) -> None:
+def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()
     locked_dir = root / "locked"
@@ -412,9 +434,12 @@ def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tm
         ],
     )
 
-    with patch("orca_auto.orca.queue_orphans.read_worker_pid", return_value=None), patch(
-        "orca_auto.orca.queue_orphans.active_lock_pid",
-        side_effect=lambda reaction_dir: 999 if reaction_dir == locked_dir else None,
+    with (
+        patch("orca_auto.orca.queue_orphans.read_worker_pid", return_value=None),
+        patch(
+            "orca_auto.orca.queue_orphans.active_lock_pid",
+            side_effect=lambda reaction_dir: 999 if reaction_dir == locked_dir else None,
+        ),
     ):
         changed = queue_orphans.reconcile_orphaned_running_entries(root)
 
@@ -449,7 +474,9 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
     _save_entries(
         root,
         [
-            _entry("q_running", str(root / "running"), QueueStatus.RUNNING.value, cancel_requested=True),
+            _entry(
+                "q_running", str(root / "running"), QueueStatus.RUNNING.value, cancel_requested=True
+            ),
             _entry("q_terminal", str(root / "terminal"), QueueStatus.COMPLETED.value),
         ],
     )

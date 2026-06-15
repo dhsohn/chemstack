@@ -188,8 +188,8 @@ make test
 ```
 
 `make test` runs `scripts/check.sh`, which creates or repairs `.venv`,
-installs `.[dev]`, then runs `ruff`, `mypy`, and the coverage-gated pytest
-suite. Pass pytest selectors directly to the script when you want a narrower
+installs `.[dev]`, then runs `ruff check`, `ruff format --check`, `mypy`, and
+the coverage-gated pytest suite. Pass pytest selectors directly to the script when you want a narrower
 loop, for example `bash scripts/check.sh tests/flow -q`.
 
 To clear local Python/test/tool caches after a large refactor:

@@ -91,12 +91,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
     text = bot._handle_list(_settings(), "")
 
     assert "active_simulations: 2" in text
-    assert (
-        "Status" in text
-        and "Name" in text
-        and "Detail" in text
-        and "Elapsed" in text
-    )
+    assert "Status" in text and "Name" in text and "Detail" in text and "Elapsed" in text
     # The Telegram list omits the ID column, so activity ids are not rendered.
     assert "ID" not in text
     assert "orca-q-1" not in text

@@ -158,9 +158,7 @@ class WorkflowTask:
             enqueue_payload=coerce_mapping(enqueue_payload),
             submission_result=coerce_mapping(submission_result),
             depends_on=tuple(
-                text
-                for item in (depends_on or ())
-                if (text := normalize_text(item, none="None"))
+                text for item in (depends_on or ()) if (text := normalize_text(item, none="None"))
             ),
             metadata=coerce_mapping(metadata),
         )

@@ -156,7 +156,9 @@ def _default_engine_organized_root(allowed_root: Path, *, engine_key: str) -> st
 def _prompt_organized_root(allowed_root: Path, *, engine_key: str, engine_label: str) -> str:
     default_path = _default_engine_organized_root(allowed_root, engine_key=engine_key)
     while True:
-        path = _prompt_directory_path(f"{engine_label} organized_root directory", default=default_path)
+        path = _prompt_directory_path(
+            f"{engine_label} organized_root directory", default=default_path
+        )
         if is_subpath(path, allowed_root) or is_subpath(allowed_root, path):
             print(
                 "organized_root and allowed_root must not contain each other. "
@@ -199,7 +201,9 @@ def _prompt_telegram_config() -> dict[str, str]:
         chat_id = _prompt_text("Telegram chat id")
         if bot_token and chat_id:
             return {"bot_token": bot_token, "chat_id": chat_id}
-        print("Both Telegram bot token and chat id are required, or choose not to configure Telegram.")
+        print(
+            "Both Telegram bot token and chat id are required, or choose not to configure Telegram."
+        )
 
 
 def _prompt_workflow_root() -> str:

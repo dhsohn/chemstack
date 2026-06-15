@@ -105,9 +105,16 @@ def test_metadata_selection_and_eligibility_cover_missing_artifacts_and_attempt_
             SimpleNamespace(source="parsed_input", key="retry"),
         ],
     ):
-        assert organizer_planning.select_organize_metadata_inp_path(fallback_state, reaction_dir) == retry_inp.resolve()
+        assert (
+            organizer_planning.select_organize_metadata_inp_path(fallback_state, reaction_dir)
+            == retry_inp.resolve()
+        )
 
-    assert organizer_planning.resolve_organize_metadata({"selected_inp": ""}, reaction_dir) == (None, "other", "unknown")
+    assert organizer_planning.resolve_organize_metadata({"selected_inp": ""}, reaction_dir) == (
+        None,
+        "other",
+        "unknown",
+    )
 
 
 def test_plan_root_scan_handles_scan_errors_and_skips_special_dirs(tmp_path: Path) -> None:
@@ -130,16 +137,22 @@ def test_plan_root_scan_handles_scan_errors_and_skips_special_dirs(tmp_path: Pat
     organized_state = organized_dir / "job_state.json"
     plan = _plan(good_dir, organized / "opt" / "H2" / "run_test")
 
-    with patch(
-        "pathlib.Path.rglob",
-        side_effect=[
-            [good_state, organized_state],
-            [good_report, symlink_report],
-        ],
-    ), patch("pathlib.Path.is_symlink", autospec=True, side_effect=lambda path: path == symlink_dir), patch(
-        "orca_auto.orca.result_organizer_planning.plan_single",
-        return_value=(plan, None),
-    ) as plan_single:
+    with (
+        patch(
+            "pathlib.Path.rglob",
+            side_effect=[
+                [good_state, organized_state],
+                [good_report, symlink_report],
+            ],
+        ),
+        patch(
+            "pathlib.Path.is_symlink", autospec=True, side_effect=lambda path: path == symlink_dir
+        ),
+        patch(
+            "orca_auto.orca.result_organizer_planning.plan_single",
+            return_value=(plan, None),
+        ) as plan_single,
+    ):
         plans, skips = organizer_planning.plan_root_scan(root, organized)
 
     assert plans == [plan]
@@ -173,12 +186,15 @@ def test_move_helpers_cover_copytree_execute_and_rollback_paths(tmp_path: Path) 
 
     plan = _plan(tmp_path / "move_source", tmp_path / "move_target")
     plan.source_dir.mkdir()
-    with patch(
-        "orca_auto.orca.result_organizer_filesystem.os.rename",
-        side_effect=OSError(errno.EXDEV, "cross-device"),
-    ), patch(
-        "orca_auto.orca.result_organizer_filesystem._cross_device_move",
-    ) as cross_move:
+    with (
+        patch(
+            "orca_auto.orca.result_organizer_filesystem.os.rename",
+            side_effect=OSError(errno.EXDEV, "cross-device"),
+        ),
+        patch(
+            "orca_auto.orca.result_organizer_filesystem._cross_device_move",
+        ) as cross_move,
+    ):
         organizer_fs.execute_move(plan)
     cross_move.assert_called_once_with(plan.source_dir, plan.target_abs_path)
 
@@ -201,12 +217,15 @@ def test_move_helpers_cover_copytree_execute_and_rollback_paths(tmp_path: Path) 
     shutil_target = tmp_path / "rollback_target_ok"
     shutil_target.mkdir()
     rollback_plan = _plan(shutil_source, shutil_target)
-    with patch(
-        "orca_auto.orca.result_organizer_filesystem.os.rename",
-        side_effect=OSError(errno.EXDEV, "cross-device"),
-    ), patch(
-        "orca_auto.orca.result_organizer_filesystem._cross_device_move",
-    ) as cross_move:
+    with (
+        patch(
+            "orca_auto.orca.result_organizer_filesystem.os.rename",
+            side_effect=OSError(errno.EXDEV, "cross-device"),
+        ),
+        patch(
+            "orca_auto.orca.result_organizer_filesystem._cross_device_move",
+        ) as cross_move,
+    ):
         organizer_fs.rollback_move(rollback_plan)
     cross_move.assert_called_once_with(shutil_target, shutil_source)
 
@@ -252,11 +271,16 @@ def test_path_normalization_and_state_sync_cover_relocation_branches(tmp_path: P
     assert state["final_result"] is not None
     assert state["final_result"]["last_out_path"] == str(moved_out.resolve())
 
-    assert organizer_state._remap_moved_path("relative/file.out", source_dir, target_dir) == "relative/file.out"
-    assert organizer_state._remap_moved_path(str(tmp_path / "outside.out"), source_dir, target_dir) == str(
-        tmp_path / "outside.out"
+    assert (
+        organizer_state._remap_moved_path("relative/file.out", source_dir, target_dir)
+        == "relative/file.out"
     )
-    assert organizer_state._remap_moved_path(str(attempt_out), source_dir, target_dir) == str(target_dir / "calc.out")
+    assert organizer_state._remap_moved_path(
+        str(tmp_path / "outside.out"), source_dir, target_dir
+    ) == str(tmp_path / "outside.out")
+    assert organizer_state._remap_moved_path(str(attempt_out), source_dir, target_dir) == str(
+        target_dir / "calc.out"
+    )
     assert organizer_state._normalize_moved_artifact_path(
         str(source_dir / "missing.out"),
         source_dir,
@@ -268,7 +292,9 @@ def test_path_normalization_and_state_sync_cover_relocation_branches(tmp_path: P
         source_dir=source_dir,
         target_dir=target_dir,
     )
-    organizer_state._normalize_attempt_artifact_paths("not-a-list", source_dir=source_dir, target_dir=target_dir)
+    organizer_state._normalize_attempt_artifact_paths(
+        "not-a-list", source_dir=source_dir, target_dir=target_dir
+    )
     organizer_state._normalize_final_result_artifact_path(
         {"last_out_path": str(attempt_out)},
         source_dir=source_dir,
@@ -291,9 +317,13 @@ def test_path_normalization_and_state_sync_cover_relocation_branches(tmp_path: P
 def test_fsync_directory_closes_descriptor(tmp_path: Path) -> None:
     path = tmp_path / "dir"
     path.mkdir()
-    with patch("orca_auto.orca.result_organizer_filesystem.os.open", return_value=7) as open_mock, patch(
-        "orca_auto.orca.result_organizer_filesystem.os.fsync",
-    ) as fsync_mock, patch("orca_auto.orca.result_organizer_filesystem.os.close") as close_mock:
+    with (
+        patch("orca_auto.orca.result_organizer_filesystem.os.open", return_value=7) as open_mock,
+        patch(
+            "orca_auto.orca.result_organizer_filesystem.os.fsync",
+        ) as fsync_mock,
+        patch("orca_auto.orca.result_organizer_filesystem.os.close") as close_mock,
+    ):
         organizer_fs._fsync_directory(path)
 
     open_mock.assert_called_once()

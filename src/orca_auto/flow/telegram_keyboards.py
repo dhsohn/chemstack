@@ -60,4 +60,3 @@ def _list_action_keyboard(active_items: list[dict[str, Any]]) -> dict[str, Any]:
         ]
     )
     return _inline_keyboard(rows)
-

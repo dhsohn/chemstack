@@ -157,7 +157,9 @@ def test_orca_queue_worker_uses_common_builder(monkeypatch: Any) -> None:
         return fake_worker
 
     cfg: Any = SimpleNamespace(runtime=SimpleNamespace(admission_limit=None, max_concurrent=1))
-    monkeypatch.setattr(orca_queue_worker, "build_engine_queue_worker", fake_build_engine_queue_worker)
+    monkeypatch.setattr(
+        orca_queue_worker, "build_engine_queue_worker", fake_build_engine_queue_worker
+    )
     monkeypatch.setattr(orca_queue_worker, "_queue_worker_deps", lambda: "deps")
     monkeypatch.setattr(orca_queue_worker, "_queue_worker_hooks", lambda: "hooks")
     monkeypatch.setattr(orca_queue_worker, "_admission_root_for_cfg", lambda _cfg: "/tmp/admission")

@@ -24,7 +24,6 @@ def _write_records(organized_root: Path, records: list) -> None:
 
 
 class TestLoadIndex(unittest.TestCase):
-
     def test_empty_index(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             idx = load_index(Path(td))
@@ -59,7 +58,6 @@ class TestLoadIndex(unittest.TestCase):
 
 
 class TestAppendRecord(unittest.TestCase):
-
     def test_appends_to_empty(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             org = Path(td)
@@ -79,7 +77,6 @@ class TestAppendRecord(unittest.TestCase):
 
 
 class TestRebuildIndex(unittest.TestCase):
-
     def test_rebuild_from_organized_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             org = Path(td) / "outputs"
