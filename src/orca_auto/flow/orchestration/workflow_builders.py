@@ -19,6 +19,7 @@ from orca_auto.flow.orchestration.requests import (
     WorkflowCreationContext,
     WorkflowPersistenceContext,
 )
+from orca_auto.flow.workflow_store import acquire_workflow_create_lock
 
 _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS: dict[str, Any] = {"rthr": 0.3}
 
@@ -119,13 +120,16 @@ def _persist_workflow(
     payload = plan.to_dict()
     payload["stages"] = cast(list[WorkflowStagePayload], list(stages))
     callback_payload = cast(dict[str, Any], payload)
-    _ensure_new_workflow_workspace(persistence_context.workspace_dir)
-    creation_context.write_workflow_payload_fn(persistence_context.workspace_dir, callback_payload)
-    creation_context.sync_workflow_registry_fn(
-        persistence_context.workflow_root_path,
-        persistence_context.workspace_dir,
-        callback_payload,
-    )
+    with acquire_workflow_create_lock(persistence_context.workflow_root_path):
+        _ensure_new_workflow_workspace(persistence_context.workspace_dir)
+        creation_context.write_workflow_payload_fn(
+            persistence_context.workspace_dir, callback_payload
+        )
+        creation_context.sync_workflow_registry_fn(
+            persistence_context.workflow_root_path,
+            persistence_context.workspace_dir,
+            callback_payload,
+        )
     return payload
 
 

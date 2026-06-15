@@ -98,16 +98,20 @@ def test_list_queue_handles_missing_and_rejects_corrupt_json(
         store.list_queue(tmp_path)
 
     _queue_file(tmp_path).write_text(
-        json.dumps(
-            [
-                {
-                    **_entry("q-2"),
-                    "status": "not-a-real-status",
-                    "metadata": ["not", "a", "dict"],
-                }
-            ],
-            indent=2,
-        ),
+        json.dumps([{**_entry("q-2"), "status": "not-a-real-status"}], indent=2),
+        encoding="utf-8",
+    )
+    with pytest.raises(store.QueueStoreCorruptError, match="Unknown queue status"):
+        store.list_queue(tmp_path)
+
+    _queue_file(tmp_path).write_text(
+        json.dumps([_entry("q-3"), "not-a-dict"], indent=2), encoding="utf-8"
+    )
+    with pytest.raises(store.QueueStoreCorruptError, match="must be a JSON object"):
+        store.list_queue(tmp_path)
+
+    _queue_file(tmp_path).write_text(
+        json.dumps([{**_entry("q-4"), "metadata": ["not", "a", "dict"]}], indent=2),
         encoding="utf-8",
     )
     entries = store.list_queue(tmp_path)

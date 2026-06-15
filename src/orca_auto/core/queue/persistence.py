@@ -42,8 +42,11 @@ def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
     status_raw = str(raw.get("status", QueueStatus.PENDING.value)).strip().lower()
     try:
         status = QueueStatus(status_raw)
-    except ValueError:
-        status = QueueStatus.PENDING
+    except ValueError as exc:
+        queue_id = str(raw.get("queue_id", "")).strip() or "<missing>"
+        raise QueueStoreCorruptError(
+            f"Unknown queue status {status_raw!r} in queue entry {queue_id!r}"
+        ) from exc
 
     metadata = raw.get("metadata")
     if not isinstance(metadata, dict):
@@ -82,7 +85,19 @@ def load_entries(
         corrupt_error=corrupt_error,
         description="Queue file",
     )
-    return [entry_from_dict_fn(item) for item in raw if isinstance(item, dict)]
+    entries: list[QueueEntry] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise corrupt_error(f"Queue file entry at index {index} must be a JSON object")
+        try:
+            entries.append(entry_from_dict_fn(item))
+        except QueueStoreCorruptError as exc:
+            if isinstance(exc, corrupt_error):
+                raise
+            raise corrupt_error(str(exc)) from exc
+        except (TypeError, ValueError) as exc:
+            raise corrupt_error(f"Queue file entry at index {index} is invalid: {exc}") from exc
+    return entries
 
 
 def save_entries(

@@ -74,6 +74,13 @@ def test_load_entries_cover_edge_cases(tmp_path: Path) -> None:
         json.dumps([{"queue_id": "q_ok", "status": "pending"}, "bad", []]),
         encoding="utf-8",
     )
+    with pytest.raises(queue_store.QueueStoreCorruptError, match="must be a JSON object"):
+        _load_entries(tmp_path)
+
+    queue_path.write_text(
+        json.dumps([{"queue_id": "q_ok", "status": "pending"}]),
+        encoding="utf-8",
+    )
     [entry] = _load_entries(tmp_path)
     assert entry.queue_id == "q_ok"
     assert entry.status == QueueStatus.PENDING

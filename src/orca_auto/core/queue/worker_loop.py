@@ -48,8 +48,10 @@ def pop_completed_worker_jobs(
         completed.append((queue_id, job, rc))
 
     for queue_id, job, rc in completed:
-        finalize_finished(queue_id, job, rc)
-        running.pop(queue_id, None)
+        try:
+            finalize_finished(queue_id, job, rc)
+        finally:
+            running.pop(queue_id, None)
     return len(completed)
 
 

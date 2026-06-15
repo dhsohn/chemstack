@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -10,6 +11,7 @@ from orca_auto.flow.contracts import (
     WorkflowStagePayload,
     WorkflowTemplateRequest,
 )
+from orca_auto.flow.orchestration import workflow_builders as workflow_builder_module
 from orca_auto.flow.orchestration.requests import (
     ReactionTsSearchWorkflowRequest,
     WorkflowCreationContext,
@@ -215,3 +217,114 @@ def test_persist_workflow_writes_payload_and_syncs_registry(tmp_path: Path) -> N
     assert syncs == [
         (tmp_path / "workflows", workspace_dir, cast(dict[str, Any], payload)),
     ]
+
+
+def test_persist_workflow_writes_and_syncs_under_creation_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def creation_lock(_workflow_root: Path):
+        events.append("lock_enter")
+        try:
+            yield
+        finally:
+            events.append("lock_exit")
+
+    def write_payload(_workspace_dir: Path, _payload: dict[str, Any]) -> None:
+        events.append("write")
+
+    def sync_registry(_root: Path, _workspace_dir: Path, _payload: dict[str, Any]) -> None:
+        events.append("sync")
+
+    monkeypatch.setattr(workflow_builder_module, "acquire_workflow_create_lock", creation_lock)
+
+    request = WorkflowTemplateRequest(
+        workflow_id="wf_lock",
+        template_name="conformer_screening",
+        source_job_id="",
+        source_job_type="raw_xyz",
+        reaction_key="mol",
+        status="planned",
+        requested_at="2026-05-29T00:00:00+00:00",
+        parameters={},
+        source_artifacts=(),
+    )
+
+    _persist_workflow(
+        persistence_context=WorkflowPersistenceContext(
+            workflow_root_path=tmp_path / "workflows",
+            workspace_dir=tmp_path / "workflows" / "wf_lock",
+            workflow_id="wf_lock",
+            template_name="conformer_screening",
+            source_job_id="",
+            source_job_type="raw_xyz",
+            reaction_key="mol",
+            requested_at="2026-05-29T00:00:00+00:00",
+        ),
+        request=request,
+        stages=[],
+        creation_context=_workflow_context(
+            write_workflow_payload_fn=write_payload,
+            sync_workflow_registry_fn=sync_registry,
+        ),
+    )
+
+    assert events == ["lock_enter", "write", "sync", "lock_exit"]
+
+
+def test_persist_workflow_rechecks_existing_payload_under_creation_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace_dir = tmp_path / "workflows" / "wf_race"
+    events: list[str] = []
+
+    @contextmanager
+    def creation_lock(_workflow_root: Path):
+        events.append("lock_enter")
+        workspace_dir.mkdir(parents=True)
+        (workspace_dir / "workflow.json").write_text("{}", encoding="utf-8")
+        try:
+            yield
+        finally:
+            events.append("lock_exit")
+
+    monkeypatch.setattr(workflow_builder_module, "acquire_workflow_create_lock", creation_lock)
+    request = WorkflowTemplateRequest(
+        workflow_id="wf_race",
+        template_name="conformer_screening",
+        source_job_id="",
+        source_job_type="raw_xyz",
+        reaction_key="mol",
+        status="planned",
+        requested_at="2026-05-29T00:00:00+00:00",
+        parameters={},
+        source_artifacts=(),
+    )
+
+    with pytest.raises(FileExistsError, match="workflow already exists"):
+        _persist_workflow(
+            persistence_context=WorkflowPersistenceContext(
+                workflow_root_path=tmp_path / "workflows",
+                workspace_dir=workspace_dir,
+                workflow_id="wf_race",
+                template_name="conformer_screening",
+                source_job_id="",
+                source_job_type="raw_xyz",
+                reaction_key="mol",
+                requested_at="2026-05-29T00:00:00+00:00",
+            ),
+            request=request,
+            stages=[],
+            creation_context=_workflow_context(
+                write_workflow_payload_fn=lambda _workspace_dir, _payload: events.append("write"),
+                sync_workflow_registry_fn=lambda _root, _workspace_dir, _payload: events.append(
+                    "sync"
+                ),
+            ),
+        )
+
+    assert events == ["lock_enter", "lock_exit"]

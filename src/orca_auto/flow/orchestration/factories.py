@@ -61,7 +61,10 @@ class WorkflowFactoryDeps:
 
 
 def _positive_int_field(value: Any, *, field_name: str) -> int:
-    parsed = int(value)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer >= 1. got={value!r}") from exc
     if parsed < 1:
         raise ValueError(f"{field_name} must be >= 1. got={parsed}")
     return parsed
@@ -95,6 +98,7 @@ def _normalized_reaction_ts_request(
             request.max_orca_stages,
             field_name="max_orca_stages",
         ),
+        multiplicity=_positive_int_field(request.multiplicity, field_name="multiplicity"),
     )
 
 
@@ -118,6 +122,7 @@ def _normalized_conformer_screening_request(
             request.max_orca_stages,
             field_name="max_orca_stages",
         ),
+        multiplicity=_positive_int_field(request.multiplicity, field_name="multiplicity"),
     )
 
 

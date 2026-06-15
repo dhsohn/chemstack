@@ -119,6 +119,13 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
                 process=proc,
                 admission_token=admission_token,
             ):
+                self._terminate_untracked_process(proc)
+                self._handle_worker_start_error(
+                    queue_root,
+                    entry,
+                    admission_token,
+                    OSError("worker attach rejected"),
+                )
                 return False
         except Exception as exc:  # noqa: BLE001
             self._terminate_untracked_process(proc)

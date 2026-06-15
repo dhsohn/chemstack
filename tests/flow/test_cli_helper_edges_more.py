@@ -172,6 +172,10 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
         ({"max_orca_stages": 0}, {}, "max_orca_stages must be >= 1"),
         ({"max_crest_candidates": 0}, {}, "max_crest_candidates must be >= 1"),
         ({"max_xtb_stages": 0}, {}, "max_xtb_stages must be >= 1"),
+        ({"multiplicity": 0}, {}, "multiplicity must be >= 1"),
+        ({"max_cores": "many"}, {}, "max_cores must be an integer >= 1"),
+        ({}, {"orca": {"multiplicity": "singlet-ish"}}, "multiplicity must be an integer >= 1"),
+        ({"charge": "negative-ish"}, {}, "charge must be an integer"),
     ],
 )
 def test_run_dir_workflow_options_reject_non_positive_resource_and_stage_limits(
@@ -203,7 +207,7 @@ def test_run_dir_workflow_options_reject_non_positive_resource_and_stage_limits(
         crest={},
         xtb={},
         endpoint_pairing={},
-        orca={},
+        orca=sections.get("orca", {}),
     )
 
     with pytest.raises(ValueError, match=message):

@@ -92,9 +92,11 @@ bash scripts/clean_artifacts.sh
   the coverage gate.
 - Ruff explicitly enables import sorting (`I`) and Bugbear (`B`) alongside the
   default Pyflakes/pycodestyle safety rules.
-- Mypy remains broadly non-strict, but strict-style options are enabled first
-  for small stable core modules. Expand that override list only when the full
-  check still passes.
+- Mypy remains broadly non-strict at `[tool.mypy]`; strict-style options are
+  intentionally scoped to override-listed modules that have already been
+  hardened. Expand that override list only when the full check still passes, and
+  move strict options to `[tool.mypy]` only after the full `src` + `tests` tree
+  passes the equivalent strict flags.
 
 ## Test Coupling Policy
 

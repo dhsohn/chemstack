@@ -72,6 +72,9 @@ show_error_codes = true
 warn_unused_configs = true
 explicit_package_bases = true
 
+# Strict-style mypy options are intentionally staged here for modules that have
+# already been hardened. Keep the top-level mypy config broadly non-strict until
+# the full src+tests tree passes the equivalent strict flags.
 [[tool.mypy.overrides]]
 module = [
     "orca_auto.core.app_ids",

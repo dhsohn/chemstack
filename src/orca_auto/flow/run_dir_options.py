@@ -105,13 +105,36 @@ def _resolve_text_option_with_section(
     return default
 
 
-def _resolve_int_option(explicit: Any, manifest: dict[str, Any], key: str, default: int) -> int:
+def _int_requirement(minimum: int | None) -> str:
+    if minimum is None:
+        return "an integer"
+    return f"an integer >= {minimum}"
+
+
+def _coerce_int_option(value: Any, *, key: str, minimum: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} must be {_int_requirement(minimum)}. got={value!r}") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{key} must be >= {minimum}. got={parsed}")
+    return parsed
+
+
+def _resolve_int_option(
+    explicit: Any,
+    manifest: dict[str, Any],
+    key: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+) -> int:
     if explicit is not None:
-        return int(explicit)
+        return _coerce_int_option(explicit, key=key, minimum=minimum)
     manifest_value = manifest.get(key)
     if manifest_value is None or normalize_text(manifest_value) == "":
         return default
-    return int(manifest_value)
+    return _coerce_int_option(manifest_value, key=key, minimum=minimum)
 
 
 def _resolve_positive_int_option(
@@ -120,10 +143,7 @@ def _resolve_positive_int_option(
     key: str,
     default: int,
 ) -> int:
-    value = _resolve_int_option(explicit, manifest, key, default)
-    if value < 1:
-        raise ValueError(f"{key} must be >= 1. got={value}")
-    return value
+    return _resolve_int_option(explicit, manifest, key, default, minimum=1)
 
 
 def _resolve_int_option_with_section(
@@ -133,16 +153,18 @@ def _resolve_int_option_with_section(
     section: dict[str, Any],
     section_key: str,
     default: int,
+    *,
+    minimum: int | None = None,
 ) -> int:
     if explicit is not None:
-        return int(explicit)
+        return _coerce_int_option(explicit, key=key, minimum=minimum)
     manifest_value = manifest.get(key)
     if manifest_value is not None and normalize_text(manifest_value) != "":
-        return int(manifest_value)
+        return _coerce_int_option(manifest_value, key=key, minimum=minimum)
     section_value = section.get(section_key)
     if section_value is None or normalize_text(section_value) == "":
         return default
-    return int(section_value)
+    return _coerce_int_option(section_value, key=key, minimum=minimum)
 
 
 def _resolve_positive_int_option_with_section(
@@ -153,17 +175,15 @@ def _resolve_positive_int_option_with_section(
     section_key: str,
     default: int,
 ) -> int:
-    value = _resolve_int_option_with_section(
+    return _resolve_int_option_with_section(
         explicit,
         manifest,
         key,
         section,
         section_key,
         default,
+        minimum=1,
     )
-    if value < 1:
-        raise ValueError(f"{key} must be >= 1. got={value}")
-    return value
 
 
 def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
@@ -263,6 +283,7 @@ def _resolve_run_dir_orca_options(
             sections.orca,
             "multiplicity",
             1,
+            minimum=1,
         ),
     }
 

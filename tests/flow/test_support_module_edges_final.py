@@ -82,6 +82,28 @@ def test_materialize_orca_stage_generates_default_input_file(tmp_path: Path) -> 
     assert Path(materialized.selected_xyz).name == "ts_guess.xyz"
 
 
+@pytest.mark.parametrize(
+    ("multiplicity", "message"),
+    [
+        (0, "multiplicity must be >= 1"),
+        ("spinny", "multiplicity must be an integer >= 1"),
+    ],
+)
+def test_render_orca_input_rejects_invalid_multiplicity(
+    multiplicity: Any,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        orca_stage_utils.render_orca_input(
+            route_line="! r2scan-3c TightSCF",
+            charge=0,
+            multiplicity=multiplicity,
+            max_cores=4,
+            max_memory_gb=16,
+            xyz_filename="candidate.xyz",
+        )
+
+
 def test_build_materialized_orca_stage_uses_candidate_source_frame_index(
     tmp_path: Path,
 ) -> None:

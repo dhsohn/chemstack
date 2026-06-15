@@ -25,6 +25,7 @@ from orca_auto.core.utils import (
 from orca_auto.flow.contracts.workflow import coerce_workflow_plan_payload
 
 WORKFLOW_LOCK_NAME = "workflow.lock"
+WORKFLOW_CREATE_LOCK_NAME = ".workflow_create.lock"
 
 
 def _workflow_parent_dir(path: Path) -> Path:
@@ -76,9 +77,19 @@ def workflow_lock_path(workspace_dir: str | Path) -> Path:
     return Path(workspace_dir).expanduser().resolve() / WORKFLOW_LOCK_NAME
 
 
+def workflow_create_lock_path(workflow_root: str | Path) -> Path:
+    return workflow_root_dir(workflow_root) / WORKFLOW_CREATE_LOCK_NAME
+
+
 @contextmanager
 def acquire_workflow_lock(workspace_dir: str | Path, *, timeout_seconds: float = 10.0):
     with file_lock(workflow_lock_path(workspace_dir), timeout_seconds=timeout_seconds):
+        yield
+
+
+@contextmanager
+def acquire_workflow_create_lock(workflow_root: str | Path, *, timeout_seconds: float = 10.0):
+    with file_lock(workflow_create_lock_path(workflow_root), timeout_seconds=timeout_seconds):
         yield
 
 
@@ -110,14 +121,17 @@ def iter_workflow_workspaces(workflow_root: str | Path) -> list[Path]:
 
 __all__ = [
     "WORKFLOW_FILE_NAME",
+    "WORKFLOW_CREATE_LOCK_NAME",
     "WORKFLOW_STAGE_DIRNAME_ALIASES",
     "WORKFLOW_STAGE_DIRNAMES",
     "WORKFLOW_LOCK_NAME",
+    "acquire_workflow_create_lock",
     "acquire_workflow_lock",
     "iter_workflow_runtime_workspaces",
     "iter_workflow_workspaces",
     "load_workflow_payload",
     "resolve_workflow_workspace",
+    "workflow_create_lock_path",
     "workflow_file_path",
     "workflow_lock_path",
     "workflow_root_dir",

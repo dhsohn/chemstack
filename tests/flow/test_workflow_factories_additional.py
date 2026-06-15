@@ -120,6 +120,8 @@ def test_create_reaction_ts_search_workflow_rejects_invalid_crest_mode(tmp_path:
         ({"max_crest_candidates": 0}, "max_crest_candidates must be >= 1"),
         ({"max_xtb_stages": 0}, "max_xtb_stages must be >= 1"),
         ({"max_orca_stages": 0}, "max_orca_stages must be >= 1"),
+        ({"multiplicity": 0}, "multiplicity must be >= 1"),
+        ({"max_cores": "many"}, "max_cores must be an integer >= 1"),
     ],
 )
 def test_create_reaction_ts_search_workflow_rejects_non_positive_limits(
@@ -141,17 +143,27 @@ def test_create_reaction_ts_search_workflow_rejects_non_positive_limits(
         )
 
 
-def test_create_conformer_screening_workflow_rejects_non_positive_resources(
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_cores": 0}, "max_cores must be >= 1"),
+        ({"multiplicity": 0}, "multiplicity must be >= 1"),
+        ({"max_memory_gb": "lots"}, "max_memory_gb must be an integer >= 1"),
+    ],
+)
+def test_create_conformer_screening_workflow_rejects_invalid_positive_fields(
     tmp_path: Path,
+    kwargs: dict[str, Any],
+    message: str,
 ) -> None:
     input_xyz = tmp_path / "conformer.xyz"
     _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
 
-    with pytest.raises(ValueError, match="max_cores must be >= 1"):
+    with pytest.raises(ValueError, match=message):
         orchestration.create_conformer_screening_workflow(
             input_xyz=str(input_xyz),
             workflow_root=tmp_path,
-            max_cores=0,
+            **kwargs,
         )
 
 

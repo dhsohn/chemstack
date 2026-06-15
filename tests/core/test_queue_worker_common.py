@@ -447,6 +447,61 @@ def test_hooked_pidfile_child_worker_runs_engine_hooks(tmp_path: Path) -> None:
     assert all(args[0] is worker for _name, args in calls)
 
 
+def test_child_worker_rejected_attach_terminates_and_marks_start_error(tmp_path: Path) -> None:
+    terminate_calls = 0
+    start_errors: list[tuple[Path, str, str]] = []
+
+    class RejectingWorker(worker_common.ChildProcessQueueWorker):
+        def _on_worker_process_started(
+            self,
+            queue_root: Path,
+            entry: object,
+            *,
+            process: object,
+            admission_token: str,
+        ) -> bool:
+            del queue_root, entry, process, admission_token
+            return False
+
+        def _handle_worker_start_error(
+            self,
+            queue_root: Path,
+            entry: object,
+            admission_token: str,
+            exc: OSError,
+        ) -> None:
+            start_errors.append((queue_root, admission_token, str(exc)))
+
+    class FakeProcess:
+        def terminate(self) -> None:
+            nonlocal terminate_calls
+            terminate_calls += 1
+
+    process = FakeProcess()
+    deps = SimpleNamespace(
+        poll_interval_seconds=1,
+        time=SimpleNamespace(sleep=lambda _seconds: None),
+        admission_root=lambda _cfg: str(tmp_path / "admission"),
+        release_slot=lambda _root, _token: None,
+        reserve_dequeued_entry=lambda *args, **kwargs: ("idle", None),
+        dequeue_next_entry=lambda _cfg: None,
+        start_background_job_process=lambda **_kwargs: process,
+        try_reserve_admission_slot=lambda _cfg: None,
+    )
+    worker = RejectingWorker(
+        _cfg(allowed_root=str(tmp_path), admission_root=str(tmp_path / "admission")),
+        config_path="/tmp/config.yaml",
+        max_concurrent=1,
+        deps=deps,
+    )
+    entry = _entry("queue-reject")
+
+    assert not worker._start_job(tmp_path / "queue", entry, admission_token="slot-1")
+    assert terminate_calls == 1
+    assert start_errors == [(tmp_path / "queue", "slot-1", "worker attach rejected")]
+    assert worker._running == {}
+
+
 def test_fill_worker_slots_starts_until_capacity_and_reports_processed() -> None:
     running: list[str] = []
     reservations = iter(
@@ -540,6 +595,21 @@ def test_pop_completed_worker_jobs_finalizes_and_removes_finished_jobs() -> None
     assert count == 2
     assert finalized == [("q-done", 0), ("q-failed", 2)]
     assert list(running) == ["q-running"]
+
+
+def test_pop_completed_worker_jobs_removes_finished_job_when_finalizer_raises() -> None:
+    running = {"q-done": SimpleNamespace(rc=0)}
+
+    with pytest.raises(RuntimeError, match="finalizer failed"):
+        worker_common.pop_completed_worker_jobs(
+            running,
+            poll_job=lambda job: job.rc,
+            finalize_finished=lambda *_args: (_ for _ in ()).throw(
+                RuntimeError("finalizer failed")
+            ),
+        )
+
+    assert running == {}
 
 
 def test_terminate_process_group_handles_finished_process() -> None:

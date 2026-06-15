@@ -35,6 +35,16 @@ def maxcore_mb_per_core(*, max_memory_gb: int, max_cores: int) -> int:
     return max(1, total_mb // max(1, int(max_cores)))
 
 
+def _positive_multiplicity(value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"multiplicity must be an integer >= 1. got={value!r}") from exc
+    if parsed < 1:
+        raise ValueError(f"multiplicity must be >= 1. got={parsed}")
+    return parsed
+
+
 def render_orca_input(
     *,
     route_line: str,
@@ -45,6 +55,7 @@ def render_orca_input(
     xyz_filename: str,
     default_route_line: str = "r2scan-3c TightSCF",
 ) -> str:
+    parsed_multiplicity = _positive_multiplicity(multiplicity)
     return "\n".join(
         [
             ensure_route_line(route_line, default=default_route_line),
@@ -54,7 +65,7 @@ def render_orca_input(
             "end",
             f"%maxcore {maxcore_mb_per_core(max_memory_gb=max_memory_gb, max_cores=max_cores)}",
             "",
-            f"* xyzfile {int(charge)} {int(multiplicity)} {xyz_filename}",
+            f"* xyzfile {int(charge)} {parsed_multiplicity} {xyz_filename}",
             "",
         ]
     )
